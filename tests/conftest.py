@@ -1,5 +1,11 @@
 """Pytest fixtures and test utilities."""
 
+import matplotlib
+
+# Use non-interactive backend for testing
+# This prevents TclError on Windows CI and allows tests to run headlessly
+matplotlib.use("Agg")
+
 import numpy as np
 import pytest
 
