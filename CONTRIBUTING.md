@@ -84,32 +84,40 @@ pytest tests/test_highest_density.py -v
 pytest tests/test_highest_density.py::TestHighestDensityRegion::test_exact_hd_region_1d -xvs
 ```
 
-### Pre-commit Hook (Optional)
+### Pre-commit Hooks
 
-You can set up a pre-commit hook to automatically check code quality:
+Pre-commit hooks automatically run code quality checks before every commit.
 
+**Setup (one-time):**
 ```bash
-cat > .git/hooks/pre-commit << 'EOF'
-#!/bin/bash
-echo "Running pre-commit checks..."
+# Install dependencies (includes pre-commit)
+uv pip install -e ".[dev]"
 
-# Format check
-echo "Checking formatting..."
-ruff format --check . || exit 1
-
-# Linting
-echo "Checking linting..."
-ruff check . || exit 1
-
-# Type checking
-echo "Type checking..."
-mypy src/ || exit 1
-
-echo "✓ All checks passed!"
-EOF
-
-chmod +x .git/hooks/pre-commit
+# Install the git hooks
+uv run pre-commit install
 ```
+
+**Usage:**
+```bash
+# Hooks run automatically on `git commit`
+
+# Run manually on all files
+uv run pre-commit run --all-files
+
+# Run manually on staged files only
+uv run pre-commit run
+
+# Update hook versions
+uv run pre-commit autoupdate
+```
+
+**What it checks:**
+- Code formatting with ruff
+- Linting with ruff (auto-fixes when possible)
+- Type checking with mypy
+- All tests with pytest
+
+This matches exactly what CI runs, so commits that pass hooks will pass CI.
 
 ## Continuous Integration
 

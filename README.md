@@ -26,6 +26,7 @@ The posterior distribution combines information from both models, weighing curre
 This package uses specific terminology to match standard state space model conventions:
 
 ### State Distributions (`state_dist` parameter)
+
 - **One-step-ahead predictive distribution**: p(x_t | y_{1:t-1}) - The distribution over current state given all past observations
 - **Smoothed distribution**: p(x_t | y_{1:T}) - The distribution over state at time t given all observations (past and future)
 - **Filtered distribution**: p(x_t | y_{1:t}) - The posterior distribution at time t (filtered estimate)
@@ -33,18 +34,22 @@ This package uses specific terminology to match standard state space model conve
 For goodness-of-fit diagnostics, you typically use the **one-step predictive** or **smoothed** distribution as `state_dist`. These represent your model's predictions before (predictive) or after (smoother) incorporating all available data.
 
 ### Likelihood (`likelihood` parameter)
+
 - **Normalized likelihood**: p(y_t | x_t) / Σ_x p(y_t | x_t) - The likelihood normalized across spatial positions
 - This is mathematically equivalent to the posterior p(x_t | y_t) with a uniform prior
 - Represents what your data alone says about the state, without temporal smoothing
 
 ### Important Note: Discrete Distributions
+
 All functions expect **discrete probability distributions** represented as histograms over spatial bins. For continuous distributions (e.g., Gaussian), discretize them first:
+
 - Distributions are **automatically normalized** over valid (non-NaN) bins
 - Each bin represents the probability mass in that spatial region
 - **NaN values** can be used to mark invalid/inaccessible spatial bins (e.g., walls in a maze)
 - Finer binning provides better approximation but increases computation
 
 ### Interpretation
+
 - **Consistency**: When state distribution and likelihood agree (low KL divergence, high overlap), your model's predictions align with the data
 - **Inconsistency**: When they diverge, it indicates:
   - Prior/transition model may be too rigid or misspecified
@@ -150,13 +155,16 @@ print(f"Time points with low overlap: {np.sum(low_overlap)}/{n_time}")
 Compute Kullback-Leibler divergence between state distribution and likelihood.
 
 **Parameters:**
+
 - `state_dist` (np.ndarray): State distributions (one-step predictive or smoother). Non-negative values, automatically normalized. NaN marks invalid bins. Shape `(n_time, ...)` where `...` represents arbitrary spatial dimensions
 - `likelihood` (np.ndarray): Likelihood distributions. Non-negative values, automatically normalized. NaN marks invalid bins. Must have same shape as state_dist
 
 **Returns:**
+
 - `kl_divergence` (np.ndarray): KL divergence at each time point. Shape `(n_time,)`
 
 **Interpretation:**
+
 - **Low divergence (< 0.1)**: State distribution and likelihood agree well, indicating consistency between prior and data
 - **Moderate divergence (0.1 - 1.0)**: Some disagreement, worth investigating
 - **High divergence (> 1.0)**: Substantial mismatch, suggests issues with prior specification or observation model
@@ -166,14 +174,17 @@ Compute Kullback-Leibler divergence between state distribution and likelihood.
 Compute overlap between highest posterior density regions.
 
 **Parameters:**
+
 - `state_dist` (np.ndarray): State distributions (one-step predictive or smoother). Non-negative values, automatically normalized. NaN marks invalid bins. Shape `(n_time, ...)` where `...` represents arbitrary spatial dimensions
 - `likelihood` (np.ndarray): Likelihood distributions. Non-negative values, automatically normalized. NaN marks invalid bins. Must have same shape as state_dist
 - `coverage` (float): Coverage probability for HPD regions (default: 0.95)
 
 **Returns:**
+
 - `overlap` (np.ndarray): Overlap proportion at each time point. Shape `(n_time,)`. Values range from 0 (no overlap) to 1 (complete overlap)
 
 **Interpretation:**
+
 - **High overlap (> 0.7)**: State distribution and likelihood concentrate probability mass in similar regions
 - **Moderate overlap (0.3 - 0.7)**: Partial agreement, may indicate transition periods or model uncertainty
 - **Low overlap (< 0.3)**: Distributions are spatially inconsistent, suggests model issues
@@ -183,13 +194,16 @@ Compute overlap between highest posterior density regions.
 Compute boolean mask indicating highest density region membership.
 
 **Parameters:**
+
 - `distribution` (np.ndarray): Probability distributions. Shape `(n_time, ...)` where `...` represents arbitrary spatial dimensions
 - `coverage` (float): Desired coverage probability (default: 0.95)
 
 **Returns:**
+
 - `isin_hd` (np.ndarray): Boolean mask. Same shape as input
 
 **Notes:**
+
 - Highest density regions can be multimodal (non-contiguous)
 - Regions are defined by selecting positions with highest density until cumulative mass reaches coverage
 - NaN values are treated as zero mass
@@ -249,6 +263,7 @@ This package implements goodness-of-fit diagnostics for state space models used 
 3. **Model capacity**: Latent state dimensionality insufficient
 
 These diagnostics complement but are distinct from:
+
 - **Cross-validation**: Measures predictive generalization to new data
 - **Permutation tests**: Assess whether model captures structure vs. random patterns
 
@@ -272,6 +287,7 @@ MIT License - see LICENSE file for details.
 ## Contributing
 
 Contributions are welcome! Please:
+
 1. Fork the repository
 2. Create a feature branch
 3. Add tests for new functionality

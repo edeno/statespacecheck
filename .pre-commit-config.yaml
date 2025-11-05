@@ -1,0 +1,32 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+        exclude: '^mkdocs\.yml$'
+      - id: check-added-large-files
+        args: ['--maxkb=1000']
+        exclude: '^docs/examples/.*\.ipynb$'
+      - id: check-merge-conflict
+      - id: debug-statements
+      - id: mixed-line-ending
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.14.3
+    hooks:
+      - id: ruff
+        args: [--fix]
+        exclude: '^docs/examples/.*\.(ipynb|py)$'
+      - id: ruff-format
+        exclude: '^docs/examples/.*\.(ipynb|py)$'
+
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.13.0
+    hooks:
+      - id: mypy
+        files: ^src/
+        additional_dependencies:
+          - numpy>=1.26.0
+          - scipy>=1.11.0

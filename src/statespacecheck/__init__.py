@@ -31,7 +31,7 @@ __all__ = [
 ]
 
 try:
-    from ._version import __version__  # type: ignore[import-untyped]
+    from ._version import __version__
 except ImportError:
     # Fallback for development installs
     from importlib.metadata import version
