@@ -7,6 +7,7 @@ and model assumptions.
 """
 
 import numpy as np
+from numpy.typing import NDArray
 from scipy.stats import entropy
 
 from ._validation import get_spatial_axes, validate_coverage, validate_paired_distributions
@@ -14,8 +15,8 @@ from .highest_density import highest_density_region
 
 
 def _validate_and_normalize_distributions(
-    state_dist: np.ndarray, likelihood: np.ndarray
-) -> tuple[np.ndarray, np.ndarray]:
+    state_dist: NDArray[np.floating], likelihood: NDArray[np.floating]
+) -> tuple[NDArray[np.floating], NDArray[np.floating]]:
     """Validate and normalize distributions, handling NaN values correctly.
 
     Parameters
@@ -82,7 +83,9 @@ def _validate_and_normalize_distributions(
     return state_norm, like_norm
 
 
-def kl_divergence(state_dist: np.ndarray, likelihood: np.ndarray) -> np.ndarray:
+def kl_divergence(
+    state_dist: NDArray[np.floating], likelihood: NDArray[np.floating]
+) -> NDArray[np.floating]:
     """Compute Kullback-Leibler divergence between state distribution and likelihood.
 
     Measures the information divergence between the state distribution and likelihood
@@ -118,6 +121,19 @@ def kl_divergence(state_dist: np.ndarray, likelihood: np.ndarray) -> np.ndarray:
     ValueError
         If state_dist and likelihood have different shapes, or if distributions
         contain negative values.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from statespacecheck import kl_divergence
+    >>> # Identical distributions have zero divergence
+    >>> state = np.array([[0.3, 0.4, 0.3]])
+    >>> like = np.array([[0.3, 0.4, 0.3]])
+    >>> div = kl_divergence(state, like)
+    >>> div.shape
+    (1,)
+    >>> bool(np.isclose(div[0], 0.0))
+    True
 
     Notes
     -----
@@ -159,8 +175,11 @@ def kl_divergence(state_dist: np.ndarray, likelihood: np.ndarray) -> np.ndarray:
 
 
 def hpd_overlap(
-    state_dist: np.ndarray, likelihood: np.ndarray, *, coverage: float = 0.95
-) -> np.ndarray:
+    state_dist: NDArray[np.floating],
+    likelihood: NDArray[np.floating],
+    *,
+    coverage: float = 0.95,
+) -> NDArray[np.floating]:
     """Compute overlap between HPD regions of state distribution and likelihood.
 
     Measures the spatial overlap between the highest posterior density regions
@@ -200,6 +219,19 @@ def hpd_overlap(
         If state_dist and likelihood have different shapes, if coverage
         is not in (0, 1), or if distributions contain negative values.
 
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from statespacecheck import hpd_overlap
+    >>> # Identical distributions have perfect overlap
+    >>> state = np.array([[0.3, 0.4, 0.3]])
+    >>> like = np.array([[0.3, 0.4, 0.3]])
+    >>> overlap = hpd_overlap(state, like, coverage=0.9)
+    >>> overlap.shape
+    (1,)
+    >>> bool(overlap[0] >= 0.0 and overlap[0] <= 1.0)
+    True
+
     Notes
     -----
     The overlap is computed as:
@@ -219,15 +251,18 @@ def hpd_overlap(
     """
     validate_coverage(coverage)
 
-    # Validate and normalize distributions (handles NaN correctly)
-    state_norm, like_norm = _validate_and_normalize_distributions(state_dist, likelihood)
+    # Validate but don't normalize - HPD works on relative magnitudes (unnormalized weights)
+    # This saves 2 full array normalizations for large datasets
+    state, _, like, _ = validate_paired_distributions(
+        state_dist, likelihood, name1="state_dist", name2="likelihood", min_ndim=2
+    )
 
-    # Get HPD regions (highest_density_region handles NaN by treating as zero mass)
-    mask_state = highest_density_region(state_norm, coverage=coverage)
-    mask_like = highest_density_region(like_norm, coverage=coverage)
+    # Get HPD regions (highest_density_region works on unnormalized weights)
+    mask_state = highest_density_region(state, coverage=coverage)
+    mask_like = highest_density_region(like, coverage=coverage)
 
     # Sum over all spatial dimensions (everything except time)
-    spatial_axes = get_spatial_axes(state_norm)
+    spatial_axes = get_spatial_axes(state)
     size_state = mask_state.sum(axis=spatial_axes)
     size_like = mask_like.sum(axis=spatial_axes)
     intersection = (mask_state & mask_like).sum(axis=spatial_axes)

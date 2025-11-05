@@ -1,11 +1,14 @@
 """Functions for computing highest density regions."""
 
 import numpy as np
+from numpy.typing import NDArray
 
 from ._validation import validate_coverage, validate_distribution
 
 
-def highest_density_region(distribution: np.ndarray, *, coverage: float = 0.95) -> np.ndarray:
+def highest_density_region(
+    distribution: NDArray[np.floating], *, coverage: float = 0.95
+) -> NDArray[np.bool_]:
     """Compute boolean mask indicating highest density region membership.
 
     Vectorized HPD mask for arrays shaped (n_time, *spatial). For each time t,
@@ -32,12 +35,27 @@ def highest_density_region(distribution: np.ndarray, *, coverage: float = 0.95) 
     ValueError
         If coverage is not in the range (0, 1).
 
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from statespacecheck import highest_density_region
+    >>> # Simple 1D example with peaked distribution
+    >>> distribution = np.array([[0.1, 0.6, 0.3], [0.2, 0.5, 0.3]])
+    >>> region = highest_density_region(distribution, coverage=0.9)
+    >>> region.shape
+    (2, 3)
+    >>> region.dtype
+    dtype('bool')
+
     Notes
     -----
     - NaNs are ignored (treated as 0 mass).
     - If total mass at time t <= 0 or not finite, returns all-False for that t.
     - Works in unnormalized space to avoid numerical issues.
     - Fully vectorized with no Python loops for efficiency.
+    - Uses `>=` threshold: all bins with value equal to cutoff are included.
+    - Due to ties, actual coverage may slightly exceed requested coverage.
+    - This ensures consistent behavior across equivalent distributions.
 
     For reference see: https://stats.stackexchange.com/questions/240749/how-to-find-95-credible-interval
 

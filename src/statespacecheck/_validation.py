@@ -1,6 +1,7 @@
 """Validation utilities for distributions and parameters."""
 
 import numpy as np
+from numpy.typing import NDArray
 
 
 def validate_coverage(coverage: float) -> None:
@@ -21,11 +22,11 @@ def validate_coverage(coverage: float) -> None:
 
 
 def validate_distribution(
-    distribution: np.ndarray,
+    distribution: NDArray[np.floating],
     name: str = "distribution",
     min_ndim: int = 1,
     allow_nan: bool = True,
-) -> tuple[np.ndarray, np.ndarray]:
+) -> tuple[NDArray[np.floating], NDArray[np.floating]]:
     """Validate and prepare distribution array.
 
     Parameters
@@ -69,7 +70,8 @@ def validate_distribution(
 
     # Handle non-finite values
     if allow_nan:
-        clean = np.where(np.isfinite(arr), arr, 0.0)
+        # Use standard NumPy idiom: convert NaN/inf to 0
+        clean = np.nan_to_num(arr, nan=0.0, posinf=0.0, neginf=0.0)
     else:
         clean = arr.copy()
         if not np.all(np.isfinite(clean)):
@@ -86,12 +88,12 @@ def validate_distribution(
 
 
 def validate_paired_distributions(
-    dist1: np.ndarray,
-    dist2: np.ndarray,
+    dist1: NDArray[np.floating],
+    dist2: NDArray[np.floating],
     name1: str = "state_dist",
     name2: str = "likelihood",
     min_ndim: int = 2,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+) -> tuple[NDArray[np.floating], NDArray[np.floating], NDArray[np.floating], NDArray[np.floating]]:
     """Validate two distributions have matching shapes.
 
     Parameters
@@ -134,7 +136,7 @@ def validate_paired_distributions(
     return clean1, flat1, clean2, flat2
 
 
-def get_spatial_axes(arr: np.ndarray) -> tuple[int, ...]:
+def get_spatial_axes(arr: NDArray[np.floating]) -> tuple[int, ...]:
     """Get tuple of spatial dimension axes (all except time axis 0).
 
     Parameters
