@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 from statespacecheck._validation import (
+    flatten_time_spatial,
     get_spatial_axes,
     validate_coverage,
     validate_distribution,
@@ -45,32 +46,41 @@ class TestValidateDistribution:
     def test_valid_1d_distribution(self) -> None:
         """Test validation of valid 1D distribution."""
         dist = np.array([[0.2, 0.3, 0.5], [0.4, 0.3, 0.3]])
-        clean, flat = validate_distribution(dist, min_ndim=1)
+        clean = validate_distribution(dist, min_ndim=1)
 
         assert clean.shape == dist.shape
-        assert flat.shape == (2, 3)
         assert np.allclose(clean, dist)
+
+        # Test flattening separately
+        flat = flatten_time_spatial(clean)
+        assert flat.shape == (2, 3)
 
     def test_valid_2d_distribution(self) -> None:
         """Test validation of valid 2D distribution."""
         dist = np.array([[[0.2, 0.3], [0.2, 0.3]], [[0.4, 0.3], [0.2, 0.1]]])
-        clean, flat = validate_distribution(dist, min_ndim=2)
+        clean = validate_distribution(dist, min_ndim=2)
 
         assert clean.shape == dist.shape
+
+        # Test flattening separately
+        flat = flatten_time_spatial(clean)
         assert flat.shape == (2, 4)
 
     def test_distribution_with_nan_allowed(self) -> None:
         """Test that NaN values are converted to 0 when allowed."""
         dist = np.array([[0.2, np.nan, 0.5], [0.4, 0.3, 0.3]])
-        clean, flat = validate_distribution(dist, allow_nan=True)
+        clean = validate_distribution(dist, allow_nan=True)
 
         assert clean[0, 1] == 0.0
+
+        # Test flattening separately
+        flat = flatten_time_spatial(clean)
         assert flat[0, 1] == 0.0
 
     def test_distribution_with_inf_allowed(self) -> None:
         """Test that inf values are converted to 0 when allowed."""
         dist = np.array([[0.2, np.inf, 0.5], [0.4, 0.3, -np.inf]])
-        clean, flat = validate_distribution(dist, allow_nan=True)
+        clean = validate_distribution(dist, allow_nan=True)
 
         assert clean[0, 1] == 0.0
         assert clean[1, 2] == 0.0
@@ -102,8 +112,9 @@ class TestValidateDistribution:
         # This is hard to trigger in practice, but we can test the logic
         # by creating a valid array and checking the validation path exists
         dist = np.array([[0.2, 0.3, 0.5]])
-        clean, flat = validate_distribution(dist, min_ndim=1)
+        clean = validate_distribution(dist, min_ndim=1)
         # Should succeed - this tests that the overflow check doesn't false-trigger
+        flat = flatten_time_spatial(clean)
         assert flat.shape == (1, 3)
 
 
@@ -115,10 +126,14 @@ class TestValidatePairedDistributions:
         dist1 = np.array([[0.2, 0.3, 0.5], [0.4, 0.3, 0.3]])
         dist2 = np.array([[0.3, 0.4, 0.3], [0.5, 0.2, 0.3]])
 
-        clean1, flat1, clean2, flat2 = validate_paired_distributions(dist1, dist2)
+        clean1, clean2 = validate_paired_distributions(dist1, dist2)
 
         assert clean1.shape == dist1.shape
         assert clean2.shape == dist2.shape
+
+        # Test flattening separately
+        flat1 = flatten_time_spatial(clean1)
+        flat2 = flatten_time_spatial(clean2)
         assert flat1.shape == (2, 3)
         assert flat2.shape == (2, 3)
 

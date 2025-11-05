@@ -13,8 +13,12 @@ from statespacecheck.state_consistency import (
 
 __version__ = "0.1.0"
 
+# Default coverage probability for highest density regions
+DEFAULT_COVERAGE = 0.95
+
 __all__ = [
     "highest_density_region",
     "kl_divergence",
     "hpd_overlap",
+    "DEFAULT_COVERAGE",
 ]

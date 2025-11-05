@@ -3,11 +3,14 @@
 import numpy as np
 from numpy.typing import NDArray
 
-from ._validation import validate_coverage, validate_distribution
+from ._validation import flatten_time_spatial, validate_coverage, validate_distribution
+
+# Default coverage probability for highest density regions
+DEFAULT_COVERAGE = 0.95
 
 
 def highest_density_region(
-    distribution: NDArray[np.floating], *, coverage: float = 0.95
+    distribution: NDArray[np.floating], *, coverage: float = DEFAULT_COVERAGE
 ) -> NDArray[np.bool_]:
     """Compute boolean mask indicating highest density region membership.
 
@@ -47,6 +50,11 @@ def highest_density_region(
     >>> region.dtype
     dtype('bool')
 
+    See Also
+    --------
+    hpd_overlap : Compute overlap between HPD regions of two distributions
+    kl_divergence : Measure information divergence between distributions
+
     Notes
     -----
     - NaNs are ignored (treated as 0 mass).
@@ -57,52 +65,69 @@ def highest_density_region(
     - Due to ties, actual coverage may slightly exceed requested coverage.
     - This ensures consistent behavior across equivalent distributions.
 
-    For reference see: https://stats.stackexchange.com/questions/240749/how-to-find-95-credible-interval
+    References
+    ----------
+    .. [1] https://stats.stackexchange.com/questions/240749/how-to-find-95-credible-interval
 
     """
     validate_coverage(coverage)
 
     # Use centralized validation: handles NaN/inf → 0, checks non-negativity, validates dimensions
-    clean, flat = validate_distribution(
+    clean = validate_distribution(
         distribution,
         name="distribution",
         min_ndim=2,  # Require at least (n_time, n_spatial)
         allow_nan=True,
     )
 
+    # Flatten to (n_time, n_spatial) for vectorized operations
+    flat = flatten_time_spatial(clean)
+
     n_time = clean.shape[0]
     n_spatial = flat.shape[1]
 
-    totals = flat.sum(axis=1)  # (n_time,)
-    target = coverage * totals  # (n_time,)
+    # Compute total mass and target mass for each time point
+    # Shape: (n_time,)
+    totals = flat.sum(axis=1)
+    target = coverage * totals
 
-    # Rows with no mass -> empty HPD (all False)
+    # Identify rows with no mass -> empty HPD (all False)
     empty = ~np.isfinite(totals) | (totals <= 0)
 
     # Sort each row descending (vectorized)
-    flat_sorted = np.sort(flat, axis=1)[:, ::-1]  # (n_time, n_spatial)
+    # Shape: (n_time, n_spatial)
+    flat_sorted = np.sort(flat, axis=1)[:, ::-1]
 
     # Row-wise cumulative sums
-    csum = np.cumsum(flat_sorted, axis=1)  # (n_time, n_spatial)
+    # Shape: (n_time, n_spatial)
+    csum = np.cumsum(flat_sorted, axis=1)
 
     # Find the first index where cumulative >= target (per row)
-    ge = csum >= target[:, None]  # (n_time, n_spatial) boolean
-    has_true = ge.any(axis=1)  # (n_time,)
+    # Shape: (n_time, n_spatial) boolean
+    ge = csum >= target[:, None]
+
+    # Check if each row has at least one True value
+    # Shape: (n_time,)
+    has_true = ge.any(axis=1)
 
     # argmax gives first True index; if none True, returns 0 (we fix below)
-    idx = ge.argmax(axis=1)  # (n_time,)
+    # Shape: (n_time,)
+    idx = ge.argmax(axis=1)
 
     # If a row never reaches target but has positive mass (rare numeric case),
     # choose the last index. If it's truly empty, handle later.
     idx = np.where(has_true, idx, n_spatial - 1)
 
     # Per-row cutoff (unnormalized)
-    cutoff = np.take_along_axis(flat_sorted, idx[:, None], axis=1).squeeze(1)  # (n_time,)
+    # Shape: (n_time,)
+    cutoff = np.take_along_axis(flat_sorted, idx[:, None], axis=1).squeeze(1)
 
     # Empty rows -> set cutoff to +inf so mask is all False
     cutoff = np.where(empty, np.inf, cutoff)
 
     # Broadcast cutoff back to spatial shape and build mask
     # Use the **clean** array for the comparison to keep behavior consistent
-    reshape = (n_time,) + (1,) * (clean.ndim - 1)
-    return clean >= cutoff.reshape(reshape)
+    # Broadcasting: reshape cutoff from (n_time,) to (n_time, 1, 1, ...) to match spatial dims
+    # Using tuple unpacking for clarity
+    broadcast_shape = (n_time,) + (1,) * (clean.ndim - 1)
+    return clean >= cutoff.reshape(broadcast_shape)

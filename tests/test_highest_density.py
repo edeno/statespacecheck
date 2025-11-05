@@ -138,26 +138,14 @@ class TestHighestDensityRegion:
         # NaN columns should be excluded from region
         assert not np.any(region[:, 0])
 
-    def test_invalid_coverage_raises_error(self, rng) -> None:
+    @pytest.mark.parametrize("invalid_coverage", [0.0, 1.0, -0.1, 1.5])
+    def test_invalid_coverage_raises_error(self, rng, invalid_coverage) -> None:
         """Test that invalid coverage values raise ValueError."""
         n_time, n_bins = 5, 20
         distribution = make_random_distribution_1d(rng, n_time, n_bins)
 
-        # Test coverage = 0.0 (boundary)
         with pytest.raises(ValueError, match="coverage must be in \\(0, 1\\)"):
-            highest_density_region(distribution, coverage=0.0)
-
-        # Test coverage = 1.0 (boundary)
-        with pytest.raises(ValueError, match="coverage must be in \\(0, 1\\)"):
-            highest_density_region(distribution, coverage=1.0)
-
-        # Test coverage < 0
-        with pytest.raises(ValueError, match="coverage must be in \\(0, 1\\)"):
-            highest_density_region(distribution, coverage=-0.1)
-
-        # Test coverage > 1
-        with pytest.raises(ValueError, match="coverage must be in \\(0, 1\\)"):
-            highest_density_region(distribution, coverage=1.5)
+            highest_density_region(distribution, coverage=invalid_coverage)
 
     def test_exact_hd_region_1d(self) -> None:
         """Test exact HD region with simple 1D binary distributions."""

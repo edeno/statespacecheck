@@ -10,8 +10,13 @@ import numpy as np
 from numpy.typing import NDArray
 from scipy.stats import entropy
 
-from ._validation import get_spatial_axes, validate_coverage, validate_paired_distributions
-from .highest_density import highest_density_region
+from ._validation import (
+    flatten_time_spatial,
+    get_spatial_axes,
+    validate_coverage,
+    validate_paired_distributions,
+)
+from .highest_density import DEFAULT_COVERAGE, highest_density_region
 
 
 def _validate_and_normalize_distributions(
@@ -51,34 +56,33 @@ def _validate_and_normalize_distributions(
     """
     # Use validation utilities for consistent validation
     # This converts NaN/inf to 0 but keeps zeros that represent actual zero probability
-    state, state_flat, like, like_flat = validate_paired_distributions(
+    state, like = validate_paired_distributions(
         state_dist, likelihood, name1="state_dist", name2="likelihood", min_ndim=2
     )
 
+    # Flatten for vectorized operations
+    state_flat = flatten_time_spatial(state)
+    like_flat = flatten_time_spatial(like)
+
     # Normalize each time slice
     # After validation, NaN/inf already converted to 0, so use regular sum
-    state_sum = state_flat.sum(axis=1)  # (n_time,)
-    like_sum = like_flat.sum(axis=1)  # (n_time,)
+    # Shape: (n_time,)
+    state_sum = state_flat.sum(axis=1)
+    like_sum = like_flat.sum(axis=1)
 
-    # Normalize: divide by sum where sum > 0, otherwise keep as zeros
-    # Avoid division by zero by replacing zeros with 1 (will multiply by 0 anyway)
-    valid_state = state_sum > 0
-    valid_like = like_sum > 0
+    # Normalize, setting inf/nan results to 0
+    # Division by zero is expected and handled, so suppress warnings
+    with np.errstate(divide="ignore", invalid="ignore"):
+        state_norm_flat = state_flat / state_sum[:, np.newaxis]
+        like_norm_flat = like_flat / like_sum[:, np.newaxis]
 
-    # Safe division: replace sum=0 with 1 to avoid div by zero warnings
-    # Then multiply by mask to zero out invalid rows
-    state_sum_safe = np.where(valid_state, state_sum, 1.0)
-    like_sum_safe = np.where(valid_like, like_sum, 1.0)
-
-    state_norm_flat = (state_flat / state_sum_safe[:, np.newaxis]) * valid_state[:, np.newaxis]
-    like_norm_flat = (like_flat / like_sum_safe[:, np.newaxis]) * valid_like[:, np.newaxis]
+    # Replace non-finite values (from zero-sum rows) with 0
+    state_norm_flat = np.nan_to_num(state_norm_flat, nan=0.0, posinf=0.0, neginf=0.0)
+    like_norm_flat = np.nan_to_num(like_norm_flat, nan=0.0, posinf=0.0, neginf=0.0)
 
     # Reshape back to original shape
     state_norm = state_norm_flat.reshape(state.shape)
     like_norm = like_norm_flat.reshape(like.shape)
-
-    # Note: No need to call nan_to_num here since validation already converted NaN to 0
-    # The output arrays have 0.0 for invalid bins and normalized probabilities for valid bins
 
     return state_norm, like_norm
 
@@ -135,6 +139,11 @@ def kl_divergence(
     >>> bool(np.isclose(div[0], 0.0))
     True
 
+    See Also
+    --------
+    hpd_overlap : Compute spatial overlap between HPD regions
+    highest_density_region : Compute highest density region mask
+
     Notes
     -----
     The KL divergence is computed using scipy.stats.entropy with the formula:
@@ -152,6 +161,7 @@ def kl_divergence(
     state_norm, like_norm = _validate_and_normalize_distributions(state_dist, likelihood)
 
     n_time = state_norm.shape[0]
+
     # Flatten all spatial dimensions
     state_flat = state_norm.reshape(n_time, -1)
     like_flat = like_norm.reshape(n_time, -1)
@@ -161,14 +171,15 @@ def kl_divergence(
     state_sum = state_flat.sum(axis=1)
     like_sum = like_flat.sum(axis=1)
 
-    # Initialize output
+    # Initialize output with inf for invalid time slices
     kl_div = np.full(n_time, np.inf, dtype=float)
 
     # Find valid time slices (both distributions have positive mass over valid bins)
     valid = (state_sum > 0) & (like_sum > 0)
 
+    # Compute entropy for valid time slices
+    # NaN already converted to 0 by validation
     if np.any(valid):
-        # Compute entropy directly (NaN already converted to 0 by validation)
         kl_div[valid] = entropy(state_flat[valid], like_flat[valid], axis=1)
 
     return kl_div
@@ -178,7 +189,7 @@ def hpd_overlap(
     state_dist: NDArray[np.floating],
     likelihood: NDArray[np.floating],
     *,
-    coverage: float = 0.95,
+    coverage: float = DEFAULT_COVERAGE,
 ) -> NDArray[np.floating]:
     """Compute overlap between HPD regions of state distribution and likelihood.
 
@@ -232,6 +243,11 @@ def hpd_overlap(
     >>> bool(overlap[0] >= 0.0 and overlap[0] <= 1.0)
     True
 
+    See Also
+    --------
+    kl_divergence : Measure information divergence between distributions
+    highest_density_region : Compute highest density region mask
+
     Notes
     -----
     The overlap is computed as:
@@ -253,7 +269,7 @@ def hpd_overlap(
 
     # Validate but don't normalize - HPD works on relative magnitudes (unnormalized weights)
     # This saves 2 full array normalizations for large datasets
-    state, _, like, _ = validate_paired_distributions(
+    state, like = validate_paired_distributions(
         state_dist, likelihood, name1="state_dist", name2="likelihood", min_ndim=2
     )
 
@@ -270,11 +286,9 @@ def hpd_overlap(
     # Compute denominator (minimum of the two sizes)
     denom = np.minimum(size_state, size_like)
 
-    # Avoid division by zero: if both sizes are 0, define overlap as 0
-    denom = np.where(denom == 0, 1, denom)
-    overlap = intersection / denom
-
-    # Set overlap to 0 where both regions were empty
-    overlap = np.where((size_state == 0) & (size_like == 0), 0.0, overlap)
+    # Handle empty regions: set overlap to 0 when both are empty
+    # Use np.maximum to protect against division by zero
+    empty_both = (size_state == 0) & (size_like == 0)
+    overlap = np.where(empty_both, 0.0, intersection / np.maximum(denom, 1))
 
     return overlap

@@ -195,19 +195,14 @@ class TestHPDOverlap:
         # Should have some overlap but not complete
         assert np.all((overlap > 0.0) & (overlap < 1.0))
 
-    def test_invalid_coverage_raises_error(self, rng) -> None:
+    @pytest.mark.parametrize("invalid_coverage", [0.0, 1.0, 1.5])
+    def test_invalid_coverage_raises_error(self, rng, invalid_coverage) -> None:
         """Test that invalid coverage values raise ValueError."""
         n_time, n_bins = 5, 20
         state_dist = make_random_distribution_1d(rng, n_time, n_bins)
 
         with pytest.raises(ValueError, match="coverage must be in"):
-            hpd_overlap(state_dist, state_dist, coverage=0.0)
-
-        with pytest.raises(ValueError, match="coverage must be in"):
-            hpd_overlap(state_dist, state_dist, coverage=1.0)
-
-        with pytest.raises(ValueError, match="coverage must be in"):
-            hpd_overlap(state_dist, state_dist, coverage=1.5)
+            hpd_overlap(state_dist, state_dist, coverage=invalid_coverage)
 
     def test_shape_mismatch_raises_error(self, rng) -> None:
         """Test that shape mismatch raises ValueError."""

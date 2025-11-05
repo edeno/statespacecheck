@@ -26,8 +26,8 @@ def validate_distribution(
     name: str = "distribution",
     min_ndim: int = 1,
     allow_nan: bool = True,
-) -> tuple[NDArray[np.floating], NDArray[np.floating]]:
-    """Validate and prepare distribution array.
+) -> NDArray[np.floating]:
+    """Validate and clean distribution array.
 
     Parameters
     ----------
@@ -44,8 +44,6 @@ def validate_distribution(
     -------
     clean : np.ndarray
         Original shape array with NaN/inf converted to 0 if allow_nan=True
-    flat : np.ndarray
-        Flattened to (n_time, n_spatial)
 
     Raises
     ------
@@ -59,7 +57,6 @@ def validate_distribution(
             f"{name} must be at least {min_ndim}D with shape (n_time, ...), got shape {arr.shape}"
         )
 
-    n_time = arr.shape[0]
     n_spatial = int(np.prod(arr.shape[1:], dtype=np.int64))
 
     if n_spatial <= 0 and len(arr.shape) > 1:
@@ -82,9 +79,25 @@ def validate_distribution(
     if np.any(clean[finite_mask] < 0):
         raise ValueError(f"{name} must be non-negative (probability or weight).")
 
-    flat = clean.reshape(n_time, n_spatial)
+    return clean
 
-    return clean, flat
+
+def flatten_time_spatial(arr: NDArray[np.floating]) -> NDArray[np.floating]:
+    """Flatten array to (n_time, n_spatial) shape.
+
+    Parameters
+    ----------
+    arr : np.ndarray
+        Array with shape (n_time, ...) where ... represents arbitrary spatial dimensions
+
+    Returns
+    -------
+    flat : np.ndarray
+        Flattened to (n_time, n_spatial)
+    """
+    n_time = arr.shape[0]
+    n_spatial = int(np.prod(arr.shape[1:], dtype=np.int64))
+    return arr.reshape(n_time, n_spatial)
 
 
 def validate_paired_distributions(
@@ -93,7 +106,7 @@ def validate_paired_distributions(
     name1: str = "state_dist",
     name2: str = "likelihood",
     min_ndim: int = 2,
-) -> tuple[NDArray[np.floating], NDArray[np.floating], NDArray[np.floating], NDArray[np.floating]]:
+) -> tuple[NDArray[np.floating], NDArray[np.floating]]:
     """Validate two distributions have matching shapes.
 
     Parameters
@@ -113,27 +126,23 @@ def validate_paired_distributions(
     -------
     clean1 : np.ndarray
         First distribution, cleaned
-    flat1 : np.ndarray
-        First distribution, flattened to (n_time, n_spatial)
     clean2 : np.ndarray
         Second distribution, cleaned
-    flat2 : np.ndarray
-        Second distribution, flattened to (n_time, n_spatial)
 
     Raises
     ------
     ValueError
         If shapes don't match or validation fails
     """
-    clean1, flat1 = validate_distribution(dist1, name1, min_ndim=min_ndim)
-    clean2, flat2 = validate_distribution(dist2, name2, min_ndim=min_ndim)
+    clean1 = validate_distribution(dist1, name1, min_ndim=min_ndim)
+    clean2 = validate_distribution(dist2, name2, min_ndim=min_ndim)
 
     if clean1.shape != clean2.shape:
         raise ValueError(
             f"{name1} and {name2} must have same shape, got {clean1.shape} vs {clean2.shape}"
         )
 
-    return clean1, flat1, clean2, flat2
+    return clean1, clean2
 
 
 def get_spatial_axes(arr: NDArray[np.floating]) -> tuple[int, ...]:
