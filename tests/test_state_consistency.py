@@ -223,3 +223,39 @@ class TestHPDOverlap:
         assert overlap.shape == (n_time,)
         # When both regions are empty, overlap should be 0
         assert np.allclose(overlap, 0.0)
+
+    def test_exact_overlap_calculation(self) -> None:
+        """Test exact overlap with simple binary distributions."""
+        # Single time point for clarity
+        n_time = 1
+
+        # state_dist has mass at positions 2 and 3
+        # likelihood has mass only at position 2
+        # Expected: intersection = 1, min(2, 1) = 1, overlap = 1/1 = 1.0
+        state_dist = np.array([[0.0, 0.0, 0.5, 0.5, 0.0, 0.0]])
+        likelihood = np.array([[0.0, 0.0, 1.0, 0.0, 0.0, 0.0]])
+
+        overlap = hpd_overlap(state_dist, likelihood, coverage=0.95)
+
+        assert overlap.shape == (n_time,)
+        # With 95% coverage, both regions include their non-zero positions
+        # state_dist HPD: positions 2,3 (size=2)
+        # likelihood HPD: position 2 (size=1)
+        # intersection: position 2 (size=1)
+        # overlap = 1 / min(2, 1) = 1 / 1 = 1.0
+        assert np.allclose(overlap, 1.0)
+
+        # Test case 2: Partial overlap
+        # state_dist has mass at positions 2 and 3
+        # likelihood has mass at positions 3 and 4
+        # Expected: intersection = 1, min(2, 2) = 2, overlap = 1/2 = 0.5
+        state_dist = np.array([[0.0, 0.0, 0.5, 0.5, 0.0, 0.0]])
+        likelihood = np.array([[0.0, 0.0, 0.0, 0.5, 0.5, 0.0]])
+
+        overlap = hpd_overlap(state_dist, likelihood, coverage=0.95)
+
+        # state_dist HPD: positions 2,3 (size=2)
+        # likelihood HPD: positions 3,4 (size=2)
+        # intersection: position 3 (size=1)
+        # overlap = 1 / min(2, 2) = 1 / 2 = 0.5
+        assert np.allclose(overlap, 0.5)
