@@ -28,9 +28,11 @@ def _validate_and_normalize_distributions(
     Returns
     -------
     state_normalized : np.ndarray
-        Normalized state distributions (NaNs preserved, normalization over valid bins).
+        Normalized state distributions. NaN/inf values in input are converted to 0.0.
+        Each time slice normalized to sum to 1.0 over valid (non-zero) bins.
     likelihood_normalized : np.ndarray
-        Normalized likelihood distributions (NaNs preserved, normalization over valid bins).
+        Normalized likelihood distributions. NaN/inf values in input are converted to 0.0.
+        Each time slice normalized to sum to 1.0 over valid (non-zero) bins.
 
     Raises
     ------
@@ -39,13 +41,12 @@ def _validate_and_normalize_distributions(
 
     Notes
     -----
-    - NaN/inf values in input are treated as invalid bins:
-      * First converted to 0 by validation utilities for computation
-      * Excluded from normalization sum (using nansum)
-      * After normalization, output has 0.0 probability for invalid bins
-    - Each time slice is normalized to sum to 1.0 over valid bins
-    - Zero-sum rows (all NaN or all zero) remain as zeros and will cause downstream
-      functions to return inf (KL divergence) or empty regions (HPD overlap)
+    - Non-finite inputs (NaN/inf) are treated as invalid bins:
+      * Converted to 0.0 by validation for computation
+      * Excluded from normalization sums
+      * Output has 0.0 for invalid bins (no NaNs present in output)
+    - Each time slice normalized to sum to 1.0 over valid bins
+    - Zero-sum rows remain all zeros; downstream returns inf (KL) or empty HPD
     """
     # Use validation utilities for consistent validation
     # This converts NaN/inf to 0 but keeps zeros that represent actual zero probability
@@ -158,7 +159,7 @@ def kl_divergence(state_dist: np.ndarray, likelihood: np.ndarray) -> np.ndarray:
 
 
 def hpd_overlap(
-    state_dist: np.ndarray, likelihood: np.ndarray, coverage: float = 0.95
+    state_dist: np.ndarray, likelihood: np.ndarray, *, coverage: float = 0.95
 ) -> np.ndarray:
     """Compute overlap between HPD regions of state distribution and likelihood.
 

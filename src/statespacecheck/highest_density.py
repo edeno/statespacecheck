@@ -2,10 +2,10 @@
 
 import numpy as np
 
-from ._validation import validate_coverage
+from ._validation import validate_coverage, validate_distribution
 
 
-def highest_density_region(distribution: np.ndarray, coverage: float = 0.95) -> np.ndarray:
+def highest_density_region(distribution: np.ndarray, *, coverage: float = 0.95) -> np.ndarray:
     """Compute boolean mask indicating highest density region membership.
 
     Vectorized HPD mask for arrays shaped (n_time, *spatial). For each time t,
@@ -44,27 +44,16 @@ def highest_density_region(distribution: np.ndarray, coverage: float = 0.95) -> 
     """
     validate_coverage(coverage)
 
-    post = np.asarray(distribution)
-
-    # Clean once and use consistently: treat NaNs/infinities as zero mass
-    clean = np.where(np.isfinite(post), post, 0.0)
+    # Use centralized validation: handles NaN/inf → 0, checks non-negativity, validates dimensions
+    clean, flat = validate_distribution(
+        distribution,
+        name="distribution",
+        min_ndim=2,  # Require at least (n_time, n_spatial)
+        allow_nan=True,
+    )
 
     n_time = clean.shape[0]
-    n_spatial = int(np.prod(clean.shape[1:], dtype=np.int64))
-
-    # Validate spatial dimensions didn't overflow
-    if n_spatial <= 0 and len(clean.shape) > 1:
-        raise ValueError(
-            f"Spatial dimensions too large or invalid: {clean.shape[1:]}. "
-            f"Product of spatial dimensions must be positive and fit in int64."
-        )
-
-    # Validate non-negativity
-    if np.any(clean < 0):
-        raise ValueError("distribution must be non-negative (probability or weight).")
-
-    # Flatten spatial dims -> (n_time, n_spatial)
-    flat = clean.reshape(n_time, n_spatial)
+    n_spatial = flat.shape[1]
 
     totals = flat.sum(axis=1)  # (n_time,)
     target = coverage * totals  # (n_time,)
