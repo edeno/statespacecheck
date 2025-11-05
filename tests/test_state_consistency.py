@@ -259,3 +259,51 @@ class TestHPDOverlap:
         # intersection: position 3 (size=1)
         # overlap = 1 / min(2, 2) = 1 / 2 = 0.5
         assert np.allclose(overlap, 0.5)
+
+    def test_exact_overlap_calculation_2d(self) -> None:
+        """Test exact overlap with simple 2D binary distributions."""
+        # Single time point for clarity
+        n_time = 1
+
+        # Test case 1: Complete overlap in 2D
+        # state_dist has mass at positions (0,0) and (0,1)
+        # likelihood has mass only at position (0,0)
+        state_dist = np.array([[[1.0, 1.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]])
+        likelihood = np.array([[[1.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]])
+
+        overlap = hpd_overlap(state_dist, likelihood, coverage=0.95)
+
+        assert overlap.shape == (n_time,)
+        # state_dist HPD: positions (0,0), (0,1) (size=2)
+        # likelihood HPD: position (0,0) (size=1)
+        # intersection: position (0,0) (size=1)
+        # overlap = 1 / min(2, 1) = 1.0
+        assert np.allclose(overlap, 1.0)
+
+        # Test case 2: Partial overlap in 2D - the key test case
+        # state_dist has mass at (0,0), (0,1), (1,0), (1,1) - a 2x2 square
+        # likelihood has mass at (0,1), (1,0), (1,1), (2,1) - overlapping 2x2 square shifted
+        state_dist = np.array([[[1.0, 1.0, 0.0], [1.0, 1.0, 0.0], [0.0, 0.0, 0.0]]])
+        likelihood = np.array([[[0.0, 1.0, 0.0], [1.0, 1.0, 0.0], [0.0, 1.0, 0.0]]])
+
+        overlap = hpd_overlap(state_dist, likelihood, coverage=0.95)
+
+        # state_dist HPD: positions (0,0), (0,1), (1,0), (1,1) (size=4)
+        # likelihood HPD: positions (0,1), (1,0), (1,1), (2,1) (size=4)
+        # intersection: positions (0,1), (1,0), (1,1) (size=3)
+        # overlap = 3 / min(4, 4) = 3 / 4 = 0.75
+        assert np.allclose(overlap, 0.75)
+
+        # Test case 3: Exactly half overlap in 2D
+        # state_dist has mass at (0,0), (0,1)
+        # likelihood has mass at (0,1), (1,0)
+        state_dist = np.array([[[1.0, 1.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]])
+        likelihood = np.array([[[0.0, 1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 0.0]]])
+
+        overlap = hpd_overlap(state_dist, likelihood, coverage=0.95)
+
+        # state_dist HPD: positions (0,0), (0,1) (size=2)
+        # likelihood HPD: positions (0,1), (1,0) (size=2)
+        # intersection: position (0,1) (size=1)
+        # overlap = 1 / min(2, 2) = 1 / 2 = 0.5
+        assert np.allclose(overlap, 0.5)
