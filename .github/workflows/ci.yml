@@ -1,0 +1,284 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+  pull_request:
+    branches:
+      - main
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  quality:
+    name: Code Quality
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv pip install --system -e .[dev]
+
+      - name: Run ruff format check
+        run: ruff format --check .
+
+      - name: Run ruff linting
+        run: ruff check . --output-format=github
+
+      - name: Run mypy type checking
+        run: mypy src/
+
+  test:
+    name: Test Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          allow-prereleases: true
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv pip install --system -e .[dev]
+
+      - name: Run tests with coverage
+        run: pytest --cov=statespacecheck --cov-report=xml --cov-report=term-missing
+
+      - name: Upload coverage to Codecov
+        if: matrix.python-version == '3.12'
+        uses: codecov/codecov-action@v4
+        continue-on-error: true
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          file: ./coverage.xml
+          flags: unittests
+          name: codecov-python-${{ matrix.python-version }}
+
+  build:
+    name: Build distribution
+    runs-on: ubuntu-latest
+    needs: [quality, test]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Required for hatch-vcs to get version from git tags
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Install build dependencies
+        run: uv pip install --system build twine
+
+      - name: Build sdist and wheel
+        run: python -m build
+
+      - name: Check distribution metadata
+        run: twine check dist/*
+
+      - name: List distribution contents
+        run: |
+          echo "=== Built distributions ==="
+          ls -lh dist/
+          echo ""
+          echo "=== Wheel contents ==="
+          unzip -l dist/*.whl || true
+          echo ""
+          echo "=== SDist contents ==="
+          tar -tzf dist/*.tar.gz | head -20 || true
+
+      - name: Upload distribution artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ github.sha }}
+          path: dist/
+          retention-days: 7
+
+  test-install:
+    name: Test install from ${{ matrix.package }}
+    runs-on: ubuntu-latest
+    needs: [build]
+    strategy:
+      fail-fast: false
+      matrix:
+        package: ['wheel', 'sdist']
+        python-version: ["3.10", "3.13"]
+    steps:
+      - name: Download distribution artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist-${{ github.sha }}
+          path: dist/
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install from wheel
+        if: matrix.package == 'wheel'
+        run: pip install dist/*.whl
+
+      - name: Install from sdist
+        if: matrix.package == 'sdist'
+        run: pip install dist/*.tar.gz
+
+      - name: Verify installation
+        run: |
+          python -c "import statespacecheck; print('Package:', statespacecheck.__name__)"
+          python -c "import statespacecheck; print('Version:', statespacecheck.__version__)"
+          python -c "from statespacecheck import kl_divergence, hpd_overlap, highest_density_region; print('Imports successful')"
+
+      - name: Check public API
+        run: |
+          python -c "
+          import statespacecheck as ssc
+          expected = {'kl_divergence', 'hpd_overlap', 'highest_density_region',
+                      'predictive_density', 'log_predictive_density',
+                      'aggregate_over_period', 'predictive_pvalue',
+                      'DEFAULT_COVERAGE', 'DistributionArray'}
+          actual = set(ssc.__all__)
+          missing = expected - actual
+          extra = actual - expected
+          if missing:
+              raise ValueError(f'Missing from __all__: {missing}')
+          if extra:
+              print(f'Extra in __all__: {extra}')
+          print(f'✓ All {len(expected)} expected exports present')
+          "
+
+  publish-testpypi:
+    name: Publish to TestPyPI
+    runs-on: ubuntu-latest
+    needs: [test-install]
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    environment:
+      name: testpypi
+      url: https://test.pypi.org/project/statespacecheck/
+    permissions:
+      id-token: write
+    steps:
+      - name: Download distribution artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist-${{ github.sha }}
+          path: dist/
+
+      - name: Publish to TestPyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+
+  publish-pypi:
+    name: Publish to PyPI
+    runs-on: ubuntu-latest
+    needs: [publish-testpypi]
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    environment:
+      name: pypi
+      url: https://pypi.org/project/statespacecheck/
+    permissions:
+      id-token: write
+    steps:
+      - name: Download distribution artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist-${{ github.sha }}
+          path: dist/
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+
+  create-release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: [publish-pypi]
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download distribution artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist-${{ github.sha }}
+          path: dist/
+
+      - name: Extract version from tag
+        id: get_version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      - name: Generate release notes
+        id: release_notes
+        run: |
+          cat > release_notes.md << 'EOF'
+          ## statespacecheck v${{ steps.get_version.outputs.VERSION }}
+
+          Goodness-of-fit diagnostics for state space models in neuroscience.
+
+          ### Installation
+
+          ```bash
+          pip install statespacecheck==${{ steps.get_version.outputs.VERSION }}
+          ```
+
+          ### Documentation
+
+          See [README](https://github.com/edeno/statespacecheck#readme) for usage examples.
+
+          ### Changes
+
+          See [commit history](https://github.com/edeno/statespacecheck/commits/v${{ steps.get_version.outputs.VERSION }}) for detailed changes.
+          EOF
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          body_path: release_notes.md
+          files: dist/*
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

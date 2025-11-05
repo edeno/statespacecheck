@@ -1,17 +1,71 @@
 [project]
 name = "statespacecheck"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Goodness-of-fit diagnostics for state space models"
 readme = "README.md"
 requires-python = ">=3.10"
+license = { file = "LICENSE" }
+authors = [
+    { name = "Eric Denovellis", email = "eric.denovellis@ucsf.edu" },
+    { name = "Sirui Zeng", email = "zengsr@bu.edu" },
+    { name = "Uri T. Eden", email = "tzvi@bu.edu" },
+]
+keywords = [
+    "neuroscience",
+    "state-space-models",
+    "goodness-of-fit",
+    "bayesian",
+    "diagnostics",
+    "kalman-filter",
+]
 dependencies = ["numpy>=1.26.0", "scipy>=1.11.0", "matplotlib>=3.8.0"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Scientific/Engineering :: Mathematics",
+    "Topic :: Scientific/Engineering :: Medical Science Apps.",
+    "Typing :: Typed",
+]
+
+[project.urls]
+Homepage = "https://github.com/edeno/statespacecheck"
+Documentation = "https://github.com/edeno/statespacecheck#readme"
+Repository = "https://github.com/edeno/statespacecheck"
+Issues = "https://github.com/edeno/statespacecheck/issues"
+Changelog = "https://github.com/edeno/statespacecheck/releases"
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0.0", "pytest-cov>=6.0.0", "ruff>=0.8.0", "mypy>=1.13.0", "hypothesis>=6.0.0"]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-cov>=6.0.0",
+    "ruff>=0.8.0",
+    "mypy>=1.13.0",
+    "hypothesis>=6.0.0",
+]
 
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
+
+[tool.hatch.version]
+source = "vcs"
+
+[tool.hatch.build.hooks.vcs]
+version-file = "src/statespacecheck/_version.py"
+
+[tool.hatch.build.targets.sdist]
+exclude = [".git_archival.txt"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/statespacecheck"]
 
 [tool.ruff]
 line-length = 100

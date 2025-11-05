@@ -18,8 +18,6 @@ from statespacecheck.state_consistency import (
     kl_divergence,
 )
 
-__version__ = "0.1.0"
-
 __all__ = [
     "highest_density_region",
     "kl_divergence",
@@ -31,3 +29,11 @@ __all__ = [
     "DEFAULT_COVERAGE",
     "DistributionArray",
 ]
+
+try:
+    from ._version import __version__
+except ImportError:
+    # Fallback for development installs
+    from importlib.metadata import version
+
+    __version__ = version("statespacecheck")
