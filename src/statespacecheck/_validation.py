@@ -57,14 +57,6 @@ def validate_distribution(
             f"{name} must be at least {min_ndim}D with shape (n_time, ...), got shape {arr.shape}"
         )
 
-    n_spatial = int(np.prod(arr.shape[1:], dtype=np.int64))
-
-    if n_spatial <= 0 and len(arr.shape) > 1:
-        raise ValueError(
-            f"Spatial dimensions too large or invalid: {arr.shape[1:]}. "
-            f"Product of spatial dimensions must be positive and fit in int64."
-        )
-
     # Handle non-finite values
     if allow_nan:
         # Use standard NumPy idiom: convert NaN/inf to 0
@@ -96,8 +88,8 @@ def flatten_time_spatial(arr: NDArray[np.floating]) -> NDArray[np.floating]:
         Flattened to (n_time, n_spatial)
     """
     n_time = arr.shape[0]
-    n_spatial = int(np.prod(arr.shape[1:], dtype=np.int64))
-    return arr.reshape(n_time, n_spatial)
+    # Use numpy's automatic dimension calculation with -1
+    return arr.reshape(n_time, -1)
 
 
 def validate_paired_distributions(

@@ -106,33 +106,30 @@ class TestValidateDistribution:
         with pytest.raises(ValueError, match="must be at least 2D"):
             validate_distribution(dist, min_ndim=2)
 
-    def test_spatial_overflow_check_exists(self) -> None:
-        """Test that spatial dimension overflow check exists."""
-        # This defensive check is difficult to trigger in practice because
-        # creating an array that would overflow requires enormous dimensions
-        # that would exceed memory limits. We verify the check exists by
-        # testing that normal arrays pass through correctly.
+    def test_spatial_dimension_flattening(self) -> None:
+        """Test that spatial dimensions are correctly flattened."""
+        # Test basic flattening
         dist = np.array([[0.2, 0.3, 0.5]])
         clean = validate_distribution(dist, min_ndim=1)
-        # Should succeed - this tests that the overflow check doesn't false-trigger
         flat = flatten_time_spatial(clean)
         assert flat.shape == (1, 3)
 
-        # Test with larger dimensions that still fit in memory
-        # but exercise the overflow check path
+        # Test with larger dimensions
         large_dist = np.ones((2, 100, 100))
         clean_large = validate_distribution(large_dist, min_ndim=2)
         flat_large = flatten_time_spatial(clean_large)
         assert flat_large.shape == (2, 10000)
 
-    def test_zero_spatial_dimension_raises_error(self) -> None:
-        """Test that zero spatial dimension raises ValueError."""
+    def test_zero_spatial_dimension_handled(self) -> None:
+        """Test that zero spatial dimension is handled correctly by numpy."""
         # Create array with one spatial dimension being 0
         # Shape (2, 0) means 2 time points, 0 spatial bins
         dist = np.array([[], []])  # Shape (2, 0)
 
-        with pytest.raises(ValueError, match="Spatial dimensions too large or invalid"):
-            validate_distribution(dist, min_ndim=2)
+        # This should succeed - numpy handles empty arrays fine
+        clean = validate_distribution(dist, min_ndim=2)
+        flat = flatten_time_spatial(clean)
+        assert flat.shape == (2, 0)
 
 
 class TestValidatePairedDistributions:

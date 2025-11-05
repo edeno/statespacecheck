@@ -291,9 +291,10 @@ def hpd_overlap(
     # Compute denominator (minimum of the two sizes)
     denom = np.minimum(size_state, size_like)
 
-    # Handle empty regions: set overlap to 0 when both are empty
-    # Use np.maximum to protect against division by zero
-    empty_both = (size_state == 0) & (size_like == 0)
-    overlap = np.where(empty_both, 0.0, intersection / np.maximum(denom, 1))
+    # Handle division by zero: when denom is 0, overlap is 0
+    # This matches the normalization pattern used elsewhere in the codebase
+    with np.errstate(divide="ignore", invalid="ignore"):
+        overlap = intersection / denom
+    overlap = np.nan_to_num(overlap, nan=0.0, posinf=0.0, neginf=0.0)
 
     return overlap
