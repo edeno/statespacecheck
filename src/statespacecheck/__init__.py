@@ -7,7 +7,14 @@ state space models.
 
 from statespacecheck._validation import DistributionArray
 from statespacecheck.highest_density import DEFAULT_COVERAGE, highest_density_region
-from statespacecheck.periods import aggregate_over_period
+from statespacecheck.periods import (
+    aggregate_over_period,
+    combine_flags,
+    find_low_overlap_intervals,
+    flag_extreme_kl,
+    flag_extreme_pvalues,
+    flag_low_overlap,
+)
 from statespacecheck.predictive_checks import (
     log_predictive_density,
     predictive_density,
@@ -17,6 +24,7 @@ from statespacecheck.state_consistency import (
     hpd_overlap,
     kl_divergence,
 )
+from statespacecheck.viz import plot_diagnostics
 
 __all__ = [
     "highest_density_region",
@@ -28,6 +36,12 @@ __all__ = [
     "predictive_pvalue",
     "DEFAULT_COVERAGE",
     "DistributionArray",
+    "find_low_overlap_intervals",
+    "flag_extreme_kl",
+    "flag_extreme_pvalues",
+    "flag_low_overlap",
+    "combine_flags",
+    "plot_diagnostics",
 ]
 
 try:
