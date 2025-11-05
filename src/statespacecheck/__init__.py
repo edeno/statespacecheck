@@ -6,8 +6,8 @@ state space models.
 """
 
 from statespacecheck.highest_density import highest_density_region
+from statespacecheck.periods import aggregate_over_period
 from statespacecheck.predictive_checks import (
-    aggregate_over_period,
     log_predictive_density,
     predictive_density,
     predictive_pvalue,

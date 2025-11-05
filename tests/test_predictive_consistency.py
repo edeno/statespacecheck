@@ -210,7 +210,7 @@ class TestWeightsValidation:
 
     def test_nan_weights_raises_error(self):
         """Test that NaN weights raise ValueError."""
-        from statespacecheck.predictive_checks import aggregate_over_period
+        from statespacecheck.periods import aggregate_over_period
 
         metrics = np.array([1.0, 2.0, 3.0])
         mask = np.array([True, True, True])
@@ -221,7 +221,7 @@ class TestWeightsValidation:
 
     def test_inf_weights_raises_error(self):
         """Test that inf weights raise ValueError."""
-        from statespacecheck.predictive_checks import aggregate_over_period
+        from statespacecheck.periods import aggregate_over_period
 
         metrics = np.array([1.0, 2.0, 3.0])
         mask = np.array([True, True, True])
@@ -232,7 +232,7 @@ class TestWeightsValidation:
 
     def test_neginf_weights_raises_error(self):
         """Test that -inf weights raise ValueError."""
-        from statespacecheck.predictive_checks import aggregate_over_period
+        from statespacecheck.periods import aggregate_over_period
 
         metrics = np.array([1.0, 2.0, 3.0])
         mask = np.array([True, True, True])

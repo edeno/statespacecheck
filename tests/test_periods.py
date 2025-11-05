@@ -1,9 +1,9 @@
-"""Tests for aggregate_over_period function."""
+"""Tests for aggregate_over_period function (generic period aggregation utility)."""
 
 import numpy as np
 import pytest
 
-from statespacecheck.predictive_checks import aggregate_over_period
+from statespacecheck.periods import aggregate_over_period
 
 
 class TestAggregateOverPeriod:
