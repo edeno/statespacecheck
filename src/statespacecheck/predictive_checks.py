@@ -1,0 +1,589 @@
+"""Predictive check functions for state space model goodness of fit.
+
+This module provides functions to compute predictive densities and
+perform predictive checks for Bayesian state space models.
+"""
+
+import warnings
+from collections.abc import Callable
+
+import numpy as np
+from numpy.typing import NDArray
+from scipy.special import logsumexp
+
+from ._validation import (
+    flatten_time_spatial,
+    validate_distribution,
+    validate_paired_distributions,
+)
+
+
+def predictive_density(
+    state_dist: NDArray[np.floating],
+    likelihood: NDArray[np.floating],
+) -> NDArray[np.floating]:
+    """Compute predictive density by integrating state dist with obs likelihood.
+
+    CRITICAL: This function normalizes state_dist ONLY, NOT likelihood.
+    The likelihood p(y|x) is a likelihood function, not a distribution over x.
+    Normalizing it over x would change its value and mask real model misfit.
+
+    Formula: f_predictive(y) = ∑_x p(x) * p(y|x)
+
+    Parameters
+    ----------
+    state_dist : np.ndarray
+        State probability distributions over position at each time point.
+        Non-negative values (NaN allowed to mark invalid bins).
+        Will be normalized over spatial dimensions (everything except time).
+        Shape (n_time, ...) where ... represents arbitrary spatial dimensions.
+    likelihood : np.ndarray
+        Likelihood p(y|x) evaluated at observed data across all positions.
+        Non-negative values (NaN allowed to mark invalid bins).
+        DO NOT normalize - this is a likelihood function.
+        Must have same shape as state_dist.
+        Shape (n_time, ...) where ... represents arbitrary spatial dimensions.
+
+    Returns
+    -------
+    predictive_density : np.ndarray
+        Predictive density at each time point.
+        Shape (n_time,).
+
+    Raises
+    ------
+    ValueError
+        If state_dist and likelihood have different shapes, or if distributions
+        contain negative values.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from statespacecheck import predictive_density
+    >>> # Simple 1D example with unnormalized state
+    >>> state = np.array([[3.0, 4.0, 3.0]])  # Unnormalized (sums to 10, not 1)
+    >>> like = np.array([[2.0, 3.0, 1.0]])  # Likelihood values (not normalized)
+    >>> pred = predictive_density(state, like)
+    >>> pred.shape
+    (1,)
+
+    See Also
+    --------
+    log_predictive_density : Compute log predictive density for numerical stability
+    kl_divergence : Measure information divergence between distributions
+    hpd_overlap : Compute spatial overlap between HPD regions
+
+    Notes
+    -----
+    The predictive density is computed via discrete Riemann sum:
+        f_predictive(y_k) = ∑_x p(x_k) * p(y_k | x_k)
+
+    Where:
+    - p(x_k) is the state distribution (normalized to sum to 1)
+    - p(y_k | x_k) is the observation likelihood (NOT normalized)
+
+    Distributions are validated using validate_paired_distributions:
+    - NaN/inf values in input are converted to 0.0
+    - Shape and non-negativity are checked
+    - State distribution is normalized after validation
+    - Likelihood is NOT normalized (critical for correct results)
+
+    Integration is performed by flattening spatial dimensions and computing
+    row-wise sums over all spatial bins.
+    """
+    # Validate both distributions (converts NaN/inf to 0, checks shapes)
+    state, like = validate_paired_distributions(
+        state_dist, likelihood, name1="state_dist", name2="likelihood", min_ndim=2
+    )
+
+    # Flatten for vectorized operations
+    state_flat = flatten_time_spatial(state)
+    like_flat = flatten_time_spatial(like)
+
+    # Normalize state distribution ONLY (not likelihood!)
+    # Shape: (n_time,)
+    state_sum = state_flat.sum(axis=1)
+
+    # Check for zero-sum state rows before normalization
+    zero_rows = state_sum == 0
+    if np.any(zero_rows):
+        warnings.warn(
+            "state_dist has zero-sum rows; predictive set to NaN for those rows",
+            UserWarning,
+            stacklevel=2,
+        )
+
+    # Normalize state, handling zero-sum rows
+    with np.errstate(divide="ignore", invalid="ignore"):
+        state_normalized = state_flat / state_sum[:, np.newaxis]
+
+    # Replace non-finite values (from zero-sum rows) with 0
+    state_normalized = np.nan_to_num(state_normalized, nan=0.0, posinf=0.0, neginf=0.0)
+
+    # Compute predictive density: sum over spatial dimensions
+    # f_predictive(y) = ∑_x p(x) * p(y|x)
+    # Note: likelihood is NOT normalized (critical!)
+    predictive = (state_normalized * like_flat).sum(axis=1)
+
+    # Set zero-sum rows to NaN (they have no valid state mass)
+    predictive[zero_rows] = np.nan
+
+    return predictive
+
+
+def log_predictive_density(
+    state_dist: NDArray[np.floating],
+    likelihood: NDArray[np.floating] | None = None,
+    log_likelihood: NDArray[np.floating] | None = None,
+) -> NDArray[np.floating]:
+    """Compute log predictive density directly in log-space using logsumexp.
+
+    CRITICAL: This function normalizes state_dist ONLY, NOT likelihood.
+    Computes log predictive density natively in log-space for numerical stability.
+    DO NOT compute as np.log(predictive_density(...)) - this loses precision.
+
+    Formula: log f_predictive(y) = log ∑_x p(x) * p(y|x)
+             = logsumexp(log p(x) + log p(y|x))
+
+    Parameters
+    ----------
+    state_dist : np.ndarray
+        State probability distributions over position at each time point.
+        Non-negative values (NaN allowed to mark invalid bins).
+        Will be normalized over spatial dimensions (everything except time).
+        Shape (n_time, ...) where ... represents arbitrary spatial dimensions.
+    likelihood : np.ndarray, optional
+        Likelihood p(y|x) evaluated at observed data across all positions.
+        Non-negative values (NaN allowed to mark invalid bins).
+        DO NOT normalize - this is a likelihood function.
+        Must have same shape as state_dist.
+        Exactly one of `likelihood` or `log_likelihood` must be provided.
+        Shape (n_time, ...) where ... represents arbitrary spatial dimensions.
+    log_likelihood : np.ndarray, optional
+        Log-likelihood log p(y|x) evaluated at observed data.
+        Allows users who already have log-likelihood to avoid exp/log round-trip.
+        Must have same shape as state_dist.
+        Exactly one of `likelihood` or `log_likelihood` must be provided.
+        Shape (n_time, ...) where ... represents arbitrary spatial dimensions.
+
+    Returns
+    -------
+    log_predictive_density : np.ndarray
+        Log predictive density at each time point.
+        Shape (n_time,).
+
+    Raises
+    ------
+    ValueError
+        If neither or both of likelihood and log_likelihood are provided,
+        if shapes don't match, or if distributions contain negative values.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from statespacecheck import log_predictive_density
+    >>> # Using likelihood
+    >>> state = np.array([[1.0, 1.0, 1.0]])
+    >>> like = np.array([[2.0, 3.0, 4.0]])
+    >>> log_pred = log_predictive_density(state, likelihood=like)
+    >>> log_pred.shape
+    (1,)
+
+    >>> # Using log_likelihood for numerical stability
+    >>> log_like = np.log(like)
+    >>> log_pred2 = log_predictive_density(state, log_likelihood=log_like)
+    >>> np.allclose(log_pred, log_pred2)
+    True
+
+    See Also
+    --------
+    predictive_density : Compute predictive density in linear space
+    kl_divergence : Measure information divergence between distributions
+    hpd_overlap : Compute spatial overlap between HPD regions
+
+    Notes
+    -----
+    This function computes log predictive density directly in log-space using
+    scipy.special.logsumexp for numerical stability. This prevents underflow
+    when working with very small probabilities or peaked distributions.
+
+    The computation is:
+        log ∑_x p(x) * p(y|x) = logsumexp(log p(x) + log p(y|x))
+
+    Where:
+    - p(x) is the state distribution (normalized to sum to 1)
+    - p(y|x) is the observation likelihood (NOT normalized)
+
+    For users who already have log-likelihood computed, passing it via
+    `log_likelihood` parameter avoids the exp/log round-trip and is more
+    efficient and numerically stable.
+    """
+    # Validate that exactly one of likelihood or log_likelihood is provided
+    if (likelihood is None) == (log_likelihood is None):
+        raise ValueError("Exactly one of 'likelihood' or 'log_likelihood' must be provided")
+
+    # Convert likelihood to log_likelihood if needed
+    if likelihood is not None:
+        # Validate both distributions (both are probabilities)
+        state, like = validate_paired_distributions(
+            state_dist, likelihood, name1="state_dist", name2="likelihood", min_ndim=2
+        )
+        # Convert to log-space (avoiding log(0) by using where)
+        like_flat = flatten_time_spatial(like)
+        with np.errstate(divide="ignore"):
+            log_like_flat = np.where(like_flat > 0, np.log(like_flat), -np.inf)
+    else:
+        # Validate state_dist (it's a probability)
+        state = validate_distribution(state_dist, name="state_dist", min_ndim=2)
+
+        # Validate log_likelihood manually (it's in log-space, can be negative!)
+        log_like = np.asarray(log_likelihood, dtype=float)
+
+        if log_like.ndim < 2:
+            raise ValueError(
+                f"log_likelihood must be at least 2D with shape (n_time, ...), "
+                f"got shape {log_like.shape}"
+            )
+
+        if log_like.shape != state.shape:
+            raise ValueError(
+                f"state_dist and log_likelihood must have same shape, "
+                f"got {state.shape} vs {log_like.shape}"
+            )
+
+        # Check for +inf in log_likelihood (indicates upstream bug or overflow)
+        if np.isposinf(log_like).any():
+            raise ValueError(
+                "log_likelihood contains +inf; this indicates an upstream bug or overflow"
+            )
+
+        # Handle non-finite values: NaN → -inf (makes sense in log-space)
+        # Note: We do NOT check for negative values (negative is expected in log-space!)
+        log_like = np.nan_to_num(log_like, nan=-np.inf, posinf=np.inf, neginf=-np.inf)
+
+        log_like_flat = flatten_time_spatial(log_like)
+
+    # Flatten state for vectorized operations
+    state_flat = flatten_time_spatial(state)
+
+    # Normalize state distribution ONLY (not likelihood!)
+    state_sum = state_flat.sum(axis=1)
+
+    # Check for zero-sum state rows before normalization
+    zero_rows = state_sum == 0
+    if np.any(zero_rows):
+        warnings.warn(
+            "state_dist has zero-sum rows; predictive set to NaN for those rows",
+            UserWarning,
+            stacklevel=2,
+        )
+
+    # Normalize state, handling zero-sum rows
+    with np.errstate(divide="ignore", invalid="ignore"):
+        state_normalized = state_flat / state_sum[:, np.newaxis]
+
+    # Replace non-finite values (from zero-sum rows) with 0
+    state_normalized = np.nan_to_num(state_normalized, nan=0.0, posinf=0.0, neginf=0.0)
+
+    # Convert normalized state to log-space
+    with np.errstate(divide="ignore"):
+        log_state_normalized = np.where(state_normalized > 0, np.log(state_normalized), -np.inf)
+
+    # Compute log predictive density using logsumexp
+    # log ∑_x p(x) * p(y|x) = logsumexp(log p(x) + log p(y|x))
+    log_predictive = logsumexp(log_state_normalized + log_like_flat, axis=1)
+
+    # Set zero-sum rows to NaN (they have no valid state mass)
+    log_predictive[zero_rows] = np.nan
+
+    return log_predictive
+
+
+def aggregate_over_period(
+    metric_values: NDArray[np.floating],
+    time_mask: NDArray[np.bool_],
+    *,
+    reduction: str = "mean",
+    weights: NDArray[np.floating] | None = None,
+) -> float:
+    """Aggregate metric values over specified time period.
+
+    Aggregates time-series metrics (e.g., KL divergence, HPD overlap, or
+    predictive checks) over specified time periods using an indicator
+    function approach from the paper.
+
+    Parameters
+    ----------
+    metric_values : np.ndarray
+        Time-series metric array. Must be 1-dimensional.
+        Shape (n_time,).
+    time_mask : np.ndarray
+        Boolean array indicating which time points to include.
+        True values indicate time points to aggregate.
+        Must have same length as metric_values.
+        Shape (n_time,).
+    reduction : {'mean', 'sum'}, optional
+        Aggregation method. Default is 'mean'.
+        - 'mean': Compute mean over selected time points (optionally weighted)
+        - 'sum': Compute sum over selected time points
+    weights : np.ndarray, optional
+        Optional weights for weighted mean (e.g., occupancy/time weighting).
+        Must be non-negative and have same length as metric_values.
+        Only used when reduction='mean'. Ignored for 'sum' with a warning.
+        Shape (n_time,).
+
+    Returns
+    -------
+    aggregated_value : float
+        Aggregated metric value (scalar float).
+        Returns NaN if no time points are selected (all-false mask).
+
+    Raises
+    ------
+    ValueError
+        If metric_values is not 1-dimensional, if shapes don't match,
+        if reduction is invalid, or if weights are negative.
+
+    Warns
+    -----
+    UserWarning
+        If weights are provided when reduction='sum' (weights are ignored).
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from statespacecheck import aggregate_over_period
+    >>> # Aggregate KL divergence over non-local events
+    >>> kl_values = np.array([0.5, 1.0, 0.3, 0.8, 0.6])
+    >>> is_non_local = np.array([True, False, True, True, False])
+    >>> result = aggregate_over_period(kl_values, is_non_local, reduction="mean")
+    >>> result  # Mean of [0.5, 0.3, 0.8]
+    0.5333333333333333
+
+    >>> # Aggregate log-likelihoods using sum
+    >>> log_likes = np.array([-1.0, -2.0, -1.5, -3.0])
+    >>> period_mask = np.array([True, True, True, True])
+    >>> total = aggregate_over_period(log_likes, period_mask, reduction="sum")
+    >>> total  # Sum of all values
+    -7.5
+
+    >>> # Weighted mean with occupancy weights
+    >>> metrics = np.array([1.0, 2.0, 3.0])
+    >>> mask = np.array([True, True, True])
+    >>> occupancy = np.array([10.0, 5.0, 10.0])  # Time spent in each state
+    >>> weighted = aggregate_over_period(metrics, mask, weights=occupancy)
+    >>> weighted  # (1*10 + 2*5 + 3*10) / (10 + 5 + 10)
+    2.0
+
+    See Also
+    --------
+    kl_divergence : Compute KL divergence between distributions
+    hpd_overlap : Compute spatial overlap between HPD regions
+    predictive_density : Compute predictive density
+    log_predictive_density : Compute log predictive density
+
+    Notes
+    -----
+    This function implements the period-level aggregation approach from the paper,
+    using indicator functions (time_mask) to select time points for aggregation.
+
+    Use cases:
+    - Period-level KL divergence: weighted mean over non-local events
+    - Period-level log-likelihood: sum for predictive checks
+    - Consistent with paper's weighted average equations
+
+    When no time points are selected (all-false mask), returns NaN to indicate
+    an undefined aggregation.
+    """
+    # Validate metric_values is 1D
+    metric_arr = np.asarray(metric_values, dtype=float)
+    if metric_arr.ndim != 1:
+        raise ValueError(
+            f"metric_values must be 1-dimensional, "
+            f"got {metric_arr.ndim}D array with shape {metric_arr.shape}"
+        )
+
+    # Validate time_mask
+    mask_arr = np.asarray(time_mask, dtype=bool)
+    if mask_arr.shape != metric_arr.shape:
+        raise ValueError(
+            f"time_mask must have same length as metric_values, "
+            f"got {mask_arr.shape} vs {metric_arr.shape}"
+        )
+
+    # Validate reduction parameter
+    if reduction not in ("mean", "sum"):
+        raise ValueError(f"reduction must be 'mean' or 'sum', got '{reduction}'")
+
+    # Validate weights if provided
+    if weights is not None:
+        weights_arr = np.asarray(weights, dtype=float)
+        if weights_arr.shape != metric_arr.shape:
+            raise ValueError(
+                f"weights must have same length as metric_values, "
+                f"got {weights_arr.shape} vs {metric_arr.shape}"
+            )
+        if not np.isfinite(weights_arr).all():
+            raise ValueError("weights must be finite (no NaN or inf values)")
+        if np.any(weights_arr < 0):
+            raise ValueError("weights must be non-negative")
+
+        # Warn if weights provided with sum reduction
+        if reduction == "sum":
+            warnings.warn(
+                "weights are ignored when reduction='sum'",
+                UserWarning,
+                stacklevel=2,
+            )
+
+    # Select values based on time_mask
+    selected_values = metric_arr[mask_arr]
+
+    # Handle empty period (no time points selected)
+    if len(selected_values) == 0:
+        return np.nan
+
+    # Perform aggregation
+    if reduction == "sum":
+        return float(np.sum(selected_values))
+    else:  # reduction == "mean"
+        if weights is None:
+            return float(np.mean(selected_values))
+        else:
+            # Weighted mean
+            selected_weights = weights_arr[mask_arr]
+            weight_sum = np.sum(selected_weights)
+            if weight_sum == 0:
+                # All weights are zero -> return NaN
+                return np.nan
+            return float(np.sum(selected_values * selected_weights) / weight_sum)
+
+
+def predictive_pvalue(
+    observed_log_pred: NDArray[np.floating],
+    sample_log_pred: Callable[[int], NDArray[np.floating]],
+    *,
+    n_samples: int = 1000,
+) -> NDArray[np.floating]:
+    """Compute predictive p-value via Monte Carlo sampling.
+
+    Computes p-values for predictive checks by comparing observed log predictive
+    densities to a distribution of simulated log predictive densities. The p-value
+    at each time point is the proportion of simulated values that are greater than
+    or equal to the observed value.
+
+    This provides a posterior predictive check: if the model is correct, p-values
+    should be uniformly distributed. Systematic deviations indicate model misfit.
+
+    Parameters
+    ----------
+    observed_log_pred : np.ndarray
+        Observed log predictive densities for actual data.
+        Must be 1-dimensional.
+        Shape (n_time,).
+    sample_log_pred : callable
+        Function that generates samples of log predictive densities under the model.
+        Must accept a single integer argument `n_samples` and return an array of
+        shape (n_samples, n_time) containing simulated log predictive densities.
+        For reproducibility, use np.random.Generator with a fixed seed internally.
+        Example: `lambda n: rng.normal(loc=model_mean, scale=model_std, size=(n, n_time))`
+    n_samples : int, optional
+        Number of Monte Carlo samples to draw for p-value computation.
+        Higher values give more accurate p-value estimates but take longer.
+        Default is 1000.
+
+    Returns
+    -------
+    p_values : np.ndarray
+        P-value at each time point, computed as the proportion of simulated
+        log predictive densities >= observed value.
+        Values range from 0 to 1.
+        Shape (n_time,).
+
+    Raises
+    ------
+    ValueError
+        If observed_log_pred is not 1-dimensional, if n_samples <= 0,
+        or if sample_log_pred returns array with wrong shape.
+    TypeError
+        If sample_log_pred is not callable.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from statespacecheck import predictive_pvalue
+    >>> # Observed log predictive densities
+    >>> observed = np.array([-2.0, -1.5, -1.0])
+    >>> # Sampler with internal random state for reproducibility
+    >>> def sampler(n_samples):
+    ...     rng = np.random.default_rng(42)  # Fixed seed for reproducibility
+    ...     return rng.normal(loc=-1.5, scale=0.5, size=(n_samples, 3))
+    >>> p_vals = predictive_pvalue(observed, sampler, n_samples=100)
+    >>> p_vals.shape
+    (3,)
+    >>> np.all((p_vals >= 0) & (p_vals <= 1))
+    True
+
+    See Also
+    --------
+    log_predictive_density : Compute log predictive density for observed data
+    predictive_density : Compute predictive density in linear space
+    aggregate_over_period : Aggregate metrics over time periods
+
+    Notes
+    -----
+    The p-value at time t is computed as:
+        p_value[t] = (1 / n_samples) * sum(simulated[t] >= observed[t])
+
+    Interpretation:
+    - p-value near 0.5: observed data consistent with model
+    - p-value near 0 or 1: observed data extreme relative to model predictions
+    - Systematic patterns across time suggest model misspecification
+
+    The sampler function should:
+    1. Generate new data from the model
+    2. Compute log predictive density for each generated dataset
+    3. Return array of shape (n_samples, n_time)
+    4. Use np.random.Generator internally for reproducibility
+
+    For reproducible results, create your sampler with a fixed seed:
+        rng = np.random.default_rng(42)
+        sampler = lambda n: rng.normal(size=(n, n_time))
+    """
+    # Validate observed_log_pred
+    observed_arr = np.asarray(observed_log_pred, dtype=float)
+    if observed_arr.ndim != 1:
+        msg = (
+            f"observed_log_pred must be 1-dimensional, "
+            f"got {observed_arr.ndim}D array with shape {observed_arr.shape}"
+        )
+        raise ValueError(msg)
+
+    n_time = observed_arr.shape[0]
+
+    # Validate n_samples
+    if n_samples <= 0:
+        msg = f"n_samples must be positive, got {n_samples}"
+        raise ValueError(msg)
+
+    # Validate sample_log_pred is callable
+    if not callable(sample_log_pred):
+        msg = f"sample_log_pred must be callable, got {type(sample_log_pred).__name__}"
+        raise TypeError(msg)
+
+    # Generate samples
+    simulated = sample_log_pred(n_samples)
+
+    # Validate shape of simulated samples
+    simulated_arr = np.asarray(simulated, dtype=float)
+    if simulated_arr.shape != (n_samples, n_time):
+        msg = (
+            f"sample_log_pred output must have shape (n_samples, n_time) = "
+            f"({n_samples}, {n_time}), got shape {simulated_arr.shape}"
+        )
+        raise ValueError(msg)
+
+    # Compute p-values: proportion of samples >= observed
+    # Broadcasting: observed_arr has shape (n_time,), simulated_arr has shape (n_samples, n_time)
+    # Comparison broadcasts to (n_samples, n_time), then mean over axis=0 gives (n_time,)
+    return np.mean(simulated_arr >= observed_arr, axis=0)

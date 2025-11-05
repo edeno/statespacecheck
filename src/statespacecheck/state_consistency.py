@@ -182,6 +182,11 @@ def kl_divergence(
     if np.any(valid):
         kl_div[valid] = entropy(state_flat[valid], like_flat[valid], axis=1)
 
+    # Clip to non-negative values to handle floating point precision errors
+    # scipy.stats.entropy can return tiny negative values (~1e-113) with subnormal numbers
+    # KL divergence is mathematically always non-negative, so clip spurious negatives to 0
+    kl_div = np.maximum(kl_div, 0.0)
+
     return kl_div
 
 
