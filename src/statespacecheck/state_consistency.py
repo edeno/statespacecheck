@@ -172,7 +172,7 @@ def kl_divergence(
     like_sum = like_flat.sum(axis=1)
 
     # Initialize output with inf for invalid time slices
-    kl_div = np.full(n_time, np.inf, dtype=float)
+    kl_div: NDArray[np.floating] = np.full(n_time, np.inf, dtype=float)
 
     # Find valid time slices (both distributions have positive mass over valid bins)
     valid = (state_sum > 0) & (like_sum > 0)
@@ -294,7 +294,7 @@ def hpd_overlap(
     # Handle division by zero: when denom is 0, overlap is 0
     # This matches the normalization pattern used elsewhere in the codebase
     with np.errstate(divide="ignore", invalid="ignore"):
-        overlap = intersection / denom
+        overlap: NDArray[np.floating] = intersection / denom
     overlap = np.nan_to_num(overlap, nan=0.0, posinf=0.0, neginf=0.0)
 
     return overlap

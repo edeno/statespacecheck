@@ -125,7 +125,7 @@ def predictive_density(
     # Compute predictive density: sum over spatial dimensions
     # f_predictive(y) = ∑_x p(x) * p(y|x)
     # Note: likelihood is NOT normalized (critical!)
-    predictive = (state_normalized * like_flat).sum(axis=1)
+    predictive: NDArray[np.floating] = (state_normalized * like_flat).sum(axis=1)
 
     # Set zero-sum rows to NaN (they have no valid state mass)
     predictive[zero_rows] = np.nan
@@ -293,7 +293,7 @@ def log_predictive_density(
 
     # Compute log predictive density using logsumexp
     # log ∑_x p(x) * p(y|x) = logsumexp(log p(x) + log p(y|x))
-    log_predictive = logsumexp(log_state_normalized + log_like_flat, axis=1)
+    log_predictive: NDArray[np.floating] = logsumexp(log_state_normalized + log_like_flat, axis=1)
 
     # Set zero-sum rows to NaN (they have no valid state mass)
     log_predictive[zero_rows] = np.nan
@@ -428,4 +428,6 @@ def predictive_pvalue(
     # Compute p-values: proportion of samples >= observed
     # Broadcasting: observed_arr has shape (n_time,), simulated_arr has shape (n_samples, n_time)
     # Comparison broadcasts to (n_samples, n_time), then mean over axis=0 gives (n_time,)
-    return np.mean(simulated_arr >= observed_arr, axis=0)
+    # Explicit type annotation for mypy strict mode
+    p_values: NDArray[np.floating] = np.mean(simulated_arr >= observed_arr, axis=0)
+    return p_values

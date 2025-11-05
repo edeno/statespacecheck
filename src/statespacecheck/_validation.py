@@ -58,6 +58,7 @@ def validate_distribution(
         )
 
     # Handle non-finite values
+    clean: NDArray[np.floating]
     if allow_nan:
         # Use standard NumPy idiom: convert NaN/inf to 0
         clean = np.nan_to_num(arr, nan=0.0, posinf=0.0, neginf=0.0)
