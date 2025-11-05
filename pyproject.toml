@@ -1,22 +1,13 @@
 [project]
 name = "statespacecheck"
 version = "0.1.0"
-description = "Goodness-of-fit diagnostics for Bayesian state space models"
+description = "Goodness-of-fit diagnostics for state space models"
 readme = "README.md"
 requires-python = ">=3.10"
-dependencies = [
-    "numpy>=1.26.0",
-    "scipy>=1.11.0",
-    "matplotlib>=3.8.0",
-]
+dependencies = ["numpy>=1.26.0", "scipy>=1.11.0", "matplotlib>=3.8.0"]
 
 [project.optional-dependencies]
-dev = [
-    "pytest>=8.0.0",
-    "pytest-cov>=6.0.0",
-    "ruff>=0.8.0",
-    "mypy>=1.13.0",
-]
+dev = ["pytest>=8.0.0", "pytest-cov>=6.0.0", "ruff>=0.8.0", "mypy>=1.13.0"]
 
 [build-system]
 requires = ["hatchling"]
@@ -28,20 +19,20 @@ target-version = "py310"
 
 [tool.ruff.lint]
 select = [
-    "E",      # pycodestyle errors
-    "W",      # pycodestyle warnings
-    "F",      # pyflakes
-    "I",      # isort
-    "N",      # pep8-naming
-    "UP",     # pyupgrade
-    "B",      # flake8-bugbear
-    "C4",     # flake8-comprehensions
-    "NPY",    # numpy-specific rules
-    "D",      # pydocstyle
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "N",   # pep8-naming
+    "UP",  # pyupgrade
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "NPY", # numpy-specific rules
+    "D",   # pydocstyle
 ]
 ignore = [
-    "D100",   # Missing docstring in public module
-    "D104",   # Missing docstring in public package
+    "D100", # Missing docstring in public module
+    "D104", # Missing docstring in public package
 ]
 
 [tool.ruff.lint.pydocstyle]
