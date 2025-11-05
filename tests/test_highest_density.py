@@ -1,6 +1,7 @@
 """Tests for highest density functions."""
 
 import numpy as np
+import pytest
 
 from statespacecheck.highest_density import (
     highest_density_region,
@@ -143,6 +144,27 @@ class TestHighestDensityRegion:
         assert region.shape == posterior.shape
         # NaN columns should be excluded from region
         assert not np.any(region[:, 0])
+
+    def test_invalid_coverage_raises_error(self) -> None:
+        """Test that invalid coverage values raise ValueError."""
+        n_time, n_bins = 5, 20
+        distribution = rng.dirichlet(np.ones(n_bins), size=n_time)
+
+        # Test coverage = 0.0 (boundary)
+        with pytest.raises(ValueError, match="coverage must be in \\(0, 1\\)"):
+            highest_density_region(distribution, coverage=0.0)
+
+        # Test coverage = 1.0 (boundary)
+        with pytest.raises(ValueError, match="coverage must be in \\(0, 1\\)"):
+            highest_density_region(distribution, coverage=1.0)
+
+        # Test coverage < 0
+        with pytest.raises(ValueError, match="coverage must be in \\(0, 1\\)"):
+            highest_density_region(distribution, coverage=-0.1)
+
+        # Test coverage > 1
+        with pytest.raises(ValueError, match="coverage must be in \\(0, 1\\)"):
+            highest_density_region(distribution, coverage=1.5)
 
     def test_exact_hd_region_1d(self) -> None:
         """Test exact HD region with simple 1D binary distributions."""
