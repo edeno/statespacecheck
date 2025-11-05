@@ -3,14 +3,19 @@
 import numpy as np
 from numpy.typing import NDArray
 
-from ._validation import flatten_time_spatial, validate_coverage, validate_distribution
+from ._validation import (
+    DistributionArray,
+    flatten_time_spatial,
+    validate_coverage,
+    validate_distribution,
+)
 
 # Default coverage probability for highest density regions
 DEFAULT_COVERAGE = 0.95
 
 
 def highest_density_region(
-    distribution: NDArray[np.floating], *, coverage: float = DEFAULT_COVERAGE
+    distribution: DistributionArray, *, coverage: float = DEFAULT_COVERAGE
 ) -> NDArray[np.bool_]:
     """Compute boolean mask indicating highest density region membership.
 
@@ -20,18 +25,18 @@ def highest_density_region(
 
     Parameters
     ----------
-    distribution : np.ndarray
-        Probability distributions over position at each time point.
-        Shape (n_time, ...) where ... represents arbitrary spatial dimensions.
+    distribution : np.ndarray, shape (n_time, ...)
+        Probability distributions over position at each time point where
+        ... represents arbitrary spatial dimensions.
     coverage : float, optional
         Desired coverage probability for the highest density region. Must be between 0 and 1.
         Default is 0.95 for 95% coverage.
 
     Returns
     -------
-    isin_hd : np.ndarray
+    isin_hd : np.ndarray, shape (n_time, ...)
         Boolean mask indicating which positions are in the highest density region at each
-        time point. Shape (n_time, ...) matching input shape.
+        time point, matching input shape.
 
     Raises
     ------

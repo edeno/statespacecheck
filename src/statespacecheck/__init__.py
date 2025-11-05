@@ -5,7 +5,8 @@ distributions and their component likelihood distributions in Bayesian
 state space models.
 """
 
-from statespacecheck.highest_density import highest_density_region
+from statespacecheck._validation import DistributionArray
+from statespacecheck.highest_density import DEFAULT_COVERAGE, highest_density_region
 from statespacecheck.periods import aggregate_over_period
 from statespacecheck.predictive_checks import (
     log_predictive_density,
@@ -19,9 +20,6 @@ from statespacecheck.state_consistency import (
 
 __version__ = "0.1.0"
 
-# Default coverage probability for highest density regions
-DEFAULT_COVERAGE = 0.95
-
 __all__ = [
     "highest_density_region",
     "kl_divergence",
@@ -31,4 +29,5 @@ __all__ = [
     "aggregate_over_period",
     "predictive_pvalue",
     "DEFAULT_COVERAGE",
+    "DistributionArray",
 ]

@@ -11,6 +11,7 @@ from numpy.typing import NDArray
 from scipy.stats import entropy
 
 from ._validation import (
+    DistributionArray,
     flatten_time_spatial,
     get_spatial_axes,
     validate_coverage,
@@ -20,23 +21,23 @@ from .highest_density import DEFAULT_COVERAGE, highest_density_region
 
 
 def _validate_and_normalize_distributions(
-    state_dist: NDArray[np.floating], likelihood: NDArray[np.floating]
-) -> tuple[NDArray[np.floating], NDArray[np.floating]]:
+    state_dist: DistributionArray, likelihood: DistributionArray
+) -> tuple[DistributionArray, DistributionArray]:
     """Validate and normalize distributions, handling NaN values correctly.
 
     Parameters
     ----------
-    state_dist : np.ndarray
-        State distributions. Shape (n_time, ...) where ... represents arbitrary spatial dimensions.
-    likelihood : np.ndarray
+    state_dist : np.ndarray, shape (n_time, ...)
+        State distributions where ... represents arbitrary spatial dimensions.
+    likelihood : np.ndarray, shape (n_time, ...)
         Likelihood distributions. Must have same shape as state_dist.
 
     Returns
     -------
-    state_normalized : np.ndarray
+    state_normalized : np.ndarray, shape (n_time, ...)
         Normalized state distributions. NaN/inf values in input are converted to 0.0.
         Each time slice normalized to sum to 1.0 over valid (non-zero) bins.
-    likelihood_normalized : np.ndarray
+    likelihood_normalized : np.ndarray, shape (n_time, ...)
         Normalized likelihood distributions. NaN/inf values in input are converted to 0.0.
         Each time slice normalized to sum to 1.0 over valid (non-zero) bins.
 
@@ -88,8 +89,8 @@ def _validate_and_normalize_distributions(
 
 
 def kl_divergence(
-    state_dist: NDArray[np.floating], likelihood: NDArray[np.floating]
-) -> NDArray[np.floating]:
+    state_dist: DistributionArray, likelihood: DistributionArray
+) -> DistributionArray:
     """Compute Kullback-Leibler divergence between state distribution and likelihood.
 
     Measures the information divergence between the state distribution and likelihood
@@ -98,27 +99,25 @@ def kl_divergence(
 
     Parameters
     ----------
-    state_dist : np.ndarray
-        State probability distributions over position at each time point.
+    state_dist : np.ndarray, shape (n_time, ...)
+        State probability distributions over position at each time point where
+        ... represents arbitrary spatial dimensions.
         Can be either one-step predictive distribution or smoother output.
         Non-negative values (NaN allowed to mark invalid bins).
         Automatically normalized over valid (non-NaN) bins.
-        Shape (n_time, ...) where ... represents arbitrary spatial dimensions.
-    likelihood : np.ndarray
+    likelihood : np.ndarray, shape (n_time, ...)
         Likelihood distributions at each time point. This is the
         likelihood p(y_t | x_t) across spatial positions.
         Non-negative values (NaN allowed to mark invalid bins).
         Automatically normalized over valid (non-NaN) bins.
         Must have same shape as state_dist.
-        Shape (n_time, ...) where ... represents arbitrary spatial dimensions.
 
     Returns
     -------
-    kl_divergence : np.ndarray
+    kl_divergence : np.ndarray, shape (n_time,)
         Kullback-Leibler divergence D_KL(state_dist || likelihood) at each
         time point. Values are non-negative, with 0 indicating identical
         distributions.
-        Shape (n_time,).
 
     Raises
     ------
@@ -172,7 +171,7 @@ def kl_divergence(
     like_sum = like_flat.sum(axis=1)
 
     # Initialize output with inf for invalid time slices
-    kl_div: NDArray[np.floating] = np.full(n_time, np.inf, dtype=float)
+    kl_div: DistributionArray = np.full(n_time, np.inf, dtype=float)
 
     # Find valid time slices (both distributions have positive mass over valid bins)
     valid = (state_sum > 0) & (like_sum > 0)
@@ -191,11 +190,11 @@ def kl_divergence(
 
 
 def hpd_overlap(
-    state_dist: NDArray[np.floating],
-    likelihood: NDArray[np.floating],
+    state_dist: DistributionArray,
+    likelihood: DistributionArray,
     *,
     coverage: float = DEFAULT_COVERAGE,
-) -> NDArray[np.floating]:
+) -> DistributionArray:
     """Compute overlap between HPD regions of state distribution and likelihood.
 
     Measures the spatial overlap between the highest posterior density regions
@@ -204,30 +203,28 @@ def hpd_overlap(
 
     Parameters
     ----------
-    state_dist : np.ndarray
-        State probability distributions over position at each time point.
+    state_dist : np.ndarray, shape (n_time, ...)
+        State probability distributions over position at each time point where
+        ... represents arbitrary spatial dimensions.
         Can be either one-step predictive distribution or smoother output.
         Non-negative values (NaN allowed to mark invalid bins).
         Automatically normalized over valid (non-NaN) bins.
-        Shape (n_time, ...) where ... represents arbitrary spatial dimensions.
-    likelihood : np.ndarray
+    likelihood : np.ndarray, shape (n_time, ...)
         Likelihood distributions at each time point. This is the
         likelihood p(y_t | x_t) across spatial positions.
         Non-negative values (NaN allowed to mark invalid bins).
         Automatically normalized over valid (non-NaN) bins.
         Must have same shape as state_dist.
-        Shape (n_time, ...) where ... represents arbitrary spatial dimensions.
     coverage : float, optional
         Coverage probability for the HPD regions. Must be between 0 and 1.
         Default is 0.95 for 95% HPD regions.
 
     Returns
     -------
-    hpd_overlap : np.ndarray
+    hpd_overlap : np.ndarray, shape (n_time,)
         Proportion of overlap between the HPD regions of state_dist and
         likelihood at each time point. Values range from 0 (no overlap)
         to 1 (complete overlap).
-        Shape (n_time,).
 
     Raises
     ------
@@ -294,7 +291,7 @@ def hpd_overlap(
     # Handle division by zero: when denom is 0, overlap is 0
     # This matches the normalization pattern used elsewhere in the codebase
     with np.errstate(divide="ignore", invalid="ignore"):
-        overlap: NDArray[np.floating] = intersection / denom
+        overlap: DistributionArray = intersection / denom
     overlap = np.nan_to_num(overlap, nan=0.0, posinf=0.0, neginf=0.0)
 
     return overlap

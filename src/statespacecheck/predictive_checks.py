@@ -8,10 +8,10 @@ import warnings
 from collections.abc import Callable
 
 import numpy as np
-from numpy.typing import NDArray
 from scipy.special import logsumexp
 
 from ._validation import (
+    DistributionArray,
     flatten_time_spatial,
     validate_distribution,
     validate_paired_distributions,
@@ -21,9 +21,9 @@ from ._validation import (
 
 
 def predictive_density(
-    state_dist: NDArray[np.floating],
-    likelihood: NDArray[np.floating],
-) -> NDArray[np.floating]:
+    state_dist: DistributionArray,
+    likelihood: DistributionArray,
+) -> DistributionArray:
     """Compute predictive density by integrating state dist with obs likelihood.
 
     CRITICAL: This function normalizes state_dist ONLY, NOT likelihood.
@@ -34,23 +34,21 @@ def predictive_density(
 
     Parameters
     ----------
-    state_dist : np.ndarray
-        State probability distributions over position at each time point.
+    state_dist : np.ndarray, shape (n_time, ...)
+        State probability distributions over position at each time point where
+        ... represents arbitrary spatial dimensions.
         Non-negative values (NaN allowed to mark invalid bins).
         Will be normalized over spatial dimensions (everything except time).
-        Shape (n_time, ...) where ... represents arbitrary spatial dimensions.
-    likelihood : np.ndarray
+    likelihood : np.ndarray, shape (n_time, ...)
         Likelihood p(y|x) evaluated at observed data across all positions.
         Non-negative values (NaN allowed to mark invalid bins).
         DO NOT normalize - this is a likelihood function.
         Must have same shape as state_dist.
-        Shape (n_time, ...) where ... represents arbitrary spatial dimensions.
 
     Returns
     -------
-    predictive_density : np.ndarray
+    predictive_density : np.ndarray, shape (n_time,)
         Predictive density at each time point.
-        Shape (n_time,).
 
     Raises
     ------
@@ -125,7 +123,7 @@ def predictive_density(
     # Compute predictive density: sum over spatial dimensions
     # f_predictive(y) = ∑_x p(x) * p(y|x)
     # Note: likelihood is NOT normalized (critical!)
-    predictive: NDArray[np.floating] = (state_normalized * like_flat).sum(axis=1)
+    predictive: DistributionArray = (state_normalized * like_flat).sum(axis=1)
 
     # Set zero-sum rows to NaN (they have no valid state mass)
     predictive[zero_rows] = np.nan
@@ -134,10 +132,10 @@ def predictive_density(
 
 
 def log_predictive_density(
-    state_dist: NDArray[np.floating],
-    likelihood: NDArray[np.floating] | None = None,
-    log_likelihood: NDArray[np.floating] | None = None,
-) -> NDArray[np.floating]:
+    state_dist: DistributionArray,
+    likelihood: DistributionArray | None = None,
+    log_likelihood: DistributionArray | None = None,
+) -> DistributionArray:
     """Compute log predictive density directly in log-space using logsumexp.
 
     CRITICAL: This function normalizes state_dist ONLY, NOT likelihood.
@@ -149,30 +147,27 @@ def log_predictive_density(
 
     Parameters
     ----------
-    state_dist : np.ndarray
-        State probability distributions over position at each time point.
+    state_dist : np.ndarray, shape (n_time, ...)
+        State probability distributions over position at each time point where
+        ... represents arbitrary spatial dimensions.
         Non-negative values (NaN allowed to mark invalid bins).
         Will be normalized over spatial dimensions (everything except time).
-        Shape (n_time, ...) where ... represents arbitrary spatial dimensions.
-    likelihood : np.ndarray, optional
+    likelihood : np.ndarray, shape (n_time, ...), optional
         Likelihood p(y|x) evaluated at observed data across all positions.
         Non-negative values (NaN allowed to mark invalid bins).
         DO NOT normalize - this is a likelihood function.
         Must have same shape as state_dist.
         Exactly one of `likelihood` or `log_likelihood` must be provided.
-        Shape (n_time, ...) where ... represents arbitrary spatial dimensions.
-    log_likelihood : np.ndarray, optional
+    log_likelihood : np.ndarray, shape (n_time, ...), optional
         Log-likelihood log p(y|x) evaluated at observed data.
         Allows users who already have log-likelihood to avoid exp/log round-trip.
         Must have same shape as state_dist.
         Exactly one of `likelihood` or `log_likelihood` must be provided.
-        Shape (n_time, ...) where ... represents arbitrary spatial dimensions.
 
     Returns
     -------
-    log_predictive_density : np.ndarray
+    log_predictive_density : np.ndarray, shape (n_time,)
         Log predictive density at each time point.
-        Shape (n_time,).
 
     Raises
     ------
@@ -293,7 +288,7 @@ def log_predictive_density(
 
     # Compute log predictive density using logsumexp
     # log ∑_x p(x) * p(y|x) = logsumexp(log p(x) + log p(y|x))
-    log_predictive: NDArray[np.floating] = logsumexp(log_state_normalized + log_like_flat, axis=1)
+    log_predictive: DistributionArray = logsumexp(log_state_normalized + log_like_flat, axis=1)
 
     # Set zero-sum rows to NaN (they have no valid state mass)
     log_predictive[zero_rows] = np.nan
@@ -302,11 +297,11 @@ def log_predictive_density(
 
 
 def predictive_pvalue(
-    observed_log_pred: NDArray[np.floating],
-    sample_log_pred: Callable[[int], NDArray[np.floating]],
+    observed_log_pred: DistributionArray,
+    sample_log_pred: Callable[[int], DistributionArray],
     *,
     n_samples: int = 1000,
-) -> NDArray[np.floating]:
+) -> DistributionArray:
     """Compute predictive p-value via Monte Carlo sampling.
 
     Computes p-values for predictive checks by comparing observed log predictive
@@ -319,10 +314,9 @@ def predictive_pvalue(
 
     Parameters
     ----------
-    observed_log_pred : np.ndarray
+    observed_log_pred : np.ndarray, shape (n_time,)
         Observed log predictive densities for actual data.
         Must be 1-dimensional.
-        Shape (n_time,).
     sample_log_pred : callable
         Function that generates samples of log predictive densities under the model.
         Must accept a single integer argument `n_samples` and return an array of
@@ -336,11 +330,10 @@ def predictive_pvalue(
 
     Returns
     -------
-    p_values : np.ndarray
+    p_values : np.ndarray, shape (n_time,)
         P-value at each time point, computed as the proportion of simulated
         log predictive densities >= observed value.
         Values range from 0 to 1.
-        Shape (n_time,).
 
     Raises
     ------
@@ -429,5 +422,5 @@ def predictive_pvalue(
     # Broadcasting: observed_arr has shape (n_time,), simulated_arr has shape (n_samples, n_time)
     # Comparison broadcasts to (n_samples, n_time), then mean over axis=0 gives (n_time,)
     # Explicit type annotation for mypy strict mode
-    p_values: NDArray[np.floating] = np.mean(simulated_arr >= observed_arr, axis=0)
+    p_values: DistributionArray = np.mean(simulated_arr >= observed_arr, axis=0)
     return p_values

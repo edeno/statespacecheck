@@ -106,6 +106,20 @@ class TestValidateDistribution:
         with pytest.raises(ValueError, match="must be at least 2D"):
             validate_distribution(dist, min_ndim=2)
 
+    def test_insufficient_dimensions_min_ndim_1(self) -> None:
+        """Test error message for min_ndim=1 with scalar input."""
+        dist = np.array(0.5)  # 0D array (scalar)
+
+        with pytest.raises(ValueError, match=r"must be at least 1D.*\(n_time,\)"):
+            validate_distribution(dist, min_ndim=1)
+
+    def test_insufficient_dimensions_min_ndim_3(self) -> None:
+        """Test error message for min_ndim=3 with 2D input."""
+        dist = np.array([[0.2, 0.3, 0.5]])  # 2D array
+
+        with pytest.raises(ValueError, match="must be at least 3D"):
+            validate_distribution(dist, min_ndim=3)
+
     def test_spatial_dimension_flattening(self) -> None:
         """Test that spatial dimensions are correctly flattened."""
         # Test basic flattening
