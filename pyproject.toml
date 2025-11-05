@@ -7,7 +7,7 @@ requires-python = ">=3.10"
 dependencies = ["numpy>=1.26.0", "scipy>=1.11.0", "matplotlib>=3.8.0"]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0.0", "pytest-cov>=6.0.0", "ruff>=0.8.0", "mypy>=1.13.0"]
+dev = ["pytest>=8.0.0", "pytest-cov>=6.0.0", "ruff>=0.8.0", "mypy>=1.13.0", "hypothesis>=6.0.0"]
 
 [build-system]
 requires = ["hatchling"]
