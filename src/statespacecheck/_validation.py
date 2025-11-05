@@ -68,8 +68,10 @@ def validate_distribution(
         else:
             expected_shape = f"{min_ndim}D"
         raise ValueError(
-            f"{name} must be at least {min_ndim}D with shape {expected_shape}, got shape {arr.shape}. "
-            f"State space diagnostics require time-series data where the first dimension is time. "
+            f"{name} must be at least {min_ndim}D with shape {expected_shape}, "
+            f"got shape {arr.shape}. "
+            f"State space diagnostics require time-series data where the first "
+            f"dimension is time. "
             f"For 1D spatial data use shape (n_time, n_position_bins), "
             f"for 2D spatial data use shape (n_time, n_x_bins, n_y_bins). "
             f"Did you forget to add the time dimension?"
@@ -87,7 +89,8 @@ def validate_distribution(
                 f"{name} contains non-finite values (NaN or inf). "
                 f"Probability distributions must have finite values. "
                 f"If you have invalid spatial bins (e.g., inaccessible locations), "
-                f"consider setting them to 0 instead of NaN, or ensure allow_nan=True in the validation."
+                f"consider setting them to 0 instead of NaN, or ensure "
+                f"allow_nan=True in the validation."
             )
 
     # Check for negative values
