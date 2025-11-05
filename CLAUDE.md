@@ -33,9 +33,8 @@ The codebase implements three complementary model checking methods designed to:
 
 **[src/statespacecheck/highest_density.py](src/statespacecheck/highest_density.py)**
 
-- HPD region computation utilities
-- `_highest_posterior_threshold()`: Finds threshold values for HPD regions at specified coverage (handles multimodal distributions)
-- `highest_density_region()`: Returns boolean mask indicating HPD region membership
+- Highest density region computation utilities
+- `highest_density_region()`: Returns boolean mask indicating highest density region membership. Computes threshold values inline for specified coverage, handling multimodal distributions correctly
 
 ### Data Structures
 

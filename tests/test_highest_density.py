@@ -2,34 +2,37 @@
 
 import numpy as np
 import pytest
+from conftest import (
+    make_bimodal_gaussian_1d,
+    make_gaussian_1d,
+    make_gaussian_2d,
+    make_random_distribution_1d,
+    make_random_distribution_2d,
+    sum_over_spatial,
+)
 
 from statespacecheck.highest_density import (
     highest_density_region,
 )
 
-# Use modern NumPy random API with fixed seed for reproducibility
-rng = np.random.default_rng(seed=42)
-
 
 class TestHighestDensityRegion:
     """Tests for highest_density_region function."""
 
-    def test_1d_spatial_output_shape(self) -> None:
+    def test_1d_spatial_output_shape(self, rng) -> None:
         """Test that output shape matches input for 1D spatial."""
         n_time, n_bins = 10, 20
-        posterior = rng.dirichlet(np.ones(n_bins), size=n_time)
+        posterior = make_random_distribution_1d(rng, n_time, n_bins)
 
         region = highest_density_region(posterior, coverage=0.95)
 
         assert region.shape == posterior.shape
         assert region.dtype == bool
 
-    def test_2d_spatial_output_shape(self) -> None:
+    def test_2d_spatial_output_shape(self, rng) -> None:
         """Test that output shape matches input for 2D spatial."""
         n_time, n_x, n_y = 10, 5, 5
-        n_bins = n_x * n_y
-        # Create and reshape to 2D spatial
-        posterior = rng.dirichlet(np.ones(n_bins), size=n_time).reshape(n_time, n_x, n_y)
+        posterior = make_random_distribution_2d(rng, n_time, n_x, n_y)
 
         region = highest_density_region(posterior, coverage=0.95)
 
@@ -63,7 +66,7 @@ class TestHighestDensityRegion:
         region = highest_density_region(posterior, coverage=0.95)
 
         # CRITICAL: Sum over BOTH spatial dimensions
-        region_size = region.sum(axis=(1, 2))
+        region_size = sum_over_spatial(region)
 
         assert region_size.shape == (n_time,), (
             f"Expected region_size shape (n_time,)={n_time}, got {region_size.shape}"
@@ -76,11 +79,7 @@ class TestHighestDensityRegion:
     def test_1d_spatial_gaussian_coverage(self) -> None:
         """Test coverage for Gaussian-like 1D distribution."""
         n_time, n_bins = 5, 50
-        # Create Gaussian-like distribution
-        x = np.arange(n_bins)
-        posterior = np.exp(-((x - 25) ** 2) / (2 * 5**2))
-        posterior = posterior / posterior.sum()
-        posterior = np.tile(posterior, (n_time, 1))
+        posterior = make_gaussian_1d(n_time, n_bins, mean=25, std=5)
         coverage = 0.95
 
         region = highest_density_region(posterior, coverage=coverage)
@@ -96,19 +95,13 @@ class TestHighestDensityRegion:
     def test_2d_spatial_gaussian_coverage(self) -> None:
         """Test coverage for Gaussian-like 2D distribution."""
         n_time, n_x, n_y = 5, 20, 20
-        # Create 2D Gaussian
-        x = np.arange(n_x)
-        y = np.arange(n_y)
-        xx, yy = np.meshgrid(x, y, indexing="ij")
-        posterior = np.exp(-(((xx - 10) ** 2 + (yy - 10) ** 2) / (2 * 3**2)))
-        posterior = posterior / posterior.sum()
-        posterior = np.tile(posterior, (n_time, 1, 1))
+        posterior = make_gaussian_2d(n_time, n_x, n_y, mean_x=10, mean_y=10, std=3)
         coverage = 0.95
 
         region = highest_density_region(posterior, coverage=coverage)
 
         # Check actual coverage by summing over both spatial dimensions
-        actual_coverage = (region * posterior).sum(axis=(1, 2))
+        actual_coverage = sum_over_spatial(region * posterior)
         assert actual_coverage.shape == (n_time,)
         # Check coverage is at least the requested coverage
         assert np.all(actual_coverage >= coverage)
@@ -128,13 +121,13 @@ class TestHighestDensityRegion:
         assert np.all(region[:, 7, 7])
 
         # Region size should be small (just the peaks)
-        region_size = region.sum(axis=(1, 2))
+        region_size = sum_over_spatial(region)
         assert np.all(region_size <= 4)  # At most 2 bins per peak
 
-    def test_handles_nan_values(self) -> None:
+    def test_handles_nan_values(self, rng) -> None:
         """Test that NaN values are handled correctly."""
         n_time, n_bins = 5, 20
-        posterior = rng.dirichlet(np.ones(n_bins), size=n_time)
+        posterior = make_random_distribution_1d(rng, n_time, n_bins)
         # Add some NaN values
         posterior[:, 0] = np.nan
 
@@ -145,10 +138,10 @@ class TestHighestDensityRegion:
         # NaN columns should be excluded from region
         assert not np.any(region[:, 0])
 
-    def test_invalid_coverage_raises_error(self) -> None:
+    def test_invalid_coverage_raises_error(self, rng) -> None:
         """Test that invalid coverage values raise ValueError."""
         n_time, n_bins = 5, 20
-        distribution = rng.dirichlet(np.ones(n_bins), size=n_time)
+        distribution = make_random_distribution_1d(rng, n_time, n_bins)
 
         # Test coverage = 0.0 (boundary)
         with pytest.raises(ValueError, match="coverage must be in \\(0, 1\\)"):
@@ -241,11 +234,7 @@ class TestHighestDensityRegion:
         mean = 100
         std = 20
 
-        # Create fine Gaussian distribution
-        x = np.arange(n_bins)
-        distribution = np.exp(-((x - mean) ** 2) / (2 * std**2))
-        distribution = distribution / distribution.sum()
-        distribution = distribution.reshape(1, -1)
+        distribution = make_gaussian_1d(n_time=1, n_bins=n_bins, mean=mean, std=std)
 
         coverage = 0.95
         region = highest_density_region(distribution, coverage=coverage)
@@ -293,20 +282,12 @@ class TestHighestDensityRegion:
         3. Region may be non-contiguous if the valley between peaks is deep enough
         """
         n_bins = 200
-
-        # Create bimodal Gaussian distribution
-        # Two Gaussians with equal weight but separated peaks
-        x = np.arange(n_bins)
         mean1, std1 = 60, 10
         mean2, std2 = 140, 10
 
-        gaussian1 = np.exp(-((x - mean1) ** 2) / (2 * std1**2))
-        gaussian2 = np.exp(-((x - mean2) ** 2) / (2 * std2**2))
-
-        # Equal mixture
-        distribution = 0.5 * gaussian1 + 0.5 * gaussian2
-        distribution = distribution / distribution.sum()
-        distribution = distribution.reshape(1, -1)
+        distribution = make_bimodal_gaussian_1d(
+            n_time=1, n_bins=n_bins, mean1=mean1, std1=std1, mean2=mean2, std2=std2, weight1=0.5
+        )
 
         coverage = 0.95
         region = highest_density_region(distribution, coverage=coverage)

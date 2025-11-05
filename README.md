@@ -21,6 +21,36 @@ The posterior distribution combines information from both models, weighing curre
 - **Flexible Dimensionality**: Supports both 1D `(n_time, n_position_bins)` and 2D `(n_time, n_x_bins, n_y_bins)` spatial arrays
 - **Robust Edge Case Handling**: Proper treatment of NaN values, zero sums, and empty distributions
 
+## Terminology
+
+This package uses specific terminology to match standard state space model conventions:
+
+### State Distributions (`state_dist` parameter)
+- **One-step-ahead predictive distribution**: p(x_t | y_{1:t-1}) - The distribution over current state given all past observations
+- **Smoothed distribution**: p(x_t | y_{1:T}) - The distribution over state at time t given all observations (past and future)
+- **Filtered distribution**: p(x_t | y_{1:t}) - The posterior distribution at time t (filtered estimate)
+
+For goodness-of-fit diagnostics, you typically use the **one-step predictive** or **smoothed** distribution as `state_dist`. These represent your model's predictions before (predictive) or after (smoother) incorporating all available data.
+
+### Likelihood (`likelihood` parameter)
+- **Normalized likelihood**: p(y_t | x_t) / Σ_x p(y_t | x_t) - The likelihood normalized across spatial positions
+- This is mathematically equivalent to the posterior p(x_t | y_t) with a uniform prior
+- Represents what your data alone says about the state, without temporal smoothing
+
+### Important Note: Discrete Distributions
+All functions expect **discrete probability distributions** represented as histograms over spatial bins. For continuous distributions (e.g., Gaussian), discretize them first:
+- Distributions are **automatically normalized** over valid (non-NaN) bins
+- Each bin represents the probability mass in that spatial region
+- **NaN values** can be used to mark invalid/inaccessible spatial bins (e.g., walls in a maze)
+- Finer binning provides better approximation but increases computation
+
+### Interpretation
+- **Consistency**: When state distribution and likelihood agree (low KL divergence, high overlap), your model's predictions align with the data
+- **Inconsistency**: When they diverge, it indicates:
+  - Prior/transition model may be too rigid or misspecified
+  - Observation model may not capture the true relationship between states and observations
+  - Model capacity may be insufficient
+
 ## Installation
 
 ```bash
@@ -32,6 +62,8 @@ pip install -e .
 ```
 
 ## Quick Start
+
+### Basic Example
 
 ```python
 import numpy as np
@@ -59,6 +91,58 @@ hd_mask = highest_density_region(state_dist, coverage=0.95)
 # Returns: (n_time, n_bins) boolean mask
 ```
 
+### Neuroscience Example
+
+```python
+import numpy as np
+from scipy.stats import norm
+from statespacecheck import kl_divergence, hpd_overlap
+
+# Assume you have state space model output for spatial navigation task
+# with position bins representing locations in a linear track
+
+# Position bins (e.g., 50 cm track discretized into 100 bins)
+position_bins = np.linspace(0, 50, 100)  # cm
+n_time = 1000  # Number of time steps
+
+# Example: One-step-ahead predictive distribution from Kalman filter
+# predicted_position: (n_time,) array of predicted positions in cm
+# predicted_std: (n_time,) array of prediction uncertainty
+predicted_position = 25 + 10 * np.sin(np.linspace(0, 4*np.pi, n_time))
+predicted_std = np.ones(n_time) * 2.0
+
+# Convert to spatial probability distribution over position bins
+# Note: Distributions are automatically normalized, no need to normalize manually
+state_dist = np.array([
+    norm.pdf(position_bins, loc=pred_pos, scale=pred_std)
+    for pred_pos, pred_std in zip(predicted_position, predicted_std)
+])
+
+# Example: Likelihood from place cell firing (observation model)
+# spike_counts: (n_cells, n_time) array of spike counts
+# place_fields: (n_cells, n_bins) array of firing rate maps
+# For this example, we'll simulate the likelihood
+# Note: Automatically normalized, no manual normalization needed
+likelihood = np.array([
+    norm.pdf(position_bins, loc=pred_pos + np.random.randn(), scale=3.0)
+    for pred_pos in predicted_position
+])
+
+# Assess goodness-of-fit
+divergence = kl_divergence(state_dist, likelihood)
+overlap = hpd_overlap(state_dist, likelihood, coverage=0.95)
+
+# Interpret results
+print(f"Mean KL divergence: {np.mean(divergence):.3f}")
+print(f"Mean HPD overlap: {np.mean(overlap):.3f}")
+
+# Identify time points with poor fit
+high_divergence = divergence > 1.0
+low_overlap = overlap < 0.3
+print(f"Time points with high divergence: {np.sum(high_divergence)}/{n_time}")
+print(f"Time points with low overlap: {np.sum(low_overlap)}/{n_time}")
+```
+
 ## API Reference
 
 ### `kl_divergence(state_dist, likelihood)`
@@ -66,8 +150,8 @@ hd_mask = highest_density_region(state_dist, coverage=0.95)
 Compute Kullback-Leibler divergence between state distribution and likelihood.
 
 **Parameters:**
-- `state_dist` (np.ndarray): State distributions (one-step predictive or smoother). Shape `(n_time, ...)` where `...` represents arbitrary spatial dimensions
-- `likelihood` (np.ndarray): Normalized likelihood distributions (equivalent to posterior with uniform prior). Must have same shape as state_dist
+- `state_dist` (np.ndarray): State distributions (one-step predictive or smoother). Non-negative values, automatically normalized. NaN marks invalid bins. Shape `(n_time, ...)` where `...` represents arbitrary spatial dimensions
+- `likelihood` (np.ndarray): Likelihood distributions. Non-negative values, automatically normalized. NaN marks invalid bins. Must have same shape as state_dist
 
 **Returns:**
 - `kl_divergence` (np.ndarray): KL divergence at each time point. Shape `(n_time,)`
@@ -82,8 +166,8 @@ Compute Kullback-Leibler divergence between state distribution and likelihood.
 Compute overlap between highest posterior density regions.
 
 **Parameters:**
-- `state_dist` (np.ndarray): State distributions (one-step predictive or smoother). Shape `(n_time, ...)` where `...` represents arbitrary spatial dimensions
-- `likelihood` (np.ndarray): Normalized likelihood distributions (equivalent to posterior with uniform prior). Must have same shape as state_dist
+- `state_dist` (np.ndarray): State distributions (one-step predictive or smoother). Non-negative values, automatically normalized. NaN marks invalid bins. Shape `(n_time, ...)` where `...` represents arbitrary spatial dimensions
+- `likelihood` (np.ndarray): Likelihood distributions. Non-negative values, automatically normalized. NaN marks invalid bins. Must have same shape as state_dist
 - `coverage` (float): Coverage probability for HPD regions (default: 0.95)
 
 **Returns:**

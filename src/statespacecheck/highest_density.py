@@ -2,6 +2,8 @@
 
 import numpy as np
 
+from ._validation import validate_coverage
+
 
 def highest_density_region(distribution: np.ndarray, coverage: float = 0.95) -> np.ndarray:
     """Compute boolean mask indicating highest density region membership.
@@ -40,18 +42,29 @@ def highest_density_region(distribution: np.ndarray, coverage: float = 0.95) -> 
     For reference see: https://stats.stackexchange.com/questions/240749/how-to-find-95-credible-interval
 
     """
-    if not (0.0 < coverage < 1.0):
-        raise ValueError("coverage must be in (0, 1).")
+    validate_coverage(coverage)
 
     post = np.asarray(distribution)
-    n_time = post.shape[0]
-    n_spatial = int(np.prod(post.shape[1:], dtype=np.int64))
+
+    # Clean once and use consistently: treat NaNs/infinities as zero mass
+    clean = np.where(np.isfinite(post), post, 0.0)
+
+    n_time = clean.shape[0]
+    n_spatial = int(np.prod(clean.shape[1:], dtype=np.int64))
+
+    # Validate spatial dimensions didn't overflow
+    if n_spatial <= 0 and len(clean.shape) > 1:
+        raise ValueError(
+            f"Spatial dimensions too large or invalid: {clean.shape[1:]}. "
+            f"Product of spatial dimensions must be positive and fit in int64."
+        )
+
+    # Validate non-negativity
+    if np.any(clean < 0):
+        raise ValueError("distribution must be non-negative (probability or weight).")
 
     # Flatten spatial dims -> (n_time, n_spatial)
-    flat = post.reshape(n_time, n_spatial)
-
-    # Treat NaNs as zero mass, keep them from poisoning sums or sort order
-    flat = np.where(np.isfinite(flat), flat, 0.0)
+    flat = clean.reshape(n_time, n_spatial)
 
     totals = flat.sum(axis=1)  # (n_time,)
     target = coverage * totals  # (n_time,)
@@ -83,5 +96,6 @@ def highest_density_region(distribution: np.ndarray, coverage: float = 0.95) -> 
     cutoff = np.where(empty, np.inf, cutoff)
 
     # Broadcast cutoff back to spatial shape and build mask
-    reshape = (n_time,) + (1,) * (post.ndim - 1)
-    return post >= cutoff.reshape(reshape)
+    # Use the **clean** array for the comparison to keep behavior consistent
+    reshape = (n_time,) + (1,) * (clean.ndim - 1)
+    return clean >= cutoff.reshape(reshape)

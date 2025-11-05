@@ -2,34 +2,36 @@
 
 import numpy as np
 import pytest
+from conftest import (
+    make_gaussian_1d,
+    make_gaussian_2d,
+    make_random_distribution_1d,
+    make_random_distribution_2d,
+)
 
 from statespacecheck.state_consistency import (
     hpd_overlap,
     kl_divergence,
 )
 
-# Use modern NumPy random API with fixed seed for reproducibility
-rng = np.random.default_rng(seed=42)
-
 
 class TestKLDivergence:
     """Tests for kl_divergence function."""
 
-    def test_1d_spatial_identical_distributions(self) -> None:
+    def test_1d_spatial_identical_distributions(self, rng) -> None:
         """Test KL divergence is zero for identical distributions."""
         n_time, n_bins = 10, 20
-        state_dist = rng.dirichlet(np.ones(n_bins), size=n_time)
+        state_dist = make_random_distribution_1d(rng, n_time, n_bins)
 
         kl_div = kl_divergence(state_dist, state_dist)
 
         assert kl_div.shape == (n_time,)
         assert np.allclose(kl_div, 0.0, atol=1e-10)
 
-    def test_2d_spatial_identical_distributions(self) -> None:
+    def test_2d_spatial_identical_distributions(self, rng) -> None:
         """Test KL divergence is zero for identical 2D distributions."""
         n_time, n_x, n_y = 10, 5, 5
-        n_bins = n_x * n_y
-        state_dist = rng.dirichlet(np.ones(n_bins), size=n_time).reshape(n_time, n_x, n_y)
+        state_dist = make_random_distribution_2d(rng, n_time, n_x, n_y)
 
         kl_div = kl_divergence(state_dist, state_dist)
 
@@ -37,11 +39,11 @@ class TestKLDivergence:
         assert kl_div.shape == (n_time,), f"Expected shape (n_time,)={n_time}, got {kl_div.shape}"
         assert np.allclose(kl_div, 0.0, atol=1e-10)
 
-    def test_1d_spatial_different_distributions(self) -> None:
+    def test_1d_spatial_different_distributions(self, rng) -> None:
         """Test KL divergence is positive for different distributions."""
         n_time, n_bins = 5, 20
-        state_dist = rng.dirichlet(np.ones(n_bins), size=n_time)
-        likelihood = rng.dirichlet(np.ones(n_bins), size=n_time)
+        state_dist = make_random_distribution_1d(rng, n_time, n_bins)
+        likelihood = make_random_distribution_1d(rng, n_time, n_bins)
 
         kl_div = kl_divergence(state_dist, likelihood)
 
@@ -49,41 +51,40 @@ class TestKLDivergence:
         # KL divergence should be positive for different distributions
         assert np.all(kl_div > 0)
 
-    def test_2d_spatial_different_distributions(self) -> None:
+    def test_2d_spatial_different_distributions(self, rng) -> None:
         """Test KL divergence is positive for different 2D distributions."""
         n_time, n_x, n_y = 5, 5, 5
-        n_bins = n_x * n_y
-        state_dist = rng.dirichlet(np.ones(n_bins), size=n_time).reshape(n_time, n_x, n_y)
-        likelihood = rng.dirichlet(np.ones(n_bins), size=n_time).reshape(n_time, n_x, n_y)
+        state_dist = make_random_distribution_2d(rng, n_time, n_x, n_y)
+        likelihood = make_random_distribution_2d(rng, n_time, n_x, n_y)
 
         kl_div = kl_divergence(state_dist, likelihood)
 
         assert kl_div.shape == (n_time,)
         assert np.all(kl_div > 0)
 
-    def test_shape_mismatch_raises_error(self) -> None:
+    def test_shape_mismatch_raises_error(self, rng) -> None:
         """Test that shape mismatch raises ValueError."""
         n_time = 5
-        state_dist = rng.dirichlet(np.ones(20), size=n_time)
-        likelihood = rng.dirichlet(np.ones(10), size=n_time)
+        state_dist = make_random_distribution_1d(rng, n_time, 20)
+        likelihood = make_random_distribution_1d(rng, n_time, 10)
 
         with pytest.raises(ValueError, match="must have same shape"):
             kl_divergence(state_dist, likelihood)
 
-    def test_negative_values_raise_error(self) -> None:
+    def test_negative_values_raise_error(self, rng) -> None:
         """Test that negative values raise ValueError."""
         n_time, n_bins = 5, 20
-        state_dist = rng.dirichlet(np.ones(n_bins), size=n_time)
+        state_dist = make_random_distribution_1d(rng, n_time, n_bins)
         likelihood = state_dist.copy()
         likelihood[0, 0] = -0.1  # Add negative value
 
         with pytest.raises(ValueError, match="non-negative"):
             kl_divergence(state_dist, likelihood)
 
-    def test_handles_zero_sum_rows(self) -> None:
+    def test_handles_zero_sum_rows(self, rng) -> None:
         """Test handling of rows with zero sum."""
         n_time, n_bins = 5, 20
-        state_dist = rng.dirichlet(np.ones(n_bins), size=n_time)
+        state_dist = make_random_distribution_1d(rng, n_time, n_bins)
         likelihood = state_dist.copy()
         # Set one row to zero
         state_dist[2, :] = 0.0
@@ -96,25 +97,42 @@ class TestKLDivergence:
         # Other rows should be valid
         assert np.all(np.isfinite(kl_div[[0, 1, 3, 4]]))
 
+    def test_1d_input_raises_error(self) -> None:
+        """Test that 1D input raises ValueError."""
+        state_dist = np.array([0.2, 0.3, 0.5])  # 1D array
+        likelihood = np.array([0.3, 0.4, 0.3])
+
+        with pytest.raises(ValueError, match="must be at least 2D"):
+            kl_divergence(state_dist, likelihood)
+
+    def test_negative_state_dist_raises_error(self, rng) -> None:
+        """Test that negative values in state_dist raise ValueError."""
+        n_time, n_bins = 5, 20
+        state_dist = make_random_distribution_1d(rng, n_time, n_bins)
+        likelihood = state_dist.copy()
+        state_dist[0, 0] = -0.1  # Add negative value to state_dist
+
+        with pytest.raises(ValueError, match="state_dist must be non-negative"):
+            kl_divergence(state_dist, likelihood)
+
 
 class TestHPDOverlap:
     """Tests for hpd_overlap function."""
 
-    def test_1d_spatial_identical_distributions(self) -> None:
+    def test_1d_spatial_identical_distributions(self, rng) -> None:
         """Test overlap is 1.0 for identical distributions."""
         n_time, n_bins = 10, 20
-        state_dist = rng.dirichlet(np.ones(n_bins), size=n_time)
+        state_dist = make_random_distribution_1d(rng, n_time, n_bins)
 
         overlap = hpd_overlap(state_dist, state_dist, coverage=0.95)
 
         assert overlap.shape == (n_time,)
         assert np.allclose(overlap, 1.0)
 
-    def test_2d_spatial_identical_distributions(self) -> None:
+    def test_2d_spatial_identical_distributions(self, rng) -> None:
         """Test overlap is 1.0 for identical 2D distributions."""
         n_time, n_x, n_y = 10, 5, 5
-        n_bins = n_x * n_y
-        state_dist = rng.dirichlet(np.ones(n_bins), size=n_time).reshape(n_time, n_x, n_y)
+        state_dist = make_random_distribution_2d(rng, n_time, n_x, n_y)
 
         overlap = hpd_overlap(state_dist, state_dist, coverage=0.95)
 
@@ -155,13 +173,8 @@ class TestHPDOverlap:
         """Test overlap for partially overlapping Gaussian distributions."""
         n_time, n_bins = 5, 50
         # Create two Gaussian distributions with partial overlap
-        x = np.arange(n_bins)
-        state_dist = np.exp(-((x - 20) ** 2) / (2 * 5**2))
-        state_dist = state_dist / state_dist.sum()
-        likelihood = np.exp(-((x - 30) ** 2) / (2 * 5**2))
-        likelihood = likelihood / likelihood.sum()
-        state_dist = np.tile(state_dist, (n_time, 1))
-        likelihood = np.tile(likelihood, (n_time, 1))
+        state_dist = make_gaussian_1d(n_time, n_bins, mean=20, std=5)
+        likelihood = make_gaussian_1d(n_time, n_bins, mean=30, std=5)
 
         overlap = hpd_overlap(state_dist, likelihood, coverage=0.95)
 
@@ -172,16 +185,9 @@ class TestHPDOverlap:
     def test_2d_spatial_partial_overlap(self) -> None:
         """Test overlap for partially overlapping 2D Gaussian distributions."""
         n_time, n_x, n_y = 5, 20, 20
-        x = np.arange(n_x)
-        y = np.arange(n_y)
-        xx, yy = np.meshgrid(x, y, indexing="ij")
         # Two Gaussians at different locations
-        state_dist = np.exp(-(((xx - 8) ** 2 + (yy - 8) ** 2) / (2 * 3**2)))
-        state_dist = state_dist / state_dist.sum()
-        likelihood = np.exp(-(((xx - 12) ** 2 + (yy - 12) ** 2) / (2 * 3**2)))
-        likelihood = likelihood / likelihood.sum()
-        state_dist = np.tile(state_dist, (n_time, 1, 1))
-        likelihood = np.tile(likelihood, (n_time, 1, 1))
+        state_dist = make_gaussian_2d(n_time, n_x, n_y, mean_x=8, mean_y=8, std=3)
+        likelihood = make_gaussian_2d(n_time, n_x, n_y, mean_x=12, mean_y=12, std=3)
 
         overlap = hpd_overlap(state_dist, likelihood, coverage=0.95)
 
@@ -189,10 +195,10 @@ class TestHPDOverlap:
         # Should have some overlap but not complete
         assert np.all((overlap > 0.0) & (overlap < 1.0))
 
-    def test_invalid_coverage_raises_error(self) -> None:
+    def test_invalid_coverage_raises_error(self, rng) -> None:
         """Test that invalid coverage values raise ValueError."""
         n_time, n_bins = 5, 20
-        state_dist = rng.dirichlet(np.ones(n_bins), size=n_time)
+        state_dist = make_random_distribution_1d(rng, n_time, n_bins)
 
         with pytest.raises(ValueError, match="coverage must be in"):
             hpd_overlap(state_dist, state_dist, coverage=0.0)
@@ -203,11 +209,11 @@ class TestHPDOverlap:
         with pytest.raises(ValueError, match="coverage must be in"):
             hpd_overlap(state_dist, state_dist, coverage=1.5)
 
-    def test_shape_mismatch_raises_error(self) -> None:
+    def test_shape_mismatch_raises_error(self, rng) -> None:
         """Test that shape mismatch raises ValueError."""
         n_time = 5
-        state_dist = rng.dirichlet(np.ones(20), size=n_time)
-        likelihood = rng.dirichlet(np.ones(10), size=n_time)
+        state_dist = make_random_distribution_1d(rng, n_time, 20)
+        likelihood = make_random_distribution_1d(rng, n_time, 10)
 
         with pytest.raises(ValueError, match="must have same shape"):
             hpd_overlap(state_dist, likelihood)
