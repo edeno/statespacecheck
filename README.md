@@ -38,7 +38,7 @@ import numpy as np
 from statespacecheck import (
     kl_divergence,
     hpd_overlap,
-    highest_posterior_density_region,
+    highest_density_region,
 )
 
 # Example: 1D spatial arrays (time x position)
@@ -54,8 +54,8 @@ kl_div = kl_divergence(state_dist, likelihood)
 overlap = hpd_overlap(state_dist, likelihood, coverage=0.95)
 # Returns: (n_time,) array of overlap proportions (0 = no overlap, 1 = complete)
 
-# Get HPD region mask
-hpd_mask = highest_posterior_density_region(state_dist, coverage=0.95)
+# Get highest density region mask
+hd_mask = highest_density_region(state_dist, coverage=0.95)
 # Returns: (n_time, n_bins) boolean mask
 ```
 
@@ -66,14 +66,14 @@ hpd_mask = highest_posterior_density_region(state_dist, coverage=0.95)
 Compute Kullback-Leibler divergence between state distribution and likelihood.
 
 **Parameters:**
-- `state_dist` (np.ndarray): State distributions (one-step predictive or smoother). Shape `(n_time, n_position_bins)` or `(n_time, n_x_bins, n_y_bins)`
-- `likelihood` (np.ndarray): Likelihood distributions. Must have same shape as state_dist
+- `state_dist` (np.ndarray): State distributions (one-step predictive or smoother). Shape `(n_time, ...)` where `...` represents arbitrary spatial dimensions
+- `likelihood` (np.ndarray): Normalized likelihood distributions (equivalent to posterior with uniform prior). Must have same shape as state_dist
 
 **Returns:**
 - `kl_divergence` (np.ndarray): KL divergence at each time point. Shape `(n_time,)`
 
 **Interpretation:**
-- **Low divergence (< 0.1)**: Posterior and likelihood agree well, indicating consistency between prior and data
+- **Low divergence (< 0.1)**: State distribution and likelihood agree well, indicating consistency between prior and data
 - **Moderate divergence (0.1 - 1.0)**: Some disagreement, worth investigating
 - **High divergence (> 1.0)**: Substantial mismatch, suggests issues with prior specification or observation model
 
@@ -82,31 +82,31 @@ Compute Kullback-Leibler divergence between state distribution and likelihood.
 Compute overlap between highest posterior density regions.
 
 **Parameters:**
-- `state_dist` (np.ndarray): State distributions (one-step predictive or smoother)
-- `likelihood` (np.ndarray): Likelihood distributions
+- `state_dist` (np.ndarray): State distributions (one-step predictive or smoother). Shape `(n_time, ...)` where `...` represents arbitrary spatial dimensions
+- `likelihood` (np.ndarray): Normalized likelihood distributions (equivalent to posterior with uniform prior). Must have same shape as state_dist
 - `coverage` (float): Coverage probability for HPD regions (default: 0.95)
 
 **Returns:**
 - `overlap` (np.ndarray): Overlap proportion at each time point. Shape `(n_time,)`. Values range from 0 (no overlap) to 1 (complete overlap)
 
 **Interpretation:**
-- **High overlap (> 0.7)**: Posterior and likelihood concentrate probability mass in similar regions
+- **High overlap (> 0.7)**: State distribution and likelihood concentrate probability mass in similar regions
 - **Moderate overlap (0.3 - 0.7)**: Partial agreement, may indicate transition periods or model uncertainty
 - **Low overlap (< 0.3)**: Distributions are spatially inconsistent, suggests model issues
 
-### `highest_posterior_density_region(posterior, coverage=0.95)`
+### `highest_density_region(distribution, coverage=0.95)`
 
-Compute boolean mask indicating HPD region membership.
+Compute boolean mask indicating highest density region membership.
 
 **Parameters:**
-- `posterior` (np.ndarray): Posterior distributions
+- `distribution` (np.ndarray): Probability distributions. Shape `(n_time, ...)` where `...` represents arbitrary spatial dimensions
 - `coverage` (float): Desired coverage probability (default: 0.95)
 
 **Returns:**
-- `isin_hpd` (np.ndarray): Boolean mask. Same shape as input
+- `isin_hd` (np.ndarray): Boolean mask. Same shape as input
 
 **Notes:**
-- HPD regions can be multimodal (non-contiguous)
+- Highest density regions can be multimodal (non-contiguous)
 - Regions are defined by selecting positions with highest density until cumulative mass reaches coverage
 - NaN values are treated as zero mass
 

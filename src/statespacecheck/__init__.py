@@ -5,7 +5,7 @@ distributions and their component likelihood distributions in Bayesian
 state space models.
 """
 
-from statespacecheck.highest_posterior_density import highest_posterior_density_region
+from statespacecheck.highest_density import highest_density_region
 from statespacecheck.state_consistency import (
     hpd_overlap,
     kl_divergence,
@@ -14,7 +14,7 @@ from statespacecheck.state_consistency import (
 __version__ = "0.1.0"
 
 __all__ = [
-    "highest_posterior_density_region",
+    "highest_density_region",
     "kl_divergence",
     "hpd_overlap",
 ]

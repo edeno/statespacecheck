@@ -9,7 +9,7 @@ and model assumptions.
 import numpy as np
 from scipy.stats import entropy
 
-from .highest_posterior_density import highest_posterior_density_region
+from .highest_density import highest_density_region
 
 
 def kl_divergence(state_dist: np.ndarray, likelihood: np.ndarray) -> np.ndarray:
@@ -25,12 +25,12 @@ def kl_divergence(state_dist: np.ndarray, likelihood: np.ndarray) -> np.ndarray:
         State probability distributions over position at each time point.
         Can be either one-step predictive distribution or smoother output.
         Must be properly normalized probability distributions.
-        Shape (n_time, n_position_bins) or (n_time, n_x_bins, n_y_bins).
+        Shape (n_time, ...) where ... represents arbitrary spatial dimensions.
     likelihood : np.ndarray
         Normalized likelihood distributions at each time point (equivalent to
         posterior with uniform prior). Must have same shape as state_dist and
         be properly normalized.
-        Shape (n_time, n_position_bins) or (n_time, n_x_bins, n_y_bins).
+        Shape (n_time, ...) where ... represents arbitrary spatial dimensions.
 
     Returns
     -------
@@ -56,38 +56,38 @@ def kl_divergence(state_dist: np.ndarray, likelihood: np.ndarray) -> np.ndarray:
     return inf for the divergence.
 
     """
-    post = np.asarray(state_dist)
+    state = np.asarray(state_dist)
     like = np.asarray(likelihood)
 
-    if post.shape != like.shape:
+    if state.shape != like.shape:
         raise ValueError(
-            f"state_dist and likelihood must have same shape, got {post.shape} vs {like.shape}"
+            f"state_dist and likelihood must have same shape, got {state.shape} vs {like.shape}"
         )
 
-    n_time = post.shape[0]
+    n_time = state.shape[0]
     # Flatten all spatial dimensions
-    post_flat = post.reshape(n_time, -1)
+    state_flat = state.reshape(n_time, -1)
     like_flat = like.reshape(n_time, -1)
 
     # Check for negative values
-    if np.any(post_flat < 0) or np.any(like_flat < 0):
+    if np.any(state_flat < 0) or np.any(like_flat < 0):
         raise ValueError("Distributions must be non-negative.")
 
     # Compute sums for normalization check
-    post_sum = post_flat.sum(axis=1)
+    state_sum = state_flat.sum(axis=1)
     like_sum = like_flat.sum(axis=1)
 
     # Initialize output
     kl_div = np.full(n_time, np.inf, dtype=float)
 
     # Find valid time slices (both distributions sum to positive values)
-    valid = (post_sum > 0) & (like_sum > 0)
+    valid = (state_sum > 0) & (like_sum > 0)
 
     if np.any(valid):
         # Normalize and compute KL divergence for valid slices
-        post_norm = post_flat[valid] / post_sum[valid, np.newaxis]
+        state_norm = state_flat[valid] / state_sum[valid, np.newaxis]
         like_norm = like_flat[valid] / like_sum[valid, np.newaxis]
-        kl_div[valid] = entropy(post_norm, like_norm, axis=1)
+        kl_div[valid] = entropy(state_norm, like_norm, axis=1)
 
     return kl_div
 
@@ -107,12 +107,12 @@ def hpd_overlap(
         State probability distributions over position at each time point.
         Can be either one-step predictive distribution or smoother output.
         Must be properly normalized probability distributions.
-        Shape (n_time, n_position_bins) or (n_time, n_x_bins, n_y_bins).
+        Shape (n_time, ...) where ... represents arbitrary spatial dimensions.
     likelihood : np.ndarray
         Normalized likelihood distributions at each time point (equivalent to
         posterior with uniform prior). Must have same shape as state_dist and
         be properly normalized.
-        Shape (n_time, n_position_bins) or (n_time, n_x_bins, n_y_bins).
+        Shape (n_time, ...) where ... represents arbitrary spatial dimensions.
     coverage : float, optional
         Coverage probability for the HPD regions. Must be between 0 and 1.
         Default is 0.95 for 95% HPD regions.
@@ -144,35 +144,35 @@ def hpd_overlap(
     When both HPD regions are empty (both sizes are 0), overlap is defined as 0.
 
     """
-    post = np.asarray(state_dist)
+    state = np.asarray(state_dist)
     like = np.asarray(likelihood)
 
-    if post.shape != like.shape:
+    if state.shape != like.shape:
         raise ValueError(
-            f"state_dist and likelihood must have same shape, got {post.shape} vs {like.shape}"
+            f"state_dist and likelihood must have same shape, got {state.shape} vs {like.shape}"
         )
 
     if not (0.0 < coverage < 1.0):
         raise ValueError(f"coverage must be in (0, 1), got {coverage}")
 
     # Get HPD regions
-    mask_post = highest_posterior_density_region(post, coverage=coverage)
-    mask_like = highest_posterior_density_region(like, coverage=coverage)
+    mask_state = highest_density_region(state, coverage=coverage)
+    mask_like = highest_density_region(like, coverage=coverage)
 
     # Sum over all spatial dimensions (everything except time)
-    spatial_axes = tuple(range(1, post.ndim))
-    size_post = mask_post.sum(axis=spatial_axes)
+    spatial_axes = tuple(range(1, state.ndim))
+    size_state = mask_state.sum(axis=spatial_axes)
     size_like = mask_like.sum(axis=spatial_axes)
-    intersection = (mask_post & mask_like).sum(axis=spatial_axes)
+    intersection = (mask_state & mask_like).sum(axis=spatial_axes)
 
     # Compute denominator (minimum of the two sizes)
-    denom = np.minimum(size_post, size_like)
+    denom = np.minimum(size_state, size_like)
 
     # Avoid division by zero: if both sizes are 0, define overlap as 0
     denom = np.where(denom == 0, 1, denom)
     overlap = intersection / denom
 
     # Set overlap to 0 where both regions were empty
-    overlap = np.where((size_post == 0) & (size_like == 0), 0.0, overlap)
+    overlap = np.where((size_state == 0) & (size_like == 0), 0.0, overlap)
 
     return overlap

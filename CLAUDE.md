@@ -31,11 +31,11 @@ The codebase implements three complementary model checking methods designed to:
 - `kl_divergence()`: Measures information divergence using KL divergence to detect issues with prior specification
 - `hpd_overlap()`: Computes spatial overlap between highest posterior density (HPD) regions to assess consistency between likelihood and prior contributions
 
-**[src/statespacecheck/highest_posterior_density.py](src/statespacecheck/highest_posterior_density.py)**
+**[src/statespacecheck/highest_density.py](src/statespacecheck/highest_density.py)**
 
 - HPD region computation utilities
 - `_highest_posterior_threshold()`: Finds threshold values for HPD regions at specified coverage (handles multimodal distributions)
-- `highest_posterior_density_region()`: Returns boolean mask indicating HPD region membership
+- `highest_density_region()`: Returns boolean mask indicating HPD region membership
 
 ### Data Structures
 

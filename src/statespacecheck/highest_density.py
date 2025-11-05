@@ -1,10 +1,10 @@
-"""Functions for computing highest posterior density regions."""
+"""Functions for computing highest density regions."""
 
 import numpy as np
 
 
-def highest_posterior_density_region(posterior: np.ndarray, coverage: float = 0.95) -> np.ndarray:
-    """Compute boolean mask indicating highest posterior density region membership.
+def highest_density_region(distribution: np.ndarray, coverage: float = 0.95) -> np.ndarray:
+    """Compute boolean mask indicating highest density region membership.
 
     Vectorized HPD mask for arrays shaped (n_time, *spatial). For each time t,
     includes all bins with value >= threshold_t, where threshold_t is chosen so
@@ -12,18 +12,18 @@ def highest_posterior_density_region(posterior: np.ndarray, coverage: float = 0.
 
     Parameters
     ----------
-    posterior : np.ndarray
-        Posterior probability distributions over position at each time point.
-        Shape (n_time, n_position_bins) or (n_time, n_x_bins, n_y_bins).
+    distribution : np.ndarray
+        Probability distributions over position at each time point.
+        Shape (n_time, ...) where ... represents arbitrary spatial dimensions.
     coverage : float, optional
-        Desired coverage probability for the HPD region. Must be between 0 and 1.
+        Desired coverage probability for the highest density region. Must be between 0 and 1.
         Default is 0.95 for 95% coverage.
 
     Returns
     -------
-    isin_hpd : np.ndarray
-        Boolean mask indicating which positions are in the HPD region at each time point.
-        Shape (n_time, n_position_bins) or (n_time, n_x_bins, n_y_bins).
+    isin_hd : np.ndarray
+        Boolean mask indicating which positions are in the highest density region at each
+        time point. Shape (n_time, ...) matching input shape.
 
     Raises
     ------
@@ -43,7 +43,7 @@ def highest_posterior_density_region(posterior: np.ndarray, coverage: float = 0.
     if not (0.0 < coverage < 1.0):
         raise ValueError("coverage must be in (0, 1).")
 
-    post = np.asarray(posterior)
+    post = np.asarray(distribution)
     n_time = post.shape[0]
     n_spatial = int(np.prod(post.shape[1:], dtype=np.int64))
 

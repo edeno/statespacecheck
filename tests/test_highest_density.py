@@ -1,24 +1,24 @@
-"""Tests for highest posterior density functions."""
+"""Tests for highest density functions."""
 
 import numpy as np
 
-from statespacecheck.highest_posterior_density import (
-    highest_posterior_density_region,
+from statespacecheck.highest_density import (
+    highest_density_region,
 )
 
 # Use modern NumPy random API with fixed seed for reproducibility
 rng = np.random.default_rng(seed=42)
 
 
-class TestHighestPosteriorDensityRegion:
-    """Tests for highest_posterior_density_region function."""
+class TestHighestDensityRegion:
+    """Tests for highest_density_region function."""
 
     def test_1d_spatial_output_shape(self) -> None:
         """Test that output shape matches input for 1D spatial."""
         n_time, n_bins = 10, 20
         posterior = rng.dirichlet(np.ones(n_bins), size=n_time)
 
-        region = highest_posterior_density_region(posterior, coverage=0.95)
+        region = highest_density_region(posterior, coverage=0.95)
 
         assert region.shape == posterior.shape
         assert region.dtype == bool
@@ -30,7 +30,7 @@ class TestHighestPosteriorDensityRegion:
         # Create and reshape to 2D spatial
         posterior = rng.dirichlet(np.ones(n_bins), size=n_time).reshape(n_time, n_x, n_y)
 
-        region = highest_posterior_density_region(posterior, coverage=0.95)
+        region = highest_density_region(posterior, coverage=0.95)
 
         # CRITICAL: Output shape must match input shape exactly
         assert region.shape == posterior.shape, (
@@ -45,7 +45,7 @@ class TestHighestPosteriorDensityRegion:
         posterior = np.zeros((n_time, n_bins))
         posterior[:, 10] = 1.0  # All mass at one position
 
-        region = highest_posterior_density_region(posterior, coverage=0.95)
+        region = highest_density_region(posterior, coverage=0.95)
 
         # For peaked distribution, HPD should be very small (just 1 bin)
         region_size = region.sum(axis=1)
@@ -59,7 +59,7 @@ class TestHighestPosteriorDensityRegion:
         posterior = np.zeros((n_time, n_x, n_y))
         posterior[:, 5, 5] = 1.0  # All mass at one position
 
-        region = highest_posterior_density_region(posterior, coverage=0.95)
+        region = highest_density_region(posterior, coverage=0.95)
 
         # CRITICAL: Sum over BOTH spatial dimensions
         region_size = region.sum(axis=(1, 2))
@@ -82,7 +82,7 @@ class TestHighestPosteriorDensityRegion:
         posterior = np.tile(posterior, (n_time, 1))
         coverage = 0.95
 
-        region = highest_posterior_density_region(posterior, coverage=coverage)
+        region = highest_density_region(posterior, coverage=coverage)
 
         # Check actual coverage is at least the requested coverage
         actual_coverage = (region * posterior).sum(axis=1)
@@ -104,7 +104,7 @@ class TestHighestPosteriorDensityRegion:
         posterior = np.tile(posterior, (n_time, 1, 1))
         coverage = 0.95
 
-        region = highest_posterior_density_region(posterior, coverage=coverage)
+        region = highest_density_region(posterior, coverage=coverage)
 
         # Check actual coverage by summing over both spatial dimensions
         actual_coverage = (region * posterior).sum(axis=(1, 2))
@@ -120,7 +120,7 @@ class TestHighestPosteriorDensityRegion:
         posterior[:, 3, 3] = 0.5
         posterior[:, 7, 7] = 0.5
 
-        region = highest_posterior_density_region(posterior, coverage=0.95)
+        region = highest_density_region(posterior, coverage=0.95)
 
         # CRITICAL: Both peaks should be in HPD region
         assert np.all(region[:, 3, 3])
@@ -138,7 +138,7 @@ class TestHighestPosteriorDensityRegion:
         posterior[:, 0] = np.nan
 
         # Should not raise an error
-        region = highest_posterior_density_region(posterior, coverage=0.95)
+        region = highest_density_region(posterior, coverage=0.95)
 
         assert region.shape == posterior.shape
         # NaN columns should be excluded from region
