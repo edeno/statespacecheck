@@ -303,20 +303,20 @@ class TestFlagLowOverlap:
     def test_basic_flagging(self) -> None:
         """Test basic low overlap flagging."""
         overlap = np.array([0.8, 0.8, 0.3, 0.3, 0.3, 0.3, 0.3, 0.8])
-        flags = flag_low_overlap(overlap, tau=0.4, min_len=5)
+        flags = flag_low_overlap(overlap, threshold=0.4, min_len=5)
         expected = np.array([False, False, True, True, True, True, True, False])
         np.testing.assert_array_equal(flags, expected)
 
     def test_no_flags(self) -> None:
         """Test when all overlap is above threshold."""
         overlap = np.array([0.8, 0.9, 0.7, 0.6, 0.85])
-        flags = flag_low_overlap(overlap, tau=0.4, min_len=5)
+        flags = flag_low_overlap(overlap, threshold=0.4, min_len=5)
         np.testing.assert_array_equal(flags, np.zeros(5, dtype=bool))
 
     def test_short_runs_filtered(self) -> None:
         """Test that short runs are filtered out."""
         overlap = np.array([0.2, 0.2, 0.8, 0.2, 0.2, 0.2, 0.2, 0.2])
-        flags = flag_low_overlap(overlap, tau=0.4, min_len=5)
+        flags = flag_low_overlap(overlap, threshold=0.4, min_len=5)
         # First run (length 2) should be filtered, second (length 5) kept
         expected = np.array([False, False, False, True, True, True, True, True])
         np.testing.assert_array_equal(flags, expected)
@@ -324,15 +324,15 @@ class TestFlagLowOverlap:
     def test_with_nan_values(self) -> None:
         """Test that NaN values are not flagged."""
         overlap = np.array([0.2, 0.2, np.nan, 0.2, 0.2, 0.2])
-        flags = flag_low_overlap(overlap, tau=0.4, min_len=3)
+        flags = flag_low_overlap(overlap, threshold=0.4, min_len=3)
         # NaN should not be flagged, breaks run
         assert not flags[2]
 
     def test_different_threshold(self) -> None:
-        """Test with different tau threshold."""
+        """Test with different threshold values."""
         overlap = np.array([0.5, 0.5, 0.5, 0.5, 0.5])
-        flags_low = flag_low_overlap(overlap, tau=0.4, min_len=3)
-        flags_high = flag_low_overlap(overlap, tau=0.6, min_len=3)
+        flags_low = flag_low_overlap(overlap, threshold=0.4, min_len=3)
+        flags_high = flag_low_overlap(overlap, threshold=0.6, min_len=3)
         np.testing.assert_array_equal(flags_low, np.zeros(5, dtype=bool))
         np.testing.assert_array_equal(flags_high, np.ones(5, dtype=bool))
 
@@ -343,40 +343,40 @@ class TestFindLowOverlapIntervals:
     def test_single_interval(self) -> None:
         """Test detection of a single low overlap interval."""
         overlap = np.array([0.8, 0.8, 0.3, 0.3, 0.3, 0.3, 0.3, 0.8])
-        intervals = find_low_overlap_intervals(overlap, tau=0.4, min_len=5)
+        intervals = find_low_overlap_intervals(overlap, threshold=0.4, min_len=5)
         assert intervals == [(2, 7)]
 
     def test_multiple_intervals(self) -> None:
         """Test detection of multiple intervals."""
         overlap = np.array([0.2, 0.2, 0.2, 0.2, 0.2, 0.8, 0.2, 0.2, 0.2, 0.2, 0.2])
-        intervals = find_low_overlap_intervals(overlap, tau=0.4, min_len=5)
+        intervals = find_low_overlap_intervals(overlap, threshold=0.4, min_len=5)
         assert intervals == [(0, 5), (6, 11)]
 
     def test_no_intervals(self) -> None:
         """Test when all overlap is above threshold."""
         overlap = np.array([0.8, 0.9, 0.7, 0.6, 0.85])
-        intervals = find_low_overlap_intervals(overlap, tau=0.4, min_len=5)
+        intervals = find_low_overlap_intervals(overlap, threshold=0.4, min_len=5)
         assert intervals == []
 
     def test_short_runs_filtered(self) -> None:
         """Test that short runs are filtered out."""
         overlap = np.array([0.2, 0.2, 0.8, 0.2, 0.2, 0.2, 0.2, 0.2])
-        intervals = find_low_overlap_intervals(overlap, tau=0.4, min_len=5)
+        intervals = find_low_overlap_intervals(overlap, threshold=0.4, min_len=5)
         # First run (length 2) should be filtered, second (length 5) kept
         assert intervals == [(3, 8)]
 
     def test_with_nan_values(self) -> None:
         """Test that NaN values are not flagged."""
         overlap = np.array([0.2, 0.2, np.nan, 0.2, 0.2, 0.2])
-        intervals = find_low_overlap_intervals(overlap, tau=0.4, min_len=3)
+        intervals = find_low_overlap_intervals(overlap, threshold=0.4, min_len=3)
         # NaN breaks the run into two parts: [0:2] length 2 (too short), [3:6] length 3 (kept)
         assert intervals == [(3, 6)]
 
     def test_different_threshold(self) -> None:
-        """Test with different tau threshold."""
+        """Test with different threshold values."""
         overlap = np.array([0.5, 0.5, 0.5, 0.5, 0.5])
-        intervals_low = find_low_overlap_intervals(overlap, tau=0.4, min_len=3)
-        intervals_high = find_low_overlap_intervals(overlap, tau=0.6, min_len=3)
+        intervals_low = find_low_overlap_intervals(overlap, threshold=0.4, min_len=3)
+        intervals_high = find_low_overlap_intervals(overlap, threshold=0.6, min_len=3)
         assert intervals_low == []
         assert intervals_high == [(0, 5)]
 
