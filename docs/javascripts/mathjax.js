@@ -8,12 +8,23 @@ window.MathJax = {
   options: {
     ignoreHtmlClass: ".*|",
     processHtmlClass: "arithmatex"
+  },
+  startup: {
+    ready: () => {
+      MathJax.startup.defaultReady();
+      MathJax.startup.promise.then(() => {
+        // Typeset any content that was already on the page
+        MathJax.typesetPromise();
+      });
+    }
   }
 };
 
 document$.subscribe(() => {
-  MathJax.startup.output.clearCache?.();
-  MathJax.typesetClear?.();
-  MathJax.texReset?.();
-  MathJax.typesetPromise();
+  if (typeof MathJax !== 'undefined' && MathJax.typesetPromise) {
+    MathJax.startup.output.clearCache?.();
+    MathJax.typesetClear?.();
+    MathJax.texReset?.();
+    MathJax.typesetPromise();
+  }
 })
