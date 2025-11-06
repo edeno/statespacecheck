@@ -95,6 +95,16 @@ convention = "numpy"
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = ["D"]
+"examples/**/*.py" = [
+    "D",     # Docstrings not needed in notebooks
+    "E501",  # Line length - markdown comments often exceed 100 chars
+    "E402",  # Module imports not at top - notebooks often have setup cells first
+    "NPY002", # Legacy numpy random - acceptable in examples for simplicity
+]
+"examples/**/*.ipynb" = [
+    "E501",  # Line length - code in notebooks can be long for readability
+    "NPY002", # Legacy numpy random - acceptable in examples for simplicity
+]
 
 [tool.ruff.format]
 quote-style = "double"
