@@ -115,6 +115,10 @@ convention = "numpy"
     "E501",  # Line length - code in notebooks can be long for readability
     "NPY002", # Legacy numpy random - acceptable in examples for simplicity
 ]
+"docs/tutorials/**/*.ipynb" = [
+    "E501",  # Line length - code in notebooks can be long for readability
+    "NPY002", # Legacy numpy random - acceptable in examples for simplicity
+]
 
 [tool.ruff.format]
 quote-style = "double"
