@@ -104,11 +104,12 @@ class DecodeParams:
     xs_min: int = 0
     xs_max: int = 100
     xs_step: int = 1
-    pf_width: float = 10.0
+    pf_width: float = 5.0  # Narrow place fields for sharp spatial selectivity
     pf_centers: NDArray[np.floating] | None = None  # set in __post_init__
-    rate_scale: float = 0.10  # High spike rate for clear tracking visualization
+    rate_scale: float = 0.15  # Higher spike rate to reduce uncertainty
     base_seed: int = 1
     remap_from_to: tuple[tuple[int, int], ...] | tuple[int, int] = (
+        (0, 5),  # Position 0 → 50 (shift +50cm)
         (1, 6),  # Position 10 → 60
         (2, 7),  # Position 20 → 70
         (3, 8),  # Position 30 → 80
@@ -116,7 +117,10 @@ class DecodeParams:
         (5, 10),  # Position 50 → 100
         (6, 0),  # Position 60 → 0
         (7, 1),  # Position 70 → 10
-    )  # Remap 7 out of 11 cells with large spatial shifts for strong global mismatch
+        (8, 2),  # Position 80 → 20
+        (9, 3),  # Position 90 → 30
+        (10, 4),  # Position 100 → 40
+    )  # Remap ALL 11 cells with +50cm circular shift
 
     @property
     def remap_window(self) -> tuple[int, int]:
@@ -239,9 +243,9 @@ def decode_and_diagnostics(
     n_bins = xs.size
 
     post = np.zeros((n_time, n_bins), dtype=float)
-    hpdo = np.full((n_time, n_cells), np.nan, dtype=float)
-    kl = np.full((n_time, n_cells), np.nan, dtype=float)
-    spike_prob = np.full((n_time, n_cells), np.nan, dtype=float)
+    hpdo = np.full(n_time, np.nan, dtype=float)  # Single value per timestep
+    kl = np.full(n_time, np.nan, dtype=float)  # Single value per timestep
+    spike_prob = np.full((n_time, n_cells), np.nan, dtype=float)  # Keep per-cell for this metric
 
     # t=0 (MATLAB used a flat prior at t=1)
     post[0] = normalize(np.ones(n_bins))
@@ -260,33 +264,31 @@ def decode_and_diagnostics(
         active_remap = start_r <= t <= end_r
         likelihood = apply_remap_for_likelihoods(likelihood, remap_from_to, active_remap)
 
+        # Compute combined likelihood from all cells (product over cells)
+        combined_likelihood = np.prod(likelihood, axis=1)  # (n_bins,)
+
         # Compute diagnostics using statespacecheck functions
-        # Process each cell separately since statespacecheck expects matching spatial dims
+        # Compare one-step prediction (prior) with combined likelihood (observation model)
         prior_t = prior[np.newaxis, :]  # (1, n_bins)
+        combined_likelihood_t = combined_likelihood[np.newaxis, :]  # (1, n_bins)
 
-        # Compute per-cell diagnostics
-        for cell_idx in range(n_cells):
-            # Get likelihood for this cell: (n_bins,) -> (1, n_bins)
-            like_cell = likelihood[:, cell_idx][np.newaxis, :]
+        # HPD overlap between prior and combined likelihood
+        hpdo_t = ssc.hpd_overlap(prior_t, combined_likelihood_t, coverage=0.95)
+        hpdo[t] = hpdo_t[0]
 
-            # HPD overlap between prior and this cell's likelihood
-            hpdo_t = ssc.hpd_overlap(prior_t, like_cell, coverage=0.95)
-            hpdo[t, cell_idx] = hpdo_t[0]
+        # KL divergence between prior and combined likelihood
+        kl_t = ssc.kl_divergence(prior_t, combined_likelihood_t)
+        kl[t] = kl_t[0]
 
-            # KL divergence between prior and this cell's likelihood
-            kl_t = ssc.kl_divergence(prior_t, like_cell)
-            kl[t, cell_idx] = kl_t[0]
-
-        # Posterior update with product over cells (independence)
-        combined = np.prod(likelihood, axis=1)  # (n_bins,)
-        post[t] = normalize(prior * combined)
+        # Posterior update
+        post[t] = normalize(prior * combined_likelihood)
 
         # spike_prob rank statistic (raw count, matching MATLAB)
         spike_prob[t] = spike_prob_rank(prior, lambda_ratio, normalize_rank=False)
 
-    # Mask individual cells with zero spikes (match MATLAB: HPDO(spikes == 0) = nan)
-    hpdo[spikes == 0] = np.nan
-    kl[spikes == 0] = np.nan
+    # Mask spike_prob for cells with zero spikes (match MATLAB: spikeProb(spikes == 0) = nan)
+    # Note: HPDO and KL are now per-timestep (not per-cell) since they compare
+    # the combined likelihood with the prior, so we don't mask them
     spike_prob[spikes == 0] = np.nan
 
     return {"post": post, "HPDO": hpdo, "KL": kl, "spikeProb": spike_prob}
@@ -370,7 +372,7 @@ def plot_original(
         T_flat_end, T_recovery2_end, T_fast_end)
     """
     n_time = metrics["post"].shape[0]
-    fig, axes = plt.subplots(4, 1, figsize=(7, 6), constrained_layout=True, sharex=True, dpi=150)
+    fig, axes = plt.subplots(4, 1, figsize=(8, 6), constrained_layout=True, sharex=True, dpi=150)
 
     im = axes[0].imshow(
         metrics["post"].T,
@@ -380,14 +382,15 @@ def plot_original(
         vmax=np.quantile(metrics["post"], 0.975),
         cmap="viridis",
     )
-    axes[0].plot(np.arange(n_time), x_true, "k", linewidth=1.0, alpha=0.8)
+    axes[0].plot(np.arange(n_time), x_true, "k", linewidth=1.0, alpha=0.8, label="True position")
     axes[0].set_ylabel("Position (bin)", fontsize=9, labelpad=8)
     axes[0].tick_params(labelsize=7)
-    cbar = fig.colorbar(im, ax=axes[0], fraction=0.02, pad=0.02)
-    cbar.set_label("Probability", fontsize=8, labelpad=8)
-    cbar.ax.tick_params(labelsize=7)
+    cbar = fig.colorbar(im, ax=axes[0], fraction=0.046, pad=0.04)
+    cbar.set_label("Posterior probability", fontsize=9, labelpad=10)
+    cbar.ax.tick_params(labelsize=8)
 
-    for ax in axes:
+    # Add phase boundaries to all axes, but only add labels to first axis for legend
+    for i, ax in enumerate(axes):
         # Highlight phase boundaries with different colors for misfit vs recovery
         if phase_boundaries is not None and len(phase_boundaries) == 6:
             (
@@ -399,26 +402,31 @@ def plot_original(
                 t_fast_end,
             ) = phase_boundaries
 
+            # Only add labels for the first axis (for legend)
+            add_labels = i == 0
+
             # Misfit periods (colored)
-            ax.axvspan(t_remap_start, t_remap_end, alpha=0.2, color="orange", label="Remapping")
+            ax.axvspan(
+                t_remap_start,
+                t_remap_end,
+                alpha=0.2,
+                color="orange",
+                label="Remapping" if add_labels else "",
+            )
             ax.axvspan(
                 t_recovery1_end,
                 t_flat_end,
                 alpha=0.2,
                 color="gray",
-                label="Flat Firing",
+                label="Flat firing" if add_labels else "",
             )
             ax.axvspan(
                 t_recovery2_end,
                 t_fast_end,
                 alpha=0.2,
                 color="red",
-                label="Fast Movement",
+                label="Fast movement" if add_labels else "",
             )
-
-            # Recovery periods (very light green background)
-            ax.axvspan(t_remap_end, t_recovery1_end, alpha=0.08, color="green")
-            ax.axvspan(t_flat_end, t_recovery2_end, alpha=0.08, color="green")
 
     axes[1].plot(
         metrics["HPDO"],
@@ -428,14 +436,13 @@ def plot_original(
         color="#56B4E9",
         rasterized=True,
     )
-    axes[1].axhline(th.HPDO, color="#E69F00", linewidth=1.5, label="Threshold", zorder=10)
+    axes[1].axhline(th.HPDO, color="#E69F00", linewidth=1.5, zorder=10)
     axes[1].set_xlim(0, n_time)
     axes[1].set_ylabel("HPD Overlap", fontsize=9, labelpad=8)
     axes[1].tick_params(labelsize=7)
-    axes[1].legend(loc="upper right", fontsize=7, frameon=False)
 
     axes[2].plot(metrics["KL"], ".", markersize=1.5, alpha=0.6, color="#56B4E9", rasterized=True)
-    axes[2].axhline(th.KL, color="#E69F00", linewidth=1.5, label="Threshold", zorder=10)
+    axes[2].axhline(th.KL, color="#E69F00", linewidth=1.5, zorder=10)
     axes[2].set_xlim(0, n_time)
     axes[2].set_ylabel("KL Divergence", fontsize=9, labelpad=8)
     axes[2].tick_params(labelsize=7)
@@ -448,11 +455,26 @@ def plot_original(
         color="#56B4E9",
         rasterized=True,
     )
-    axes[3].axhline(th.spike_prob, color="#E69F00", linewidth=1.5, label="Threshold", zorder=10)
+    axes[3].axhline(th.spike_prob, color="#E69F00", linewidth=1.5, zorder=10)
     axes[3].set_xlim(0, n_time)
     axes[3].set_ylabel("Spike Probability", fontsize=9, labelpad=8)
     axes[3].set_xlabel("Time", fontsize=9, labelpad=8)
     axes[3].tick_params(labelsize=7)
+
+    # Add comprehensive legend outside the plot area at the bottom
+    # Get handles and labels from axes[0] where they were defined
+    handles, labels = axes[0].get_legend_handles_labels()
+    axes[3].legend(
+        handles,
+        labels,
+        loc="upper center",
+        bbox_to_anchor=(0.5, -0.35),
+        fontsize=8,
+        frameon=True,
+        fancybox=False,
+        shadow=False,
+        ncol=4,
+    )
 
     fig.suptitle(title, fontsize=10, y=0.995)
     return fig
