@@ -125,20 +125,44 @@ def spike_prob_rank(
 class DecodeParams:
     """Parameters for decoding simulation."""
 
-    T1: int = 100_000
-    T2: int = 110_000
-    T3: int = 140_000
+    # Timeline with recovery periods between misfits:
+    # 0-6k: Clean baseline
+    # 6k-10k: Remapping misfit (4k)
+    # 10k-14k: Clean recovery (4k)
+    # 14k-16k: Flat firing misfit (2k)
+    # 16k-20k: Clean recovery (4k)
+    # 20k-24k: Fast movement misfit (4k)
+    T_remap_start: int = 6_000
+    T_remap_end: int = 10_000
+    T_recovery1_end: int = 14_000
+    T_flat_end: int = 16_000
+    T_recovery2_end: int = 20_000
+    T_fast_end: int = 24_000
     sigx_pred: float = 0.5  # decoder's dynamics std (kept fixed, even in part 3)
-    sigx_true_fast: float = 2.0  # true dynamics std in part 3
+    sigx_true_fast: float = (
+        10.0  # true dynamics std in part 3 (20x faster!) - optimized for strong misfit
+    )
     xs_min: int = 0
     xs_max: int = 100
     xs_step: int = 1
     pf_width: float = 10.0
     pf_centers: NDArray[np.floating] | None = None  # set in __post_init__
-    rate_scale: float = 0.02
+    rate_scale: float = 0.10  # High spike rate for clear tracking visualization
     base_seed: int = 1
-    remap_window: tuple[int, int] = (60_000, 80_000)  # [start, end]
-    remap_from_to: tuple[int, int] = (9, 0)  # zero-based: cell 10 -> cell 1
+    remap_from_to: tuple[tuple[int, int], ...] | tuple[int, int] = (
+        (1, 6),  # Position 10 → 60
+        (2, 7),  # Position 20 → 70
+        (3, 8),  # Position 30 → 80
+        (4, 9),  # Position 40 → 90
+        (5, 10),  # Position 50 → 100
+        (6, 0),  # Position 60 → 0
+        (7, 1),  # Position 70 → 10
+    )  # Remap 7 out of 11 cells with large spatial shifts for strong global mismatch
+
+    @property
+    def remap_window(self) -> tuple[int, int]:
+        """Remapping window for backward compatibility."""
+        return (self.T_remap_start, self.T_remap_end)
 
     def __post_init__(self) -> None:
         """Initialize pf_centers if not provided."""
@@ -211,14 +235,29 @@ def likelihood_grid_for_counts(
 
 
 def apply_remap_for_likelihoods(
-    likelihood: NDArray[np.floating], remap_from_to: tuple[int, int], active: bool
+    likelihood: NDArray[np.floating],
+    remap_from_to: tuple[tuple[int, int], ...] | tuple[int, int],
+    active: bool,
 ) -> NDArray[np.floating]:
-    """Optionally replace one column by another (remapping cell identity)."""
+    """Optionally replace one or more columns by others (remapping cell identities)."""
     if not active:
         return likelihood
-    src, dst = remap_from_to
     likelihood = likelihood.copy()
-    likelihood[:, src] = likelihood[:, dst]
+
+    # Handle both single tuple and tuple of tuples
+    if (
+        isinstance(remap_from_to, tuple)
+        and len(remap_from_to) == 2
+        and isinstance(remap_from_to[0], int)
+    ):
+        # Single remapping: (src, dst)
+        src, dst = remap_from_to
+        likelihood[:, src] = likelihood[:, dst]
+    else:
+        # Multiple remappings: ((src1, dst1), (src2, dst2), ...)
+        for src, dst in remap_from_to:
+            likelihood[:, src] = likelihood[:, dst]
+
     return likelihood
 
 
@@ -230,7 +269,7 @@ def decode_and_diagnostics(
     pf_width: float,
     rate_scale: float,
     remap_window: tuple[int, int],
-    remap_from_to: tuple[int, int],
+    remap_from_to: tuple[tuple[int, int], ...] | tuple[int, int],
     rng: np.random.Generator | None = None,
 ) -> dict[str, NDArray]:
     """Run the Bayesian filter with per-time, per-cell diagnostics.
@@ -352,7 +391,7 @@ def plot_original(
     th: Thresholds,
     title: str = "Original Metrics",
     remap_window: tuple[int, int] | None = None,
-    phase_boundaries: tuple[int, int] | None = None,
+    phase_boundaries: tuple[int, ...] | None = None,
 ) -> plt.Figure:
     """Plot original diagnostic metrics with thresholds.
 
@@ -360,11 +399,12 @@ def plot_original(
     ----------
     remap_window : tuple[int, int] | None
         Time window where cell remapping occurs (start, end)
-    phase_boundaries : tuple[int, int] | None
-        Boundaries between phases: (T1, T2) where T3 is end of data
+    phase_boundaries : tuple[int, ...] | None
+        Boundaries between phases: (T_remap_start, T_remap_end, T_recovery1_end,
+        T_flat_end, T_recovery2_end, T_fast_end)
     """
     n_time = metrics["post"].shape[0]
-    fig, axes = plt.subplots(4, 1, figsize=(12, 10), constrained_layout=True)
+    fig, axes = plt.subplots(4, 1, figsize=(7, 6), constrained_layout=True, sharex=True, dpi=150)
 
     im = axes[0].imshow(
         metrics["post"].T,
@@ -372,49 +412,54 @@ def plot_original(
         origin="lower",
         vmin=0.0,
         vmax=np.quantile(metrics["post"], 0.975),
+        cmap="viridis",
     )
-    print(np.quantile(metrics["post"], 0.99))
-    print(np.sum(metrics["post"], axis=1))
-    axes[0].plot(np.arange(n_time), x_true, "k", linewidth=0.8)
-    axes[0].set_title("Decoded Posterior")
-    axes[0].set_ylabel("Position (bin)")
-    fig.colorbar(im, ax=axes[0], fraction=0.02)
+    axes[0].plot(np.arange(n_time), x_true, "k", linewidth=1.0, alpha=0.8)
+    axes[0].set_ylabel("Position (bin)", fontsize=9, labelpad=8)
+    axes[0].tick_params(labelsize=7)
+    cbar = fig.colorbar(im, ax=axes[0], fraction=0.02, pad=0.02)
+    cbar.set_label("Probability", fontsize=8, labelpad=8)
+    cbar.ax.tick_params(labelsize=7)
 
     for ax in axes:
-        # Highlight remap window (cell 10->1)
-        if remap_window is not None:
-            ax.axvspan(
-                remap_window[0],
-                remap_window[1],
-                alpha=0.15,
-                color="orange",
-                label="Remap",
+        # Highlight phase boundaries with different colors for misfit vs recovery
+        if phase_boundaries is not None and len(phase_boundaries) == 6:
+            t_remap_start, t_remap_end, t_recovery1_end, t_flat_end, t_recovery2_end, t_fast_end = (
+                phase_boundaries
             )
 
-        # Highlight phase boundaries
-        if phase_boundaries is not None:
-            t1, t2 = phase_boundaries
-            ax.axvspan(t1, t2, alpha=0.15, color="gray", label="Flat rate")
-            ax.axvspan(t2, n_time, alpha=0.15, color="red", label="Fast movement")
+            # Misfit periods (colored)
+            ax.axvspan(t_remap_start, t_remap_end, alpha=0.2, color="orange", label="Remapping")
+            ax.axvspan(t_recovery1_end, t_flat_end, alpha=0.2, color="gray", label="Flat Firing")
+            ax.axvspan(t_recovery2_end, t_fast_end, alpha=0.2, color="red", label="Fast Movement")
 
-    axes[1].plot(metrics["HPDO"], ".", markersize=1)
-    axes[1].axhline(th.HPDO, color="r", linewidth=1.2, label="Threshold")
+            # Recovery periods (very light green background)
+            ax.axvspan(t_remap_end, t_recovery1_end, alpha=0.08, color="green")
+            ax.axvspan(t_flat_end, t_recovery2_end, alpha=0.08, color="green")
+
+    axes[1].plot(metrics["HPDO"], ".", markersize=1.5, alpha=0.6, color="#56B4E9", rasterized=True)
+    axes[1].axhline(th.HPDO, color="#E69F00", linewidth=1.5, label="Threshold", zorder=10)
     axes[1].set_xlim(0, n_time)
-    axes[1].set_ylabel("HPD Overlap")
-    axes[1].legend(loc="upper right", fontsize=8)
+    axes[1].set_ylabel("HPD Overlap", fontsize=9, labelpad=8)
+    axes[1].tick_params(labelsize=7)
+    axes[1].legend(loc="upper right", fontsize=7, frameon=False)
 
-    axes[2].plot(metrics["KL"], ".", markersize=1)
-    axes[2].axhline(th.KL, color="r", linewidth=1.2, label="Threshold")
+    axes[2].plot(metrics["KL"], ".", markersize=1.5, alpha=0.6, color="#56B4E9", rasterized=True)
+    axes[2].axhline(th.KL, color="#E69F00", linewidth=1.5, label="Threshold", zorder=10)
     axes[2].set_xlim(0, n_time)
-    axes[2].set_ylabel("KL Divergence")
+    axes[2].set_ylabel("KL Divergence", fontsize=9, labelpad=8)
+    axes[2].tick_params(labelsize=7)
 
-    axes[3].plot(metrics["spikeProb"], ".", markersize=1)
-    axes[3].axhline(th.spike_prob, color="r", linewidth=1.2, label="Threshold")
+    axes[3].plot(
+        metrics["spikeProb"], ".", markersize=1.5, alpha=0.6, color="#56B4E9", rasterized=True
+    )
+    axes[3].axhline(th.spike_prob, color="#E69F00", linewidth=1.5, label="Threshold", zorder=10)
     axes[3].set_xlim(0, n_time)
-    axes[3].set_ylabel("Probability (rank)")
-    axes[3].set_xlabel("Time")
+    axes[3].set_ylabel("Spike Probability", fontsize=9, labelpad=8)
+    axes[3].set_xlabel("Time", fontsize=9, labelpad=8)
+    axes[3].tick_params(labelsize=7)
 
-    fig.suptitle(title)
+    fig.suptitle(title, fontsize=10, y=0.995)
     return fig
 
 
@@ -437,13 +482,15 @@ def plot_transformed(
         Boundaries between phases: (T1, T2) where T3 is end of data
     """
     n_time = post.shape[0]
-    fig, axes = plt.subplots(4, 1, figsize=(12, 10), constrained_layout=True)
+    fig, axes = plt.subplots(4, 1, figsize=(7, 6), constrained_layout=True, sharex=True, dpi=150)
 
-    im = axes[0].imshow(post.T, aspect="auto", origin="lower")
-    axes[0].plot(np.arange(n_time), x_true, "k", linewidth=0.8)
-    axes[0].set_title("Decoded Posterior")
-    axes[0].set_ylabel("Position (bin)")
-    fig.colorbar(im, ax=axes[0], fraction=0.02)
+    im = axes[0].imshow(post.T, aspect="auto", origin="lower", cmap="viridis")
+    axes[0].plot(np.arange(n_time), x_true, "k", linewidth=1.0, alpha=0.8)
+    axes[0].set_ylabel("Position (bin)", fontsize=9, labelpad=8)
+    axes[0].tick_params(labelsize=7)
+    cbar = fig.colorbar(im, ax=axes[0], fraction=0.02, pad=0.02)
+    cbar.set_label("Probability", fontsize=8, labelpad=8)
+    cbar.ax.tick_params(labelsize=7)
 
     for ax in axes:
         # Highlight remap window (cell 10->1)
@@ -462,24 +509,27 @@ def plot_transformed(
             ax.axvspan(t1, t2, alpha=0.15, color="gray", label="Flat rate")
             ax.axvspan(t2, n_time, alpha=0.15, color="red", label="Fast movement")
 
-    axes[1].plot(tr.HPDO, ".", markersize=1)
-    axes[1].axhline(tr.HPDO_th, color="r", linewidth=1.2, label="Threshold")
+    axes[1].plot(tr.HPDO, ".", markersize=0.5, alpha=0.3, rasterized=True)
+    axes[1].axhline(tr.HPDO_th, color="#E69F00", linewidth=1.5, label="Threshold", zorder=10)
     axes[1].set_xlim(0, n_time)
-    axes[1].set_ylabel("-log(HPD Overlap)")
-    axes[1].legend(loc="upper right", fontsize=8)
+    axes[1].set_ylabel("-log(HPD Overlap)", fontsize=9, labelpad=8)
+    axes[1].tick_params(labelsize=7)
+    axes[1].legend(loc="upper right", fontsize=7, frameon=False)
 
-    axes[2].plot(tr.KL, ".", markersize=1)
-    axes[2].axhline(tr.KL_th, color="r", linewidth=1.2, label="Threshold")
+    axes[2].plot(tr.KL, ".", markersize=0.5, alpha=0.3, rasterized=True)
+    axes[2].axhline(tr.KL_th, color="#E69F00", linewidth=1.5, label="Threshold", zorder=10)
     axes[2].set_xlim(0, n_time)
-    axes[2].set_ylabel("sqrt(KL Divergence)")
+    axes[2].set_ylabel("sqrt(KL Divergence)", fontsize=9, labelpad=8)
+    axes[2].tick_params(labelsize=7)
 
-    axes[3].plot(tr.spike_prob, ".", markersize=1)
-    axes[3].axhline(tr.spike_prob_th, color="r", linewidth=1.2, label="Threshold")
+    axes[3].plot(tr.spike_prob, ".", markersize=0.5, alpha=0.3, rasterized=True)
+    axes[3].axhline(tr.spike_prob_th, color="#E69F00", linewidth=1.5, label="Threshold", zorder=10)
     axes[3].set_xlim(0, n_time)
-    axes[3].set_ylabel("-log(Probability)")
-    axes[3].set_xlabel("Time")
+    axes[3].set_ylabel("-log(Spike Prob)", fontsize=9, labelpad=8)
+    axes[3].set_xlabel("Time", fontsize=9, labelpad=8)
+    axes[3].tick_params(labelsize=7)
 
-    fig.suptitle(title)
+    fig.suptitle(title, fontsize=10, y=0.995)
     return fig
 
 
@@ -499,48 +549,83 @@ def run_demo(params: DecodeParams) -> None:
     xs = np.arange(params.xs_min, params.xs_max + params.xs_step, params.xs_step, dtype=float)
     osm = gaussian_transition_matrix(xs, params.sigx_pred)
 
-    # --- Part 1: Base model ---
-    x_true_1 = simulate_walk(
-        params.T1,
-        params.sigx_pred,
-        x0=0.0,
-        xs_min=params.xs_min,
-        xs_max=params.xs_max,
-        rng=rng,
-    )
-    spikes_1 = simulate_spikes_position_tuned(
-        x_true_1, params.pf_centers, params.pf_width, params.rate_scale, rng
-    )
+    # Generate all phases with recovery periods
+    phases = []
+    phase_labels = []
 
-    # --- Part 2: Mis-specified model (no place fields) ---
-    x_true_2 = simulate_walk(
-        params.T2 - params.T1,
-        params.sigx_pred,
-        x_true_1[-1],
-        params.xs_min,
-        params.xs_max,
-        rng,
+    # Phase 1: Clean baseline (0 - T_remap_start)
+    x_last = 0.0
+    n_time = params.T_remap_start
+    x_true_phase = simulate_walk(
+        n_time, params.sigx_pred, x_last, params.xs_min, params.xs_max, rng
     )
-    spikes_2 = simulate_spikes_flat_rate(
-        params.T2 - params.T1, len(params.pf_centers), rate=3e-4, rng=rng
+    spikes_phase = simulate_spikes_position_tuned(
+        x_true_phase, params.pf_centers, params.pf_width, params.rate_scale, rng
     )
+    phases.append((x_true_phase, spikes_phase))
+    phase_labels.append("Clean Baseline")
+    x_last = x_true_phase[-1]
 
-    # --- Part 3: Mis-specified model (fast movement) ---
-    x_true_3 = simulate_walk(
-        params.T3 - params.T2,
-        params.sigx_true_fast,
-        x_true_2[-1],
-        params.xs_min,
-        params.xs_max,
-        rng,
+    # Phase 2: Remapping misfit (T_remap_start - T_remap_end)
+    n_time = params.T_remap_end - params.T_remap_start
+    x_true_phase = simulate_walk(
+        n_time, params.sigx_pred, x_last, params.xs_min, params.xs_max, rng
     )
-    spikes_3 = simulate_spikes_position_tuned(
-        x_true_3, params.pf_centers, params.pf_width, params.rate_scale, rng
+    spikes_phase = simulate_spikes_position_tuned(
+        x_true_phase, params.pf_centers, params.pf_width, params.rate_scale, rng
     )
+    phases.append((x_true_phase, spikes_phase))
+    phase_labels.append("Remapping Misfit")
+    x_last = x_true_phase[-1]
 
-    # Concatenate
-    x_true = np.concatenate([x_true_1, x_true_2, x_true_3], axis=0)
-    spikes = np.vstack([spikes_1, spikes_2, spikes_3])
+    # Phase 3: Recovery 1 (T_remap_end - T_recovery1_end)
+    n_time = params.T_recovery1_end - params.T_remap_end
+    x_true_phase = simulate_walk(
+        n_time, params.sigx_pred, x_last, params.xs_min, params.xs_max, rng
+    )
+    spikes_phase = simulate_spikes_position_tuned(
+        x_true_phase, params.pf_centers, params.pf_width, params.rate_scale, rng
+    )
+    phases.append((x_true_phase, spikes_phase))
+    phase_labels.append("Clean Recovery")
+    x_last = x_true_phase[-1]
+
+    # Phase 4: Flat firing misfit (T_recovery1_end - T_flat_end)
+    n_time = params.T_flat_end - params.T_recovery1_end
+    x_true_phase = simulate_walk(
+        n_time, params.sigx_pred, x_last, params.xs_min, params.xs_max, rng
+    )
+    spikes_phase = simulate_spikes_flat_rate(n_time, len(params.pf_centers), rate=7e-3, rng=rng)
+    phases.append((x_true_phase, spikes_phase))
+    phase_labels.append("Flat Firing Misfit")
+    x_last = x_true_phase[-1]
+
+    # Phase 5: Recovery 2 (T_flat_end - T_recovery2_end)
+    n_time = params.T_recovery2_end - params.T_flat_end
+    x_true_phase = simulate_walk(
+        n_time, params.sigx_pred, x_last, params.xs_min, params.xs_max, rng
+    )
+    spikes_phase = simulate_spikes_position_tuned(
+        x_true_phase, params.pf_centers, params.pf_width, params.rate_scale, rng
+    )
+    phases.append((x_true_phase, spikes_phase))
+    phase_labels.append("Clean Recovery")
+    x_last = x_true_phase[-1]
+
+    # Phase 6: Fast movement misfit (T_recovery2_end - T_fast_end)
+    n_time = params.T_fast_end - params.T_recovery2_end
+    x_true_phase = simulate_walk(
+        n_time, params.sigx_true_fast, x_last, params.xs_min, params.xs_max, rng
+    )
+    spikes_phase = simulate_spikes_position_tuned(
+        x_true_phase, params.pf_centers, params.pf_width, params.rate_scale, rng
+    )
+    phases.append((x_true_phase, spikes_phase))
+    phase_labels.append("Fast Movement Misfit")
+
+    # Concatenate all phases
+    x_true = np.concatenate([x for x, _ in phases], axis=0)
+    spikes = np.vstack([s for _, s in phases])
 
     # Decode (vectorized within time)
     metrics = decode_and_diagnostics(
@@ -554,18 +639,27 @@ def run_demo(params: DecodeParams) -> None:
         remap_from_to=params.remap_from_to,
     )
 
-    # Thresholds from baseline window
-    th = compute_thresholds(metrics, baseline_end=60_000)
+    # Thresholds from clean baseline window (first 6k timesteps, before remapping starts)
+    th = compute_thresholds(metrics, baseline_end=params.T_remap_start)
 
     # Plots (original) with highlighted regions
+    # Mark all phase boundaries for visualization
+    phase_boundaries = (
+        params.T_remap_start,
+        params.T_remap_end,
+        params.T_recovery1_end,
+        params.T_flat_end,
+        params.T_recovery2_end,
+        params.T_fast_end,
+    )
     plot_original(
         xs,
         x_true,
         metrics,
         th,
-        title="Original Metrics",
+        title="State Space Model Diagnostics with Recovery Periods",
         remap_window=params.remap_window,
-        phase_boundaries=(params.T1, params.T2),
+        phase_boundaries=phase_boundaries,
     )
 
     # # Transforms & plots with highlighted regions
@@ -580,7 +674,9 @@ def run_demo(params: DecodeParams) -> None:
     #     phase_boundaries=(params.T1, params.T2),
     # )
 
-    plt.show()
+    # Save figure instead of showing (for non-interactive execution)
+    plt.savefig("sim_diagnostics.png", dpi=300, bbox_inches="tight")
+    print("\nFigure saved to sim_diagnostics.png")
 
 
 if __name__ == "__main__":
