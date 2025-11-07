@@ -392,7 +392,20 @@ def plot_original(
         T_flat_end, T_recovery2_end, T_fast_end, T_recovery3_end, T_slow_end)
     """
     n_time = metrics["post"].shape[0]
-    fig, axes = plt.subplots(4, 1, figsize=(8, 6), constrained_layout=True, sharex=True, dpi=150)
+    fig, axes = plt.subplots(
+        4,
+        1,
+        figsize=(8, 6),
+        constrained_layout={
+            "h_pad": 0.02,
+            "w_pad": 0.02,
+            "hspace": 0,
+            "wspace": 0,
+            "rect": [0, 0, 1, 0.97],
+        },
+        sharex=True,
+        dpi=150,
+    )
 
     im = axes[0].imshow(
         metrics["post"].T,
@@ -405,9 +418,15 @@ def plot_original(
     axes[0].plot(np.arange(n_time), x_true, "k", linewidth=1.0, alpha=0.8, label="True position")
     axes[0].set_ylabel("Position (bin)", fontsize=9, labelpad=8)
     axes[0].tick_params(labelsize=7)
-    cbar = fig.colorbar(im, ax=axes[0], fraction=0.046, pad=0.04)
-    cbar.set_label("Posterior probability", fontsize=9, labelpad=10)
-    cbar.ax.tick_params(labelsize=8)
+
+    # Create colorbar with better formatting
+    cbar = fig.colorbar(im, ax=axes[0], fraction=0.03, pad=0.02, aspect=30)
+    cbar.set_label("Probability (×10⁻¹²)", fontsize=8, labelpad=8)
+    cbar.ax.tick_params(labelsize=7, length=3, width=0.5)
+    # Scale tick labels by 1e12 to avoid offset text
+    import matplotlib.ticker as ticker
+
+    cbar.ax.yaxis.set_major_formatter(ticker.FuncFormatter(lambda x, p: f"{x * 1e12:.1f}"))
 
     # Add phase boundaries to all axes, but only add labels to first axis for legend
     for i, ax in enumerate(axes):
@@ -505,7 +524,7 @@ def plot_original(
         ncol=5,
     )
 
-    fig.suptitle(title, fontsize=10, y=0.995)
+    fig.suptitle(title, fontsize=10, y=0.99)
     return fig
 
 
@@ -575,7 +594,7 @@ def plot_transformed(
     axes[3].set_xlabel("Time", fontsize=9, labelpad=8)
     axes[3].tick_params(labelsize=7)
 
-    fig.suptitle(title, fontsize=10, y=0.995)
+    fig.suptitle(title, fontsize=10, y=0.998)
     return fig
 
 
