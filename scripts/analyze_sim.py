@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import numpy as np
-
 from sim import (
     DecodeParams,
     decode_and_diagnostics,
