@@ -91,16 +91,21 @@ class DecodeParams:
     # 14k-16k: Flat firing misfit (2k)
     # 16k-20k: Clean recovery (4k)
     # 20k-24k: Fast movement misfit (4k)
+    # 24k-28k: Clean recovery (4k)
+    # 28k-32k: Slow movement misfit (4k)
     T_remap_start: int = 6_000
     T_remap_end: int = 10_000
     T_recovery1_end: int = 14_000
     T_flat_end: int = 16_000
     T_recovery2_end: int = 20_000
     T_fast_end: int = 24_000
-    sigx_pred: float = 0.5  # decoder's dynamics std (kept fixed, even in part 3)
-    sigx_true_fast: float = (
-        10.0  # true dynamics std in part 3 (20x faster!) - optimized for strong misfit
-    )
+    T_recovery3_end: int = 28_000
+    T_slow_end: int = 32_000
+    sigx_pred: float = 0.5  # decoder's dynamics std (baseline)
+    sigx_pred_fast_phase: float = 0.1  # narrow decoder for fast phase (5x too narrow!)
+    sigx_pred_slow_phase: float = 20.0  # inflated decoder for slow phase (40x too broad!)
+    sigx_true_fast: float = 10.0  # true dynamics std in fast phase (100x faster than decoder!)
+    sigx_true_slow: float = 0.0  # true dynamics std in slow phase (completely stationary!)
     xs_min: int = 0
     xs_max: int = 100
     xs_step: int = 1
@@ -234,6 +239,10 @@ def decode_and_diagnostics(
     remap_window: tuple[int, int],
     remap_from_to: tuple[tuple[int, int], ...] | tuple[int, int],
     rng: np.random.Generator | None = None,
+    osm_narrow: NDArray[np.floating] | None = None,
+    narrow_window: tuple[int, int] | None = None,
+    osm_inflated: NDArray[np.floating] | None = None,
+    inflate_window: tuple[int, int] | None = None,
 ) -> dict[str, NDArray]:
     """Run the Bayesian filter with per-time, per-cell diagnostics.
 
@@ -254,9 +263,20 @@ def decode_and_diagnostics(
     lambda_ratio = normalize(lam_grid_all, axis=1)  # per-bin cell-fractions, rows sum to 1
 
     start_r, end_r = remap_window
+    start_narrow, end_narrow = narrow_window if narrow_window else (n_time + 1, n_time + 1)
+    start_inflate, end_inflate = inflate_window if inflate_window else (n_time + 1, n_time + 1)
+
     for t in range(1, n_time):
+        # Select OSM based on which window we're in
+        if osm_narrow is not None and start_narrow <= t <= end_narrow:
+            current_osm = osm_narrow
+        elif osm_inflated is not None and start_inflate <= t <= end_inflate:
+            current_osm = osm_inflated
+        else:
+            current_osm = osm
+
         # Predict (prior)
-        prior = normalize(post[t - 1] @ osm)  # (n_bins,)
+        prior = normalize(post[t - 1] @ current_osm)  # (n_bins,)
 
         # Likelihood grid for this time's counts (vectorized over bins & cells)
         likelihood = likelihood_grid_for_counts(xs, pf_centers, pf_width, rate_scale, spikes[t])
@@ -369,7 +389,7 @@ def plot_original(
         Time window where cell remapping occurs (start, end)
     phase_boundaries : tuple[int, ...] | None
         Boundaries between phases: (T_remap_start, T_remap_end, T_recovery1_end,
-        T_flat_end, T_recovery2_end, T_fast_end)
+        T_flat_end, T_recovery2_end, T_fast_end, T_recovery3_end, T_slow_end)
     """
     n_time = metrics["post"].shape[0]
     fig, axes = plt.subplots(4, 1, figsize=(8, 6), constrained_layout=True, sharex=True, dpi=150)
@@ -392,7 +412,7 @@ def plot_original(
     # Add phase boundaries to all axes, but only add labels to first axis for legend
     for i, ax in enumerate(axes):
         # Highlight phase boundaries with different colors for misfit vs recovery
-        if phase_boundaries is not None and len(phase_boundaries) == 6:
+        if phase_boundaries is not None and len(phase_boundaries) == 8:
             (
                 t_remap_start,
                 t_remap_end,
@@ -400,6 +420,8 @@ def plot_original(
                 t_flat_end,
                 t_recovery2_end,
                 t_fast_end,
+                t_recovery3_end,
+                t_slow_end,
             ) = phase_boundaries
 
             # Only add labels for the first axis (for legend)
@@ -426,6 +448,13 @@ def plot_original(
                 alpha=0.2,
                 color="red",
                 label="Fast movement" if add_labels else "",
+            )
+            ax.axvspan(
+                t_recovery3_end,
+                t_slow_end,
+                alpha=0.2,
+                color="blue",
+                label="Stationary" if add_labels else "",
             )
 
     axes[1].plot(
@@ -473,7 +502,7 @@ def plot_original(
         frameon=True,
         fancybox=False,
         shadow=False,
-        ncol=4,
+        ncol=5,
     )
 
     fig.suptitle(title, fontsize=10, y=0.995)
@@ -562,9 +591,11 @@ def run_demo(params: DecodeParams) -> None:
     # Ensure pf_centers is initialized
     assert params.pf_centers is not None, "pf_centers must be initialized"
 
-    # Grid & transition (decoder keeps sigx_pred fixed across all parts)
+    # Grid & transition matrices
     xs = np.arange(params.xs_min, params.xs_max + params.xs_step, params.xs_step, dtype=float)
     osm = gaussian_transition_matrix(xs, params.sigx_pred)
+    osm_narrow = gaussian_transition_matrix(xs, params.sigx_pred_fast_phase)
+    osm_inflated = gaussian_transition_matrix(xs, params.sigx_pred_slow_phase)
 
     # Generate all phases with recovery periods
     phases = []
@@ -630,6 +661,8 @@ def run_demo(params: DecodeParams) -> None:
     x_last = x_true_phase[-1]
 
     # Phase 6: Fast movement misfit (T_recovery2_end - T_fast_end)
+    # Transition model misfit: decoder uses narrow OSM (sigx=0.1), animal moves fast (sigx=10.0)
+    # Prior will be far too narrow/concentrated compared to actual movement (100x mismatch!)
     n_time = params.T_fast_end - params.T_recovery2_end
     x_true_phase = simulate_walk(
         n_time, params.sigx_true_fast, x_last, params.xs_min, params.xs_max, rng
@@ -639,6 +672,32 @@ def run_demo(params: DecodeParams) -> None:
     )
     phases.append((x_true_phase, spikes_phase))
     phase_labels.append("Fast Movement Misfit")
+    x_last = x_true_phase[-1]
+
+    # Phase 7: Recovery 3 (T_fast_end - T_recovery3_end)
+    n_time = params.T_recovery3_end - params.T_fast_end
+    x_true_phase = simulate_walk(
+        n_time, params.sigx_pred, x_last, params.xs_min, params.xs_max, rng
+    )
+    spikes_phase = simulate_spikes_position_tuned(
+        x_true_phase, params.pf_centers, params.pf_width, params.rate_scale, rng
+    )
+    phases.append((x_true_phase, spikes_phase))
+    phase_labels.append("Clean Recovery")
+    x_last = x_true_phase[-1]
+
+    # Phase 8: Slow movement misfit (T_recovery3_end - T_slow_end)
+    # Transition model misfit: decoder uses inflated OSM (sigx=20.0), animal stationary (sigx=0.0)
+    # Prior will be far too broad/diffuse compared to actual lack of movement
+    n_time = params.T_slow_end - params.T_recovery3_end
+    x_true_phase = simulate_walk(
+        n_time, params.sigx_true_slow, x_last, params.xs_min, params.xs_max, rng
+    )
+    spikes_phase = simulate_spikes_position_tuned(
+        x_true_phase, params.pf_centers, params.pf_width, params.rate_scale, rng
+    )
+    phases.append((x_true_phase, spikes_phase))
+    phase_labels.append("Slow Movement Misfit")
 
     # Concatenate all phases
     x_true = np.concatenate([x for x, _ in phases], axis=0)
@@ -654,6 +713,10 @@ def run_demo(params: DecodeParams) -> None:
         rate_scale=params.rate_scale,
         remap_window=params.remap_window,
         remap_from_to=params.remap_from_to,
+        osm_narrow=osm_narrow,
+        narrow_window=(params.T_recovery2_end, params.T_fast_end),
+        osm_inflated=osm_inflated,
+        inflate_window=(params.T_recovery3_end, params.T_slow_end),
     )
 
     # Thresholds from clean baseline window (first 6k timesteps, before remapping starts)
@@ -668,6 +731,8 @@ def run_demo(params: DecodeParams) -> None:
         params.T_flat_end,
         params.T_recovery2_end,
         params.T_fast_end,
+        params.T_recovery3_end,
+        params.T_slow_end,
     )
     plot_original(
         xs,

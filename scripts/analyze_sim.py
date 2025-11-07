@@ -46,9 +46,14 @@ def analyze_simulation() -> None:
     print(f"  {params.T_recovery1_end:,} - {params.T_flat_end:,}: Flat firing misfit")
     print(f"  {params.T_flat_end:,} - {params.T_recovery2_end:,}: Recovery 2")
     print(f"  {params.T_recovery2_end:,} - {params.T_fast_end:,}: Fast movement misfit")
+    print(f"  {params.T_fast_end:,} - {params.T_recovery3_end:,}: Recovery 3")
+    print(f"  {params.T_recovery3_end:,} - {params.T_slow_end:,}: Slow movement misfit")
     print("\nParameters:")
-    print(f"  sigx_pred (decoder): {params.sigx_pred}")
+    print(f"  sigx_pred (decoder baseline): {params.sigx_pred}")
+    print(f"  sigx_pred_fast_phase (decoder narrow): {params.sigx_pred_fast_phase}")
+    print(f"  sigx_pred_slow_phase (decoder inflated): {params.sigx_pred_slow_phase}")
     print(f"  sigx_true_fast (fast phase): {params.sigx_true_fast}")
+    print(f"  sigx_true_slow (slow phase): {params.sigx_true_slow}")
     print(f"  rate_scale: {params.rate_scale}")
     print("  flat_rate: 7e-3")
     n_remapped = len(params.remap_from_to) if isinstance(params.remap_from_to[0], tuple) else 1
@@ -56,9 +61,11 @@ def analyze_simulation() -> None:
 
     rng = np.random.default_rng(params.base_seed)
 
-    # Grid & transition
+    # Grid & transition matrices
     xs = np.arange(params.xs_min, params.xs_max + params.xs_step, params.xs_step, dtype=float)
     osm = gaussian_transition_matrix(xs, params.sigx_pred)
+    osm_narrow = gaussian_transition_matrix(xs, params.sigx_pred_fast_phase)
+    osm_inflated = gaussian_transition_matrix(xs, params.sigx_pred_slow_phase)
 
     # Generate all phases with recovery periods
     phases = []
@@ -126,6 +133,28 @@ def analyze_simulation() -> None:
         x_true_phase, params.pf_centers, params.pf_width, params.rate_scale, rng
     )
     phases.append((x_true_phase, spikes_phase))
+    x_last = x_true_phase[-1]
+
+    # Phase 7: Recovery 3 (T_fast_end - T_recovery3_end)
+    n_time = params.T_recovery3_end - params.T_fast_end
+    x_true_phase = simulate_walk(
+        n_time, params.sigx_pred, x_last, params.xs_min, params.xs_max, rng
+    )
+    spikes_phase = simulate_spikes_position_tuned(
+        x_true_phase, params.pf_centers, params.pf_width, params.rate_scale, rng
+    )
+    phases.append((x_true_phase, spikes_phase))
+    x_last = x_true_phase[-1]
+
+    # Phase 8: Slow movement misfit (T_recovery3_end - T_slow_end)
+    n_time = params.T_slow_end - params.T_recovery3_end
+    x_true_phase = simulate_walk(
+        n_time, params.sigx_true_slow, x_last, params.xs_min, params.xs_max, rng
+    )
+    spikes_phase = simulate_spikes_position_tuned(
+        x_true_phase, params.pf_centers, params.pf_width, params.rate_scale, rng
+    )
+    phases.append((x_true_phase, spikes_phase))
 
     # Concatenate all phases
     spikes = np.vstack([s for _, s in phases])
@@ -137,6 +166,8 @@ def analyze_simulation() -> None:
     print(f"  Flat mean spikes/cell/time: {np.mean(phases[3][1]):.4f}")
     print(f"  Recovery2 mean spikes/cell/time: {np.mean(phases[4][1]):.4f}")
     print(f"  Fast mean spikes/cell/time: {np.mean(phases[5][1]):.4f}")
+    print(f"  Recovery3 mean spikes/cell/time: {np.mean(phases[6][1]):.4f}")
+    print(f"  Slow mean spikes/cell/time: {np.mean(phases[7][1]):.4f}")
 
     # Decode
     print("\nRunning decoder...")
@@ -149,6 +180,10 @@ def analyze_simulation() -> None:
         rate_scale=params.rate_scale,
         remap_window=params.remap_window,
         remap_from_to=params.remap_from_to,
+        osm_narrow=osm_narrow,
+        narrow_window=(params.T_recovery2_end, params.T_fast_end),
+        osm_inflated=osm_inflated,
+        inflate_window=(params.T_recovery3_end, params.T_slow_end),
     )
 
     # Define phase windows
@@ -158,6 +193,8 @@ def analyze_simulation() -> None:
     flat_window = slice(params.T_recovery1_end, params.T_flat_end)
     recovery2_window = slice(params.T_flat_end, params.T_recovery2_end)
     fast_window = slice(params.T_recovery2_end, params.T_fast_end)
+    recovery3_window = slice(params.T_fast_end, params.T_recovery3_end)
+    slow_window = slice(params.T_recovery3_end, params.T_slow_end)
 
     # Baseline statistics
     baseline_hpdo = metrics["HPDO"][baseline_window].ravel()
@@ -182,6 +219,8 @@ def analyze_simulation() -> None:
         ("FLAT FIRING MISFIT", flat_window),
         ("RECOVERY 2 (Clean)", recovery2_window),
         ("FAST MOVEMENT MISFIT", fast_window),
+        ("RECOVERY 3 (Clean)", recovery3_window),
+        ("SLOW MOVEMENT MISFIT", slow_window),
     ]
 
     for phase_name, phase_slice in phases_to_analyze:
