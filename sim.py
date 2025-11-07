@@ -351,29 +351,65 @@ def plot_original(
     metrics: dict[str, NDArray],
     th: Thresholds,
     title: str = "Original Metrics",
+    remap_window: tuple[int, int] | None = None,
+    phase_boundaries: tuple[int, int] | None = None,
 ) -> plt.Figure:
-    """Plot original diagnostic metrics with thresholds."""
+    """Plot original diagnostic metrics with thresholds.
+
+    Parameters
+    ----------
+    remap_window : tuple[int, int] | None
+        Time window where cell remapping occurs (start, end)
+    phase_boundaries : tuple[int, int] | None
+        Boundaries between phases: (T1, T2) where T3 is end of data
+    """
     n_time = metrics["post"].shape[0]
     fig, axes = plt.subplots(4, 1, figsize=(12, 10), constrained_layout=True)
 
-    im = axes[0].imshow(metrics["post"].T, aspect="auto", origin="lower")
+    im = axes[0].imshow(
+        metrics["post"].T,
+        aspect="auto",
+        origin="lower",
+        vmin=0.0,
+        vmax=np.quantile(metrics["post"], 0.975),
+    )
+    print(np.quantile(metrics["post"], 0.99))
+    print(np.sum(metrics["post"], axis=1))
     axes[0].plot(np.arange(n_time), x_true, "k", linewidth=0.8)
     axes[0].set_title("Decoded Posterior")
     axes[0].set_ylabel("Position (bin)")
     fig.colorbar(im, ax=axes[0], fraction=0.02)
 
+    for ax in axes:
+        # Highlight remap window (cell 10->1)
+        if remap_window is not None:
+            ax.axvspan(
+                remap_window[0],
+                remap_window[1],
+                alpha=0.15,
+                color="orange",
+                label="Remap",
+            )
+
+        # Highlight phase boundaries
+        if phase_boundaries is not None:
+            t1, t2 = phase_boundaries
+            ax.axvspan(t1, t2, alpha=0.15, color="gray", label="Flat rate")
+            ax.axvspan(t2, n_time, alpha=0.15, color="red", label="Fast movement")
+
     axes[1].plot(metrics["HPDO"], ".", markersize=1)
-    axes[1].axhline(th.HPDO, color="r", linewidth=1.2)
+    axes[1].axhline(th.HPDO, color="r", linewidth=1.2, label="Threshold")
     axes[1].set_xlim(0, n_time)
     axes[1].set_ylabel("HPD Overlap")
+    axes[1].legend(loc="upper right", fontsize=8)
 
     axes[2].plot(metrics["KL"], ".", markersize=1)
-    axes[2].axhline(th.KL, color="r", linewidth=1.2)
+    axes[2].axhline(th.KL, color="r", linewidth=1.2, label="Threshold")
     axes[2].set_xlim(0, n_time)
     axes[2].set_ylabel("KL Divergence")
 
     axes[3].plot(metrics["spikeProb"], ".", markersize=1)
-    axes[3].axhline(th.spike_prob, color="r", linewidth=1.2)
+    axes[3].axhline(th.spike_prob, color="r", linewidth=1.2, label="Threshold")
     axes[3].set_xlim(0, n_time)
     axes[3].set_ylabel("Probability (rank)")
     axes[3].set_xlabel("Time")
@@ -388,8 +424,18 @@ def plot_transformed(
     post: NDArray,
     tr: Transformed,
     title: str = "Transformed Metrics (-log, sqrt)",
+    remap_window: tuple[int, int] | None = None,
+    phase_boundaries: tuple[int, int] | None = None,
 ) -> plt.Figure:
-    """Plot transformed diagnostic metrics with thresholds."""
+    """Plot transformed diagnostic metrics with thresholds.
+
+    Parameters
+    ----------
+    remap_window : tuple[int, int] | None
+        Time window where cell remapping occurs (start, end)
+    phase_boundaries : tuple[int, int] | None
+        Boundaries between phases: (T1, T2) where T3 is end of data
+    """
     n_time = post.shape[0]
     fig, axes = plt.subplots(4, 1, figsize=(12, 10), constrained_layout=True)
 
@@ -399,18 +445,36 @@ def plot_transformed(
     axes[0].set_ylabel("Position (bin)")
     fig.colorbar(im, ax=axes[0], fraction=0.02)
 
+    for ax in axes:
+        # Highlight remap window (cell 10->1)
+        if remap_window is not None:
+            ax.axvspan(
+                remap_window[0],
+                remap_window[1],
+                alpha=0.15,
+                color="orange",
+                label="Remap",
+            )
+
+        # Highlight phase boundaries
+        if phase_boundaries is not None:
+            t1, t2 = phase_boundaries
+            ax.axvspan(t1, t2, alpha=0.15, color="gray", label="Flat rate")
+            ax.axvspan(t2, n_time, alpha=0.15, color="red", label="Fast movement")
+
     axes[1].plot(tr.HPDO, ".", markersize=1)
-    axes[1].axhline(tr.HPDO_th, color="r", linewidth=1.2)
+    axes[1].axhline(tr.HPDO_th, color="r", linewidth=1.2, label="Threshold")
     axes[1].set_xlim(0, n_time)
     axes[1].set_ylabel("-log(HPD Overlap)")
+    axes[1].legend(loc="upper right", fontsize=8)
 
     axes[2].plot(tr.KL, ".", markersize=1)
-    axes[2].axhline(tr.KL_th, color="r", linewidth=1.2)
+    axes[2].axhline(tr.KL_th, color="r", linewidth=1.2, label="Threshold")
     axes[2].set_xlim(0, n_time)
     axes[2].set_ylabel("sqrt(KL Divergence)")
 
     axes[3].plot(tr.spike_prob, ".", markersize=1)
-    axes[3].axhline(tr.spike_prob_th, color="r", linewidth=1.2)
+    axes[3].axhline(tr.spike_prob_th, color="r", linewidth=1.2, label="Threshold")
     axes[3].set_xlim(0, n_time)
     axes[3].set_ylabel("-log(Probability)")
     axes[3].set_xlabel("Time")
@@ -493,12 +557,28 @@ def run_demo(params: DecodeParams) -> None:
     # Thresholds from baseline window
     th = compute_thresholds(metrics, baseline_end=60_000)
 
-    # Plots (original)
-    plot_original(xs, x_true, metrics, th, title="Original Metrics")
+    # Plots (original) with highlighted regions
+    plot_original(
+        xs,
+        x_true,
+        metrics,
+        th,
+        title="Original Metrics",
+        remap_window=params.remap_window,
+        phase_boundaries=(params.T1, params.T2),
+    )
 
-    # Transforms & plots
-    tr = transform_metrics(metrics, th)
-    plot_transformed(xs, x_true, metrics["post"], tr, title="Transformed Metrics (-log, sqrt)")
+    # # Transforms & plots with highlighted regions
+    # tr = transform_metrics(metrics, th)
+    # plot_transformed(
+    #     xs,
+    #     x_true,
+    #     metrics["post"],
+    #     tr,
+    #     title="Transformed Metrics (-log, sqrt)",
+    #     remap_window=params.remap_window,
+    #     phase_boundaries=(params.T1, params.T2),
+    # )
 
     plt.show()
 
