@@ -1,16 +1,33 @@
-"""Analyze the simulation output to quantify misfit effects."""
+"""Analyze the simulation output to quantify misfit effects.
+
+This script runs the simulation from sim.py and provides detailed quantitative
+analysis of the diagnostic metrics across all phases.
+"""
 
 from __future__ import annotations
 
 import numpy as np
-from sim import (
-    DecodeParams,
-    decode_and_diagnostics,
-    gaussian_transition_matrix,
-    simulate_spikes_flat_rate,
-    simulate_spikes_position_tuned,
-    simulate_walk,
-)
+
+# Import from the sim module in the same directory
+try:
+    from .sim import (
+        DecodeParams,
+        decode_and_diagnostics,
+        gaussian_transition_matrix,
+        simulate_spikes_flat_rate,
+        simulate_spikes_position_tuned,
+        simulate_walk,
+    )
+except ImportError:
+    # Fallback for direct execution
+    from sim import (
+        DecodeParams,
+        decode_and_diagnostics,
+        gaussian_transition_matrix,
+        simulate_spikes_flat_rate,
+        simulate_spikes_position_tuned,
+        simulate_walk,
+    )
 
 
 def analyze_simulation() -> None:

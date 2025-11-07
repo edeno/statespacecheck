@@ -1,4 +1,9 @@
-# diagnostics_rw.py
+"""Demonstration simulation for state space model diagnostics.
+
+This script simulates a Bayesian decoder with periods of good and poor model fit,
+then computes diagnostic metrics using the statespacecheck package.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -7,6 +12,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 from numpy.typing import NDArray
 from scipy.stats import norm, poisson
+
+import statespacecheck as ssc
 
 # -----------------------------
 # Utilities (DRY helpers)
@@ -20,11 +27,6 @@ def normalize(
     s = np.sum(p, axis=axis, keepdims=True)
     s = np.maximum(s, eps)
     return p / s
-
-
-def safe_log(x: NDArray[np.floating], eps: float = 1e-12) -> NDArray[np.floating]:
-    """Return log(x) with numerical safety to avoid log(0)."""
-    return np.log(np.maximum(x, eps))
 
 
 def reflect_into_interval(x: NDArray[np.floating], lo: float, hi: float) -> NDArray[np.floating]:
@@ -42,52 +44,9 @@ def gaussian_transition_matrix(xs: NDArray[np.floating], sig: float) -> NDArray[
     return normalize(matrix, axis=0)  # columns sum to 1
 
 
-def hpd_mask_from_probs(p: NDArray[np.floating], alpha: float = 0.05) -> NDArray[np.bool_]:
-    """Compute highest posterior density mask keeping highest-density (1 - alpha) mass.
-
-    p: shape (n_bins,) or (n_bins, n_series). Returns boolean mask with same shape.
-    """
-    p = np.asarray(p)
-    if p.ndim == 1:
-        idx = np.argsort(p)  # ascending
-        cdf = np.cumsum(p[idx])
-        keep = cdf > alpha  # drop the lowest alpha mass
-        m = np.zeros_like(p, dtype=bool)
-        m[idx[keep]] = True
-        return m
-    else:
-        # vectorized over last axis
-        idx = np.argsort(p, axis=0)  # (n_bins, n_series)
-        p_sorted = np.take_along_axis(p, idx, axis=0)
-        cdf = np.cumsum(p_sorted, axis=0)
-        keep = cdf > alpha
-        m = np.zeros_like(p, dtype=bool)
-        # put True back at the kept indices
-        np.put_along_axis(m, idx, keep, axis=0)
-        return m
-
-
-def overlap_ratio(
-    a: NDArray[np.bool_], b: NDArray[np.bool_], axis: int = 0
-) -> NDArray[np.floating]:
-    """Compute intersection over minimum size along axis.
-
-    Returns |A ∩ B| / min(|A|, |B|) along axis.
-    """
-    inter = np.sum(a & b, axis=axis)
-    denom = np.minimum(np.sum(a, axis=axis), np.sum(b, axis=axis))
-    with np.errstate(invalid="ignore", divide="ignore"):
-        r = inter / denom
-    return np.nan_to_num(r, nan=0.0)
-
-
-def kl_divergence(
-    p: NDArray[np.floating], q: NDArray[np.floating], axis: int = 0, eps: float = 1e-12
-) -> NDArray[np.floating]:
-    """KL(p || q) along axis; p and q should already be normalized."""
-    p = np.maximum(p, eps)
-    q = np.maximum(q, eps)
-    return np.sum(p * (safe_log(p) - safe_log(q)), axis=axis)
+def safe_log(x: NDArray[np.floating], eps: float = 1e-12) -> NDArray[np.floating]:
+    """Return log(x) with numerical safety to avoid log(0)."""
+    return np.log(np.maximum(x, eps))
 
 
 def placefield_rates(
@@ -295,21 +254,28 @@ def decode_and_diagnostics(
         # Predict (prior)
         prior = normalize(post[t - 1] @ osm)  # (n_bins,)
 
-        # HPD mask of prediction
-        hpd_prior = hpd_mask_from_probs(prior, alpha=0.05)  # (n_bins,)
-
         # Likelihood grid for this time's counts (vectorized over bins & cells)
         likelihood = likelihood_grid_for_counts(xs, pf_centers, pf_width, rate_scale, spikes[t])
         # Optional remap (imitating MATLAB's j==10 uses field of j==1 in a window)
         active_remap = start_r <= t <= end_r
         likelihood = apply_remap_for_likelihoods(likelihood, remap_from_to, active_remap)
 
-        # HPD per cell (vectorized)
-        hpd_likelihood = hpd_mask_from_probs(likelihood, alpha=0.05)  # (n_bins, n_cells)
-        hpdo[t] = overlap_ratio(hpd_likelihood, hpd_prior[:, None], axis=0)
+        # Compute diagnostics using statespacecheck functions
+        # Process each cell separately since statespacecheck expects matching spatial dims
+        prior_t = prior[np.newaxis, :]  # (1, n_bins)
 
-        # KL per cell (vectorized): KL(prior || likelihood[:, j])
-        kl[t] = kl_divergence(prior[:, None], likelihood, axis=0)
+        # Compute per-cell diagnostics
+        for cell_idx in range(n_cells):
+            # Get likelihood for this cell: (n_bins,) -> (1, n_bins)
+            like_cell = likelihood[:, cell_idx][np.newaxis, :]
+
+            # HPD overlap between prior and this cell's likelihood
+            hpdo_t = ssc.hpd_overlap(prior_t, like_cell, coverage=0.95)
+            hpdo[t, cell_idx] = hpdo_t[0]
+
+            # KL divergence between prior and this cell's likelihood
+            kl_t = ssc.kl_divergence(prior_t, like_cell)
+            kl[t, cell_idx] = kl_t[0]
 
         # Posterior update with product over cells (independence)
         combined = np.prod(likelihood, axis=1)  # (n_bins,)
@@ -424,20 +390,44 @@ def plot_original(
     for ax in axes:
         # Highlight phase boundaries with different colors for misfit vs recovery
         if phase_boundaries is not None and len(phase_boundaries) == 6:
-            t_remap_start, t_remap_end, t_recovery1_end, t_flat_end, t_recovery2_end, t_fast_end = (
-                phase_boundaries
-            )
+            (
+                t_remap_start,
+                t_remap_end,
+                t_recovery1_end,
+                t_flat_end,
+                t_recovery2_end,
+                t_fast_end,
+            ) = phase_boundaries
 
             # Misfit periods (colored)
             ax.axvspan(t_remap_start, t_remap_end, alpha=0.2, color="orange", label="Remapping")
-            ax.axvspan(t_recovery1_end, t_flat_end, alpha=0.2, color="gray", label="Flat Firing")
-            ax.axvspan(t_recovery2_end, t_fast_end, alpha=0.2, color="red", label="Fast Movement")
+            ax.axvspan(
+                t_recovery1_end,
+                t_flat_end,
+                alpha=0.2,
+                color="gray",
+                label="Flat Firing",
+            )
+            ax.axvspan(
+                t_recovery2_end,
+                t_fast_end,
+                alpha=0.2,
+                color="red",
+                label="Fast Movement",
+            )
 
             # Recovery periods (very light green background)
             ax.axvspan(t_remap_end, t_recovery1_end, alpha=0.08, color="green")
             ax.axvspan(t_flat_end, t_recovery2_end, alpha=0.08, color="green")
 
-    axes[1].plot(metrics["HPDO"], ".", markersize=1.5, alpha=0.6, color="#56B4E9", rasterized=True)
+    axes[1].plot(
+        metrics["HPDO"],
+        ".",
+        markersize=1.5,
+        alpha=0.6,
+        color="#56B4E9",
+        rasterized=True,
+    )
     axes[1].axhline(th.HPDO, color="#E69F00", linewidth=1.5, label="Threshold", zorder=10)
     axes[1].set_xlim(0, n_time)
     axes[1].set_ylabel("HPD Overlap", fontsize=9, labelpad=8)
@@ -451,7 +441,12 @@ def plot_original(
     axes[2].tick_params(labelsize=7)
 
     axes[3].plot(
-        metrics["spikeProb"], ".", markersize=1.5, alpha=0.6, color="#56B4E9", rasterized=True
+        metrics["spikeProb"],
+        ".",
+        markersize=1.5,
+        alpha=0.6,
+        color="#56B4E9",
+        rasterized=True,
     )
     axes[3].axhline(th.spike_prob, color="#E69F00", linewidth=1.5, label="Threshold", zorder=10)
     axes[3].set_xlim(0, n_time)
