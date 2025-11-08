@@ -63,9 +63,9 @@ def analyze_simulation() -> None:
 
     # Grid & transition matrices
     xs = np.arange(params.xs_min, params.xs_max + params.xs_step, params.xs_step, dtype=float)
-    osm = gaussian_transition_matrix(xs, params.sigx_pred)
-    osm_narrow = gaussian_transition_matrix(xs, params.sigx_pred_fast_phase)
-    osm_inflated = gaussian_transition_matrix(xs, params.sigx_pred_slow_phase)
+    transition_matrix = gaussian_transition_matrix(xs, params.sigx_pred)
+    transition_matrix_narrow = gaussian_transition_matrix(xs, params.sigx_pred_fast_phase)
+    transition_matrix_inflated = gaussian_transition_matrix(xs, params.sigx_pred_slow_phase)
 
     # Generate all phases with recovery periods
     phases = []
@@ -174,15 +174,15 @@ def analyze_simulation() -> None:
     metrics = decode_and_diagnostics(
         spikes=spikes,
         xs=xs,
-        osm=osm,
+        transition_matrix=transition_matrix,
         pf_centers=params.pf_centers,
         pf_width=params.pf_width,
         rate_scale=params.rate_scale,
         remap_window=params.remap_window,
         remap_from_to=params.remap_from_to,
-        osm_narrow=osm_narrow,
+        transition_matrix_narrow=transition_matrix_narrow,
         narrow_window=(params.T_recovery2_end, params.T_fast_end),
-        osm_inflated=osm_inflated,
+        transition_matrix_inflated=transition_matrix_inflated,
         inflate_window=(params.T_recovery3_end, params.T_slow_end),
     )
 

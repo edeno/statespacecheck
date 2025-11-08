@@ -38,7 +38,10 @@ def reflect_into_interval(x: NDArray[np.floating], lo: float, hi: float) -> NDAr
 
 
 def gaussian_transition_matrix(xs: NDArray[np.floating], sig: float) -> NDArray[np.floating]:
-    """OSM[i, j] = p(x_t = xs[i] | x_{t-1} = xs[j]) from Gaussian RW with std sig."""
+    """Compute one-step transition matrix for Gaussian random walk.
+
+    Returns matrix[i, j] = p(x_t = xs[i] | x_{t-1} = xs[j]) with std sig.
+    """
     diff = xs[:, None] - xs[None, :]
     matrix = norm.pdf(diff, loc=0.0, scale=sig)
     return normalize(matrix, axis=0)  # columns sum to 1
@@ -232,16 +235,16 @@ def apply_remap_for_likelihoods(
 def decode_and_diagnostics(
     spikes: NDArray[np.int_],
     xs: NDArray[np.floating],
-    osm: NDArray[np.floating],
+    transition_matrix: NDArray[np.floating],
     pf_centers: NDArray[np.floating],
     pf_width: float,
     rate_scale: float,
     remap_window: tuple[int, int],
     remap_from_to: tuple[tuple[int, int], ...] | tuple[int, int],
     rng: np.random.Generator | None = None,
-    osm_narrow: NDArray[np.floating] | None = None,
+    transition_matrix_narrow: NDArray[np.floating] | None = None,
     narrow_window: tuple[int, int] | None = None,
-    osm_inflated: NDArray[np.floating] | None = None,
+    transition_matrix_inflated: NDArray[np.floating] | None = None,
     inflate_window: tuple[int, int] | None = None,
 ) -> dict[str, NDArray]:
     """Run the Bayesian filter with per-time, per-cell diagnostics.
@@ -267,16 +270,16 @@ def decode_and_diagnostics(
     start_inflate, end_inflate = inflate_window if inflate_window else (n_time + 1, n_time + 1)
 
     for t in range(1, n_time):
-        # Select OSM based on which window we're in
-        if osm_narrow is not None and start_narrow <= t <= end_narrow:
-            current_osm = osm_narrow
-        elif osm_inflated is not None and start_inflate <= t <= end_inflate:
-            current_osm = osm_inflated
+        # Select transition matrix based on which window we're in
+        if transition_matrix_narrow is not None and start_narrow <= t <= end_narrow:
+            current_transition = transition_matrix_narrow
+        elif transition_matrix_inflated is not None and start_inflate <= t <= end_inflate:
+            current_transition = transition_matrix_inflated
         else:
-            current_osm = osm
+            current_transition = transition_matrix
 
-        # Predict (prior)
-        prior = normalize(post[t - 1] @ current_osm)  # (n_bins,)
+        # Predict (prior from state dynamics)
+        prior = normalize(post[t - 1] @ current_transition)  # (n_bins,)
 
         # Likelihood grid for this time's counts (vectorized over bins & cells)
         likelihood = likelihood_grid_for_counts(xs, pf_centers, pf_width, rate_scale, spikes[t])
@@ -413,9 +416,12 @@ def plot_original(
         origin="lower",
         vmin=0.0,
         vmax=np.quantile(metrics["post"], 0.975),
-        cmap="viridis",
+        cmap="bone_r",
     )
-    axes[0].plot(np.arange(n_time), x_true, "k", linewidth=1.0, alpha=0.8, label="True position")
+    # Plot true position in magenta for visibility against bone_r colormap
+    axes[0].plot(
+        np.arange(n_time), x_true, color="magenta", linewidth=1.5, alpha=0.85, label="True position"
+    )
     axes[0].set_ylabel("Position (bin)", fontsize=9, labelpad=8)
     axes[0].tick_params(labelsize=7)
 
@@ -612,9 +618,9 @@ def run_demo(params: DecodeParams) -> None:
 
     # Grid & transition matrices
     xs = np.arange(params.xs_min, params.xs_max + params.xs_step, params.xs_step, dtype=float)
-    osm = gaussian_transition_matrix(xs, params.sigx_pred)
-    osm_narrow = gaussian_transition_matrix(xs, params.sigx_pred_fast_phase)
-    osm_inflated = gaussian_transition_matrix(xs, params.sigx_pred_slow_phase)
+    transition_matrix = gaussian_transition_matrix(xs, params.sigx_pred)
+    transition_matrix_narrow = gaussian_transition_matrix(xs, params.sigx_pred_fast_phase)
+    transition_matrix_inflated = gaussian_transition_matrix(xs, params.sigx_pred_slow_phase)
 
     # Generate all phases with recovery periods
     phases = []
@@ -680,7 +686,8 @@ def run_demo(params: DecodeParams) -> None:
     x_last = x_true_phase[-1]
 
     # Phase 6: Fast movement misfit (T_recovery2_end - T_fast_end)
-    # Transition model misfit: decoder uses narrow OSM (sigx=0.1), animal moves fast (sigx=10.0)
+    # Transition model misfit: decoder uses narrow transition matrix (sigx=0.1),
+    # animal moves fast (sigx=10.0)
     # Prior will be far too narrow/concentrated compared to actual movement (100x mismatch!)
     n_time = params.T_fast_end - params.T_recovery2_end
     x_true_phase = simulate_walk(
@@ -706,7 +713,8 @@ def run_demo(params: DecodeParams) -> None:
     x_last = x_true_phase[-1]
 
     # Phase 8: Slow movement misfit (T_recovery3_end - T_slow_end)
-    # Transition model misfit: decoder uses inflated OSM (sigx=20.0), animal stationary (sigx=0.0)
+    # Transition model misfit: decoder uses inflated transition matrix (sigx=20.0),
+    # animal stationary (sigx=0.0)
     # Prior will be far too broad/diffuse compared to actual lack of movement
     n_time = params.T_slow_end - params.T_recovery3_end
     x_true_phase = simulate_walk(
@@ -726,15 +734,15 @@ def run_demo(params: DecodeParams) -> None:
     metrics = decode_and_diagnostics(
         spikes=spikes,
         xs=xs,
-        osm=osm,
+        transition_matrix=transition_matrix,
         pf_centers=params.pf_centers,
         pf_width=params.pf_width,
         rate_scale=params.rate_scale,
         remap_window=params.remap_window,
         remap_from_to=params.remap_from_to,
-        osm_narrow=osm_narrow,
+        transition_matrix_narrow=transition_matrix_narrow,
         narrow_window=(params.T_recovery2_end, params.T_fast_end),
-        osm_inflated=osm_inflated,
+        transition_matrix_inflated=transition_matrix_inflated,
         inflate_window=(params.T_recovery3_end, params.T_slow_end),
     )
 
