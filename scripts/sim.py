@@ -306,8 +306,8 @@ def decode_and_diagnostics(
         # Posterior update
         post[t] = normalize(prior * combined_likelihood)
 
-        # spike_prob rank statistic (raw count, matching MATLAB)
-        spike_prob[t] = spike_prob_rank(prior, lambda_ratio, normalize_rank=False)
+        # spike_prob rank statistic (normalized to [0,1])
+        spike_prob[t] = spike_prob_rank(prior, lambda_ratio, normalize_rank=True)
 
     # Mask spike_prob for cells with zero spikes (match MATLAB: spikeProb(spikes == 0) = nan)
     # Note: HPDO and KL are now per-timestep (not per-cell) since they compare
@@ -501,17 +501,22 @@ def plot_original(
     axes[2].set_ylabel("KL Divergence", fontsize=9, labelpad=8)
     axes[2].tick_params(labelsize=7)
 
+    # Transform spike probability to -log scale
+    eps2 = 1e-12
+    spike_prob_transformed = -safe_log(metrics["spikeProb"] + eps2)
+    spike_prob_thresh_transformed = -np.log(th.spike_prob + eps2)
+
     axes[3].plot(
-        metrics["spikeProb"],
+        spike_prob_transformed,
         ".",
         markersize=1.5,
         alpha=0.6,
         color="#56B4E9",
         rasterized=True,
     )
-    axes[3].axhline(th.spike_prob, color="#E69F00", linewidth=1.5, zorder=10)
+    axes[3].axhline(spike_prob_thresh_transformed, color="#E69F00", linewidth=1.5, zorder=10)
     axes[3].set_xlim(0, n_time)
-    axes[3].set_ylabel("Spike Probability", fontsize=9, labelpad=8)
+    axes[3].set_ylabel("-log(Spike Prob)", fontsize=9, labelpad=8)
     axes[3].set_xlabel("Time", fontsize=9, labelpad=8)
     axes[3].tick_params(labelsize=7)
 
