@@ -848,7 +848,7 @@ def plot_combined_diagnostics(
 
     # Calculate figure size
     fig_width = 7.0  # Full page width
-    fig_height = 8.5  # Reduced height with shorter examples
+    fig_height = 7.5  # Compact height appropriate for manuscripts
 
     fig = plt.figure(figsize=(fig_width, fig_height), dpi=450)
 
@@ -1018,52 +1018,28 @@ def plot_combined_diagnostics(
 
         # Create subplot (spans 2 rows)
         ax1 = fig.add_subplot(gs[5:7, col_idx])
-        ax2 = ax1.twinx()
         example_axes.append(ax1)
 
         # Set background color matching phase
         ax1.set_facecolor(phase_colors[color_key])
 
-        # Plot prior on left axis (blue from Wong palette)
-        ax1.plot(xs, prior, color=wong[5], linewidth=1.2, alpha=0.7)
-        ax1.set_ylabel("Prior", fontsize=7, color=wong[5], labelpad=4)
-        ax1.tick_params(axis="y", labelcolor=wong[5], labelsize=5)
-        # Set ticks at min and max values only
-        prior_ylim = ax1.get_ylim()
-        ax1.set_yticks([prior_ylim[0], prior_ylim[1]])
-        ax1.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f"{x:.2g}"))
+        # Normalize likelihood to be a proper probability density
+        dx = xs[1] - xs[0]  # Uniform spacing
+        likelihood_norm = combined_likelihood / (np.sum(combined_likelihood) * dx)
 
-        # Plot likelihood on right axis with proper scaling in label
-        likelihood_max = np.max(combined_likelihood)
-        if likelihood_max > 0:
-            likelihood_order = int(np.floor(np.log10(likelihood_max)))
-            # Use scale factor if magnitude is outside reasonable range
-            if likelihood_order < -2 or likelihood_order > 2:
-                likelihood_scale = 10**likelihood_order
-                ax2.plot(
-                    xs,
-                    combined_likelihood / likelihood_scale,
-                    color=wong[1],
-                    linewidth=1.2,
-                    alpha=0.9,
-                )
-                ax2.set_ylabel(
-                    f"Likelihood (×10$^{{{likelihood_order}}}$)",
-                    fontsize=7,
-                    color=wong[1],
-                    labelpad=4,
-                )
-            else:
-                ax2.plot(xs, combined_likelihood, color=wong[1], linewidth=1.2, alpha=0.9)
-                ax2.set_ylabel("Likelihood", fontsize=7, color=wong[1], labelpad=4)
-        else:
-            ax2.plot(xs, combined_likelihood, color=wong[1], linewidth=1.2, alpha=0.9)
-            ax2.set_ylabel("Likelihood", fontsize=7, color=wong[1], labelpad=4)
-        ax2.tick_params(axis="y", labelcolor=wong[1], labelsize=5)
+        # Plot both distributions on the same axis
+        ax1.plot(xs, prior, color=wong[5], linewidth=1.2, alpha=0.7, label="Prior")
+        ax1.plot(xs, likelihood_norm, color=wong[1], linewidth=1.2, alpha=0.9, label="Likelihood")
+
+        # Single y-axis label for probability density
+        if col_idx == 0:  # Only leftmost panel gets y-axis label
+            ax1.set_ylabel("Probability Density", fontsize=7, labelpad=4)
+        ax1.tick_params(axis="y", labelsize=5)
+
         # Set ticks at min and max values only
-        likelihood_ylim = ax2.get_ylim()
-        ax2.set_yticks([likelihood_ylim[0], likelihood_ylim[1]])
-        ax2.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f"{x:.2g}"))
+        ylim = ax1.get_ylim()
+        ax1.set_yticks([ylim[0], ylim[1]])
+        ax1.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f"{x:.2g}"))
 
         # True position
         ax1.axvline(x_true[example_time], color=wong[7], linestyle="--", linewidth=0.8, alpha=0.7)
@@ -1074,8 +1050,23 @@ def plot_combined_diagnostics(
         title_text = f"{phase_name}\nHPD: {hpdo_val:.2f}  KL: {kl_val:.2f}"
         ax1.set_title(title_text, fontsize=7, pad=5, fontweight="bold")
 
-        ax1.tick_params(axis="x", labelsize=6)
-        ax1.set_xlabel("Position", fontsize=7, labelpad=4)
+        # Share x-axis: same limits for all panels, labels only on leftmost
+        ax1.set_xlim(xs[0], xs[-1])
+        if col_idx == 0:
+            ax1.tick_params(axis="x", labelsize=6)
+            ax1.set_xlabel("Position", fontsize=7, labelpad=4)
+        else:
+            ax1.tick_params(axis="x", labelbottom=False)
+
+        # Add legend to first panel only
+        if col_idx == 0:
+            ax1.legend(
+                loc="upper right",
+                fontsize=6,
+                framealpha=0.9,
+                edgecolor="none",
+                handlelength=1.5,
+            )
 
     # Panel labels: 'a' for time-series section, 'b-f' for examples
     ax_post.text(
