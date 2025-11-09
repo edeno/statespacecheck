@@ -853,17 +853,17 @@ def plot_combined_diagnostics(
     fig = plt.figure(figsize=(fig_width, fig_height), dpi=450)
 
     # Create grid: 4 rows for diagnostics, gap, 2 rows for examples
-    # 6 columns: 5 for plots + 1 narrow for colorbar
+    # 6 columns: 5 for plots + 1 for colorbar/legend
     gs = gridspec.GridSpec(
         7,
         6,
         figure=fig,
         height_ratios=[1.5, 0.8, 0.8, 0.8, 0.5, 0.6, 0.6],  # Gap row increased to 0.5
-        width_ratios=[1, 1, 1, 1, 1, 0.06],  # Last column is narrow colorbar space
+        width_ratios=[1, 1, 1, 1, 1, 0.25],  # Last column wider for colorbar/legend
         hspace=0.12,
-        wspace=0.5,  # Spacing between columns (examples need separation)
+        wspace=0.15,  # Minimal spacing between columns
         left=0.08,
-        right=0.98,
+        right=0.99,
         top=0.97,
         bottom=0.05,
     )
@@ -926,9 +926,11 @@ def plot_combined_diagnostics(
 
     # Colorbar for posterior only - in dedicated axes aligned with posterior panel
     cax = fig.add_subplot(gs[0, 5])
-    cbar = fig.colorbar(im, cax=cax)
+    cbar = fig.colorbar(im, cax=cax, format="%.1e")
     cbar.set_label("Probability", fontsize=8, labelpad=6)
-    cbar.ax.tick_params(labelsize=7, length=2, width=0.5)
+    cbar.ax.tick_params(labelsize=6, length=2, width=0.5)
+    # Format colorbar tick labels to remove redundant exponent
+    cbar.ax.yaxis.get_offset_text().set_fontsize(6)
 
     # Add phase boundaries to all time-series panels
     phase_boundaries = (
@@ -1073,26 +1075,48 @@ def plot_combined_diagnostics(
         # True position
         ax1.axvline(x_true[example_time], color=wong[7], linestyle="--", linewidth=0.8, alpha=0.7)
 
-        # Metrics as title
+        # Title with just phase name
+        ax1.set_title(phase_name, fontsize=8, pad=5, fontweight="bold")
+
+        # Add metrics as text annotation inside plot (upper left)
         hpdo_val = metrics["HPDO"][example_time]
         kl_val = metrics["KL"][example_time]
-        title_text = f"{phase_name}\nHPD: {hpdo_val:.2f}  KL: {kl_val:.2f}"
-        ax1.set_title(title_text, fontsize=7, pad=5, fontweight="bold")
+        metrics_text = f"HPD: {hpdo_val:.2f}\nKL: {kl_val:.1f}"
+        ax1.text(
+            0.05,
+            0.95,
+            metrics_text,
+            transform=ax1.transAxes,
+            fontsize=5,
+            va="top",
+            ha="left",
+            bbox={
+                "boxstyle": "round,pad=0.3",
+                "facecolor": "white",
+                "edgecolor": "none",
+                "alpha": 0.8,
+            },
+        )
 
         # All panels show x-axis labels
         ax1.set_xlim(xs[0], xs[-1])
         ax1.tick_params(axis="x", labelsize=6)
         ax1.set_xlabel("Position", fontsize=7, labelpad=4)
 
-        # Add legend to first panel only
-        if col_idx == 0:
-            ax1.legend(
-                loc="upper right",
-                fontsize=6,
-                framealpha=0.9,
-                edgecolor="none",
-                handlelength=1.5,
-            )
+    # Create legend in separate column (similar to colorbar)
+    legend_ax = fig.add_subplot(gs[5:7, 5])
+    legend_ax.axis("off")
+    # Create dummy lines for legend
+    prior_line = plt.Line2D([0], [0], color=wong[5], linewidth=1.2, alpha=0.7)
+    likelihood_line = plt.Line2D([0], [0], color=wong[1], linewidth=1.2, alpha=0.9)
+    legend_ax.legend(
+        [prior_line, likelihood_line],
+        ["Prior", "Likelihood"],
+        loc="upper left",
+        fontsize=6,
+        frameon=False,
+        handlelength=1.5,
+    )
 
     # Panel labels: 'a' for time-series section, 'b-f' for examples
     ax_post.text(
