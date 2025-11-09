@@ -62,20 +62,21 @@ def placefield_rates(
 def spike_prob_rank(
     prior: NDArray[np.floating],
     lambda_ratio: NDArray[np.floating],
-    normalize_rank: bool = False,
 ) -> NDArray[np.floating]:
-    """Compute rank of expected per-cell contribution under state uncertainty.
+    """Compute cumulative probability mass of cells with low expected contribution.
 
     Matches MATLAB: sum(lambda_expect(lambda_expect <= lambda_expect(j)))
+    where lambda_expect are probabilities summing to 1.
 
     prior: (n_bins,)
     lambda_ratio: (n_bins, n_cells), rows sum to 1.
-    returns: (n_cells,), each in [0,1] if normalize_rank=True, else raw count in [1..n_cells].
+    returns: (n_cells,), each in [0,1] representing cumulative probability mass.
     """
-    contrib = prior @ lambda_ratio  # (n_cells,)
-    # rank by value; handle ties by "less or equal" like MATLAB
-    ranks = (contrib[:, None] >= contrib[None, :]).sum(axis=1)
-    return ranks / len(contrib) if normalize_rank else ranks
+    contrib = prior @ lambda_ratio  # (n_cells,) - probabilities summing to ~1
+    # Sum probability mass of cells with contribution <= each cell's contribution
+    mask = contrib[:, None] <= contrib[None, :]  # (n_cells, n_cells)
+    spike_probs = (contrib[None, :] * mask).sum(axis=1)  # Sum probabilities, not counts
+    return spike_probs
 
 
 # -----------------------------
@@ -306,8 +307,8 @@ def decode_and_diagnostics(
         # Posterior update
         post[t] = normalize(prior * combined_likelihood)
 
-        # spike_prob rank statistic (normalized to [0,1])
-        spike_prob[t] = spike_prob_rank(prior, lambda_ratio, normalize_rank=True)
+        # spike_prob: cumulative probability mass for cells with low expected contribution
+        spike_prob[t] = spike_prob_rank(prior, lambda_ratio)
 
     # Mask spike_prob for cells with zero spikes (match MATLAB: spikeProb(spikes == 0) = nan)
     # Note: HPDO and KL are now per-timestep (not per-cell) since they compare
