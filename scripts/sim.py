@@ -788,7 +788,7 @@ def plot_misfit_examples(
         # Add legend to first panel only
         if phase_idx == 0:
             lines = line1 + line2
-            labels = [line.get_label() for line in lines]
+            labels = [str(line.get_label()) for line in lines]
             ax1.legend(lines, labels, fontsize=5, loc="lower right", frameon=False)
 
     # Save to scripts directory (publication quality: both PDF and PNG)
@@ -802,6 +802,276 @@ def plot_misfit_examples(
     plt.savefig(f"{save_path_base}.png", dpi=450, bbox_inches="tight")
     plt.close()
     print(f"Misfit examples figure saved to {save_path_base}.{{pdf,png}}")
+
+
+def plot_combined_diagnostics(
+    xs: NDArray,
+    x_true: NDArray,
+    spikes: NDArray,
+    metrics: dict[str, NDArray],
+    th: Thresholds,
+    params: DecodeParams,
+    pf_centers: NDArray[np.floating],
+    pf_width: float,
+    rate_scale: float,
+) -> None:
+    """Create comprehensive combined figure with misfit examples and time-series diagnostics.
+
+    Layout uses subplot_mosaic for optimal space usage:
+    - Top section: 4 time-series panels (posterior, HPDO, KL, spike prob) - labeled as 'a'
+    - Bottom section: 5 distribution examples (baseline + 4 misfits) - labeled as 'b-f'
+    - Background colors on examples match phase colors in time-series
+    """
+    # Define mosaic layout: time-series on top, examples on bottom
+    layout = """
+    FFFFFFFFFF
+    GGGGGGGGGG
+    HHHHHHHHHH
+    IIIIIIIIII
+    ..........
+    AABBCCDDEE
+    AABBCCDDEE
+    """
+
+    # Calculate figure size: full page width, sufficient height for all panels
+    fig_width = 7.0  # Full page width
+    fig_height = 9.0  # Height for all panels
+
+    fig, axes_dict = plt.subplot_mosaic(
+        layout,
+        figsize=(fig_width, fig_height),
+        dpi=450,
+        height_ratios=[1.5, 1, 1, 1, 0.3, 1, 1],  # Diagnostics, gap, examples
+        gridspec_kw={"hspace": 0.03, "wspace": 0.03},
+        constrained_layout={"h_pad": 0.04, "w_pad": 0.04},
+    )
+
+    # Wong colorblind-friendly palette
+    wong = ["#000000", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7"]
+
+    # Phase colors (lighter versions for backgrounds)
+    phase_colors = {
+        "baseline": "#FFFFFF",  # White
+        "remap": "#FFE5CC",  # Light orange
+        "flat": "#E8E8E8",  # Light gray
+        "fast": "#FFD6D6",  # Light red
+        "slow": "#D6E5FF",  # Light blue
+    }
+
+    # ===== TOP SECTION: Time-Series Diagnostics =====
+
+    n_time = metrics["post"].shape[0]
+
+    # F: Posterior heatmap
+    im = axes_dict["F"].imshow(
+        metrics["post"].T,
+        aspect="auto",
+        origin="lower",
+        vmin=0.0,
+        vmax=np.quantile(metrics["post"], 0.975),
+        cmap="bone_r",
+    )
+    axes_dict["F"].plot(np.arange(n_time), x_true, color="magenta", linewidth=1.0, alpha=0.85)
+    axes_dict["F"].set_ylabel("Position", fontsize=7, labelpad=5)
+    axes_dict["F"].tick_params(labelsize=6)
+
+    # Colorbar for posterior
+    cbar = fig.colorbar(im, ax=axes_dict["F"], fraction=0.02, pad=0.01, aspect=30)
+    cbar.set_label("Probability", fontsize=6, labelpad=3)
+    cbar.ax.tick_params(labelsize=5, length=2, width=0.5)
+
+    # G: HPDO
+    axes_dict["G"].plot(
+        metrics["HPDO"], ".", markersize=0.8, alpha=0.5, color=wong[5], rasterized=True
+    )
+    axes_dict["G"].axhline(th.HPDO, color=wong[1], linewidth=1.2, zorder=10)
+    axes_dict["G"].set_xlim(0, n_time)
+    axes_dict["G"].set_ylabel("HPD Overlap", fontsize=7, labelpad=5)
+    axes_dict["G"].tick_params(labelsize=6)
+
+    # H: KL Divergence
+    axes_dict["H"].plot(
+        metrics["KL"], ".", markersize=0.8, alpha=0.5, color=wong[5], rasterized=True
+    )
+    axes_dict["H"].axhline(th.KL, color=wong[1], linewidth=1.2, zorder=10)
+    axes_dict["H"].set_xlim(0, n_time)
+    axes_dict["H"].set_ylabel("KL Divergence", fontsize=7, labelpad=5)
+    axes_dict["H"].tick_params(labelsize=6)
+
+    # I: Spike Probability (transformed)
+    eps2 = 1e-12
+    spike_prob_transformed = -safe_log(metrics["spikeProb"] + eps2)
+    spike_prob_thresh_transformed = -np.log(th.spike_prob + eps2)
+
+    axes_dict["I"].plot(
+        spike_prob_transformed, ".", markersize=0.8, alpha=0.5, color=wong[5], rasterized=True
+    )
+    axes_dict["I"].axhline(spike_prob_thresh_transformed, color=wong[1], linewidth=1.2, zorder=10)
+    axes_dict["I"].set_xlim(0, n_time)
+    axes_dict["I"].set_ylabel("-log(Spike Prob)", fontsize=7, labelpad=5)
+    axes_dict["I"].set_xlabel("Time", fontsize=7, labelpad=5)
+    axes_dict["I"].tick_params(labelsize=6)
+
+    # Add phase boundaries to all time-series panels
+    phase_boundaries = (
+        params.T_remap_start,
+        params.T_remap_end,
+        params.T_recovery1_end,
+        params.T_flat_end,
+        params.T_recovery2_end,
+        params.T_fast_end,
+        params.T_recovery3_end,
+        params.T_slow_end,
+    )
+
+    for ax_id in ["F", "G", "H", "I"]:
+        ax = axes_dict[ax_id]
+        (
+            t_remap_start,
+            t_remap_end,
+            t_recovery1_end,
+            t_flat_end,
+            t_recovery2_end,
+            t_fast_end,
+            t_recovery3_end,
+            t_slow_end,
+        ) = phase_boundaries
+
+        # Misfit periods with matching colors
+        ax.axvspan(t_remap_start, t_remap_end, alpha=0.15, color="orange")
+        ax.axvspan(t_recovery1_end, t_flat_end, alpha=0.15, color="gray")
+        ax.axvspan(t_recovery2_end, t_fast_end, alpha=0.15, color="red")
+        ax.axvspan(t_recovery3_end, t_slow_end, alpha=0.15, color="blue")
+
+    # ===== BOTTOM SECTION: Misfit Examples =====
+
+    # Define phases
+    baseline_window = slice(1000, params.T_remap_start - 1000)
+    remap_window = slice(params.T_remap_start, params.T_remap_end)
+    flat_window = slice(params.T_recovery1_end, params.T_flat_end)
+    fast_window = slice(params.T_recovery2_end, params.T_fast_end)
+    slow_window = slice(params.T_recovery3_end, params.T_slow_end)
+
+    phases = [
+        ("Baseline", baseline_window, True, "A", "baseline"),
+        ("Remapping", remap_window, False, "B", "remap"),
+        ("Flat Firing", flat_window, False, "C", "flat"),
+        ("Fast Movement", fast_window, False, "D", "fast"),
+        ("Slow Movement", slow_window, False, "E", "slow"),
+    ]
+
+    for _phase_idx, (phase_name, phase_slice, is_baseline, panel_id, color_key) in enumerate(
+        phases
+    ):
+        # Find example time (best for baseline, worst for misfits)
+        phase_hpdo = metrics["HPDO"][phase_slice]
+        phase_spikes = spikes[phase_slice]
+        has_spikes = phase_spikes.sum(axis=1) > 0
+        valid_hpdo = phase_hpdo.copy()
+        valid_hpdo[~has_spikes] = np.nan
+
+        if is_baseline:
+            example_idx_in_phase = np.nanargmax(valid_hpdo)
+        else:
+            example_idx_in_phase = np.nanargmin(valid_hpdo)
+        example_time = phase_slice.start + example_idx_in_phase
+
+        # Recompute distributions at example time
+        if example_time > 0:
+            prev_post = metrics["post"][example_time - 1]
+        else:
+            prev_post = np.ones_like(xs) / len(xs)
+
+        # Select appropriate transition matrix
+        if params.T_recovery2_end <= example_time <= params.T_fast_end:
+            transition_matrix = gaussian_transition_matrix(xs, params.sigx_pred_fast_phase)
+        elif params.T_recovery3_end <= example_time <= params.T_slow_end:
+            transition_matrix = gaussian_transition_matrix(xs, params.sigx_pred_slow_phase)
+        else:
+            transition_matrix = gaussian_transition_matrix(xs, params.sigx_pred)
+
+        prior = normalize(prev_post @ transition_matrix)
+        likelihood = likelihood_grid_for_counts(
+            xs, pf_centers, pf_width, rate_scale, spikes[example_time]
+        )
+
+        if params.T_remap_start <= example_time <= params.T_remap_end:
+            likelihood = apply_remap_for_likelihoods(likelihood, params.remap_from_to, active=True)
+
+        combined_likelihood = normalize(np.prod(likelihood, axis=1))
+
+        # Plot with twin axes
+        ax1 = axes_dict[panel_id]
+        ax2 = ax1.twinx()
+
+        # Set background color matching phase
+        ax1.set_facecolor(phase_colors[color_key])
+
+        # Prior (blue)
+        ax1.plot(xs, prior, color=wong[5], linewidth=1.2, alpha=0.7)
+        ax1.set_ylabel("Prior", fontsize=6, color=wong[5], labelpad=2)
+        ax1.tick_params(axis="y", labelcolor=wong[5], labelsize=5)
+        ax1.set_ylim(0, None)
+
+        # Likelihood (orange)
+        ax2.plot(xs, combined_likelihood, color=wong[1], linewidth=1.2, alpha=0.9)
+        ax2.set_ylabel("Likelihood", fontsize=6, color=wong[1], labelpad=2)
+        ax2.tick_params(axis="y", labelcolor=wong[1], labelsize=5)
+        ax2.set_ylim(0, None)
+
+        # True position
+        ax1.axvline(x_true[example_time], color=wong[7], linestyle="--", linewidth=0.8, alpha=0.7)
+
+        # Metrics as title
+        hpdo_val = metrics["HPDO"][example_time]
+        kl_val = metrics["KL"][example_time]
+        title_text = f"{phase_name}\nHPD: {hpdo_val:.2f}  KL: {kl_val:.2f}"
+        ax1.set_title(title_text, fontsize=6, pad=3, fontweight="bold")
+
+        ax1.tick_params(axis="x", labelsize=5)
+        ax1.set_xlabel("Position", fontsize=6, labelpad=2)
+
+    # Panel labels: 'a' for time-series section, 'b-f' for examples
+    # Label just the top time-series panel
+    axes_dict["F"].text(
+        -0.08,
+        1.05,
+        "a",
+        transform=axes_dict["F"].transAxes,
+        fontsize=8,
+        fontweight="bold",
+        va="bottom",
+        ha="right",
+    )
+
+    # Label each example panel
+    example_labels = ["b", "c", "d", "e", "f"]
+    example_panels = ["A", "B", "C", "D", "E"]
+
+    for label, panel_id in zip(example_labels, example_panels, strict=True):
+        axes_dict[panel_id].text(
+            -0.08,
+            1.05,
+            label,
+            transform=axes_dict[panel_id].transAxes,
+            fontsize=8,
+            fontweight="bold",
+            va="bottom",
+            ha="right",
+        )
+
+    # Save (suppress known warning about twin axes with constrained_layout)
+    import os
+    import warnings
+
+    save_path_base = os.path.join(os.path.dirname(__file__), "combined_diagnostics")
+
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", message="constrained_layout not applied")
+        plt.savefig(f"{save_path_base}.pdf", dpi=450)
+        plt.savefig(f"{save_path_base}.png", dpi=450)
+    plt.close()
+    print(f"\nCombined diagnostics figure saved to {save_path_base}.{{pdf,png}}")
 
 
 # -----------------------------
@@ -952,6 +1222,19 @@ def run_demo(params: DecodeParams) -> None:
     # Plot misfit examples showing distributions
     plot_misfit_examples(
         xs, x_true, spikes, metrics, params, params.pf_centers, params.pf_width, params.rate_scale
+    )
+
+    # Plot combined diagnostics figure
+    plot_combined_diagnostics(
+        xs,
+        x_true,
+        spikes,
+        metrics,
+        th,
+        params,
+        params.pf_centers,
+        params.pf_width,
+        params.rate_scale,
     )
 
     # Plots (original) with highlighted regions
