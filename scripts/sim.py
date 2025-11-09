@@ -408,7 +408,7 @@ def plot_original(
             "rect": [0, 0, 1, 0.97],
         },
         sharex=True,
-        dpi=150,
+        dpi=450,
     )
 
     im = axes[0].imshow(
@@ -423,13 +423,13 @@ def plot_original(
     axes[0].plot(
         np.arange(n_time), x_true, color="magenta", linewidth=1.5, alpha=0.85, label="True position"
     )
-    axes[0].set_ylabel("Position (bin)", fontsize=9, labelpad=8)
-    axes[0].tick_params(labelsize=7)
+    axes[0].set_ylabel("Position (bin)", fontsize=10, labelpad=8)
+    axes[0].tick_params(labelsize=8)
 
     # Create colorbar with better formatting
     cbar = fig.colorbar(im, ax=axes[0], fraction=0.03, pad=0.02, aspect=30)
-    cbar.set_label("Probability (×10⁻¹²)", fontsize=8, labelpad=8)
-    cbar.ax.tick_params(labelsize=7, length=3, width=0.5)
+    cbar.set_label("Probability (×10⁻¹²)", fontsize=9, labelpad=8)
+    cbar.ax.tick_params(labelsize=8, length=3, width=0.5)
     # Scale tick labels by 1e12 to avoid offset text
     import matplotlib.ticker as ticker
 
@@ -493,14 +493,14 @@ def plot_original(
     )
     axes[1].axhline(th.HPDO, color="#E69F00", linewidth=1.5, zorder=10)
     axes[1].set_xlim(0, n_time)
-    axes[1].set_ylabel("HPD Overlap", fontsize=9, labelpad=8)
-    axes[1].tick_params(labelsize=7)
+    axes[1].set_ylabel("HPD Overlap", fontsize=10, labelpad=8)
+    axes[1].tick_params(labelsize=8)
 
     axes[2].plot(metrics["KL"], ".", markersize=1.5, alpha=0.6, color="#56B4E9", rasterized=True)
     axes[2].axhline(th.KL, color="#E69F00", linewidth=1.5, zorder=10)
     axes[2].set_xlim(0, n_time)
-    axes[2].set_ylabel("KL Divergence", fontsize=9, labelpad=8)
-    axes[2].tick_params(labelsize=7)
+    axes[2].set_ylabel("KL Divergence", fontsize=10, labelpad=8)
+    axes[2].tick_params(labelsize=8)
 
     # Transform spike probability to -log scale
     eps2 = 1e-12
@@ -517,9 +517,9 @@ def plot_original(
     )
     axes[3].axhline(spike_prob_thresh_transformed, color="#E69F00", linewidth=1.5, zorder=10)
     axes[3].set_xlim(0, n_time)
-    axes[3].set_ylabel("-log(Spike Prob)", fontsize=9, labelpad=8)
-    axes[3].set_xlabel("Time", fontsize=9, labelpad=8)
-    axes[3].tick_params(labelsize=7)
+    axes[3].set_ylabel("-log(Spike Prob)", fontsize=10, labelpad=8)
+    axes[3].set_xlabel("Time", fontsize=10, labelpad=8)
+    axes[3].tick_params(labelsize=8)
 
     # Add comprehensive legend outside the plot area at the bottom
     # Get handles and labels from axes[0] where they were defined
@@ -529,14 +529,14 @@ def plot_original(
         labels,
         loc="upper center",
         bbox_to_anchor=(0.5, -0.35),
-        fontsize=8,
+        fontsize=9,
         frameon=True,
         fancybox=False,
         shadow=False,
         ncol=5,
     )
 
-    fig.suptitle(title, fontsize=10, y=0.99)
+    fig.suptitle(title, fontsize=11, y=0.99)
     return fig
 
 
@@ -989,8 +989,10 @@ def run_demo(params: DecodeParams) -> None:
     # )
 
     # Save figure instead of showing (for non-interactive execution)
-    plt.savefig("sim_diagnostics.png", dpi=300, bbox_inches="tight")
-    print("\nFigure saved to sim_diagnostics.png")
+    # Save both PDF and PNG for publication quality
+    plt.savefig("sim_diagnostics.pdf", dpi=450, bbox_inches="tight")
+    plt.savefig("sim_diagnostics.png", dpi=450, bbox_inches="tight")
+    print("\nFigures saved to sim_diagnostics.pdf and sim_diagnostics.png")
 
 
 if __name__ == "__main__":
