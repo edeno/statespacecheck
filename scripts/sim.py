@@ -817,37 +817,25 @@ def plot_combined_diagnostics(
 ) -> None:
     """Create comprehensive combined figure with misfit examples and time-series diagnostics.
 
-    Layout uses subplot_mosaic for optimal space usage:
-    - Top section: 4 time-series panels (posterior, HPDO, KL, spike prob) - labeled as 'a'
-    - Bottom section: 5 distribution examples (baseline + 4 misfits) - labeled as 'b-f'
+    Layout:
+    - Top section: 4 time-series panels (posterior, HPDO, KL, spike prob) with shared x-axis
+    - Bottom section: 5 distribution examples (baseline + 4 misfits)
     - Background colors on examples match phase colors in time-series
+    - All formatting matches original figure standards
     """
-    # Define mosaic layout: time-series on top, examples on bottom
-    layout = """
-    FFFFFFFFFF
-    GGGGGGGGGG
-    HHHHHHHHHH
-    IIIIIIIIII
-    ..........
-    AABBCCDDEE
-    AABBCCDDEE
-    """
-
-    # Calculate figure size: full page width, sufficient height for all panels
-    fig_width = 7.0  # Full page width
-    fig_height = 9.0  # Height for all panels
-
-    fig, axes_dict = plt.subplot_mosaic(
-        layout,
-        figsize=(fig_width, fig_height),
-        dpi=450,
-        height_ratios=[1.5, 1, 1, 1, 0.3, 1, 1],  # Diagnostics, gap, examples
-        gridspec_kw={"hspace": 0.03, "wspace": 0.03},
-        constrained_layout={"h_pad": 0.04, "w_pad": 0.04},
-    )
+    import matplotlib.gridspec as gridspec
 
     # Wong colorblind-friendly palette
-    wong = ["#000000", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7"]
+    wong = [
+        "#000000",
+        "#E69F00",
+        "#56B4E9",
+        "#009E73",
+        "#F0E442",
+        "#0072B2",
+        "#D55E00",
+        "#CC79A7",
+    ]
 
     # Phase colors (lighter versions for backgrounds)
     phase_colors = {
@@ -858,12 +846,40 @@ def plot_combined_diagnostics(
         "slow": "#D6E5FF",  # Light blue
     }
 
+    # Calculate figure size
+    fig_width = 7.0  # Full page width
+    fig_height = 8.5  # Reduced height with shorter examples
+
+    fig = plt.figure(figsize=(fig_width, fig_height), dpi=450)
+
+    # Create grid: 4 rows for diagnostics, gap, 2 rows for examples
+    # 6 columns: 5 for plots + 1 narrow for colorbar
+    gs = gridspec.GridSpec(
+        7,
+        6,
+        figure=fig,
+        height_ratios=[1.5, 0.8, 0.8, 0.8, 0.3, 0.6, 0.6],  # Shorter examples
+        width_ratios=[1, 1, 1, 1, 1, 0.06],  # Last column is narrow colorbar space
+        hspace=0.12,
+        wspace=0.5,  # Spacing between columns (examples need separation)
+        left=0.08,
+        right=0.98,
+        top=0.97,
+        bottom=0.05,
+    )
+
     # ===== TOP SECTION: Time-Series Diagnostics =====
 
     n_time = metrics["post"].shape[0]
 
-    # F: Posterior heatmap
-    im = axes_dict["F"].imshow(
+    # Create time-series axes (all spanning first 5 columns, with shared x-axis)
+    ax_post = fig.add_subplot(gs[0, 0:5])
+    ax_hpdo = fig.add_subplot(gs[1, 0:5], sharex=ax_post)
+    ax_kl = fig.add_subplot(gs[2, 0:5], sharex=ax_post)
+    ax_spike = fig.add_subplot(gs[3, 0:5], sharex=ax_post)
+
+    # Posterior heatmap
+    im = ax_post.imshow(
         metrics["post"].T,
         aspect="auto",
         origin="lower",
@@ -871,46 +887,48 @@ def plot_combined_diagnostics(
         vmax=np.quantile(metrics["post"], 0.975),
         cmap="bone_r",
     )
-    axes_dict["F"].plot(np.arange(n_time), x_true, color="magenta", linewidth=1.0, alpha=0.85)
-    axes_dict["F"].set_ylabel("Position", fontsize=7, labelpad=5)
-    axes_dict["F"].tick_params(labelsize=6)
+    ax_post.plot(np.arange(n_time), x_true, color="magenta", linewidth=1.0, alpha=0.85)
+    ax_post.set_ylabel("Position", fontsize=9, labelpad=7)
+    ax_post.tick_params(labelsize=7, labelbottom=False)
 
-    # Colorbar for posterior
-    cbar = fig.colorbar(im, ax=axes_dict["F"], fraction=0.02, pad=0.01, aspect=30)
-    cbar.set_label("Probability", fontsize=6, labelpad=3)
-    cbar.ax.tick_params(labelsize=5, length=2, width=0.5)
+    # HPDO
+    ax_hpdo.plot(metrics["HPDO"], ".", markersize=0.8, alpha=0.6, color=wong[5], rasterized=True)
+    ax_hpdo.axhline(th.HPDO, color=wong[1], linewidth=1.2, zorder=10)
+    ax_hpdo.set_xlim(0, n_time)
+    ax_hpdo.set_ylabel("HPD Overlap", fontsize=9, labelpad=7)
+    ax_hpdo.tick_params(labelsize=7, labelbottom=False)
 
-    # G: HPDO
-    axes_dict["G"].plot(
-        metrics["HPDO"], ".", markersize=0.8, alpha=0.5, color=wong[5], rasterized=True
-    )
-    axes_dict["G"].axhline(th.HPDO, color=wong[1], linewidth=1.2, zorder=10)
-    axes_dict["G"].set_xlim(0, n_time)
-    axes_dict["G"].set_ylabel("HPD Overlap", fontsize=7, labelpad=5)
-    axes_dict["G"].tick_params(labelsize=6)
+    # KL Divergence
+    ax_kl.plot(metrics["KL"], ".", markersize=0.8, alpha=0.6, color=wong[5], rasterized=True)
+    ax_kl.axhline(th.KL, color=wong[1], linewidth=1.2, zorder=10)
+    ax_kl.set_xlim(0, n_time)
+    ax_kl.set_ylabel("KL Divergence", fontsize=9, labelpad=7)
+    ax_kl.tick_params(labelsize=7, labelbottom=False)
 
-    # H: KL Divergence
-    axes_dict["H"].plot(
-        metrics["KL"], ".", markersize=0.8, alpha=0.5, color=wong[5], rasterized=True
-    )
-    axes_dict["H"].axhline(th.KL, color=wong[1], linewidth=1.2, zorder=10)
-    axes_dict["H"].set_xlim(0, n_time)
-    axes_dict["H"].set_ylabel("KL Divergence", fontsize=7, labelpad=5)
-    axes_dict["H"].tick_params(labelsize=6)
-
-    # I: Spike Probability (transformed)
+    # Spike Probability (transformed)
     eps2 = 1e-12
     spike_prob_transformed = -safe_log(metrics["spikeProb"] + eps2)
     spike_prob_thresh_transformed = -np.log(th.spike_prob + eps2)
 
-    axes_dict["I"].plot(
-        spike_prob_transformed, ".", markersize=0.8, alpha=0.5, color=wong[5], rasterized=True
+    ax_spike.plot(
+        spike_prob_transformed,
+        ".",
+        markersize=0.8,
+        alpha=0.6,
+        color=wong[5],
+        rasterized=True,
     )
-    axes_dict["I"].axhline(spike_prob_thresh_transformed, color=wong[1], linewidth=1.2, zorder=10)
-    axes_dict["I"].set_xlim(0, n_time)
-    axes_dict["I"].set_ylabel("-log(Spike Prob)", fontsize=7, labelpad=5)
-    axes_dict["I"].set_xlabel("Time", fontsize=7, labelpad=5)
-    axes_dict["I"].tick_params(labelsize=6)
+    ax_spike.axhline(spike_prob_thresh_transformed, color=wong[1], linewidth=1.2, zorder=10)
+    ax_spike.set_xlim(0, n_time)
+    ax_spike.set_ylabel("-log(Spike Prob)", fontsize=9, labelpad=7)
+    ax_spike.set_xlabel("Time", fontsize=9, labelpad=7)
+    ax_spike.tick_params(labelsize=7)
+
+    # Colorbar for posterior only - in dedicated axes aligned with posterior panel
+    cax = fig.add_subplot(gs[0, 5])
+    cbar = fig.colorbar(im, cax=cax)
+    cbar.set_label("Probability", fontsize=8, labelpad=6)
+    cbar.ax.tick_params(labelsize=7, length=2, width=0.5)
 
     # Add phase boundaries to all time-series panels
     phase_boundaries = (
@@ -924,8 +942,7 @@ def plot_combined_diagnostics(
         params.T_slow_end,
     )
 
-    for ax_id in ["F", "G", "H", "I"]:
-        ax = axes_dict[ax_id]
+    for ax in [ax_post, ax_hpdo, ax_kl, ax_spike]:
         (
             t_remap_start,
             t_remap_end,
@@ -953,16 +970,15 @@ def plot_combined_diagnostics(
     slow_window = slice(params.T_recovery3_end, params.T_slow_end)
 
     phases = [
-        ("Baseline", baseline_window, True, "A", "baseline"),
-        ("Remapping", remap_window, False, "B", "remap"),
-        ("Flat Firing", flat_window, False, "C", "flat"),
-        ("Fast Movement", fast_window, False, "D", "fast"),
-        ("Slow Movement", slow_window, False, "E", "slow"),
+        ("Baseline", baseline_window, True, 0, "baseline"),
+        ("Remapping", remap_window, False, 1, "remap"),
+        ("Flat Firing", flat_window, False, 2, "flat"),
+        ("Fast Movement", fast_window, False, 3, "fast"),
+        ("Slow Movement", slow_window, False, 4, "slow"),
     ]
 
-    for _phase_idx, (phase_name, phase_slice, is_baseline, panel_id, color_key) in enumerate(
-        phases
-    ):
+    example_axes = []
+    for _phase_idx, (phase_name, phase_slice, is_baseline, col_idx, color_key) in enumerate(phases):
         # Find example time (best for baseline, worst for misfits)
         phase_hpdo = metrics["HPDO"][phase_slice]
         phase_spikes = spikes[phase_slice]
@@ -1000,24 +1016,54 @@ def plot_combined_diagnostics(
 
         combined_likelihood = normalize(np.prod(likelihood, axis=1))
 
-        # Plot with twin axes
-        ax1 = axes_dict[panel_id]
+        # Create subplot (spans 2 rows)
+        ax1 = fig.add_subplot(gs[5:7, col_idx])
         ax2 = ax1.twinx()
+        example_axes.append(ax1)
 
         # Set background color matching phase
         ax1.set_facecolor(phase_colors[color_key])
 
-        # Prior (blue)
+        # Plot prior on left axis (blue from Wong palette)
         ax1.plot(xs, prior, color=wong[5], linewidth=1.2, alpha=0.7)
-        ax1.set_ylabel("Prior", fontsize=6, color=wong[5], labelpad=2)
+        ax1.set_ylabel("Prior", fontsize=7, color=wong[5], labelpad=4)
         ax1.tick_params(axis="y", labelcolor=wong[5], labelsize=5)
-        ax1.set_ylim(0, None)
+        # Set ticks at min and max values only
+        prior_ylim = ax1.get_ylim()
+        ax1.set_yticks([prior_ylim[0], prior_ylim[1]])
+        ax1.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f"{x:.2g}"))
 
-        # Likelihood (orange)
-        ax2.plot(xs, combined_likelihood, color=wong[1], linewidth=1.2, alpha=0.9)
-        ax2.set_ylabel("Likelihood", fontsize=6, color=wong[1], labelpad=2)
+        # Plot likelihood on right axis with proper scaling in label
+        likelihood_max = np.max(combined_likelihood)
+        if likelihood_max > 0:
+            likelihood_order = int(np.floor(np.log10(likelihood_max)))
+            # Use scale factor if magnitude is outside reasonable range
+            if likelihood_order < -2 or likelihood_order > 2:
+                likelihood_scale = 10**likelihood_order
+                ax2.plot(
+                    xs,
+                    combined_likelihood / likelihood_scale,
+                    color=wong[1],
+                    linewidth=1.2,
+                    alpha=0.9,
+                )
+                ax2.set_ylabel(
+                    f"Likelihood (×10$^{{{likelihood_order}}}$)",
+                    fontsize=7,
+                    color=wong[1],
+                    labelpad=4,
+                )
+            else:
+                ax2.plot(xs, combined_likelihood, color=wong[1], linewidth=1.2, alpha=0.9)
+                ax2.set_ylabel("Likelihood", fontsize=7, color=wong[1], labelpad=4)
+        else:
+            ax2.plot(xs, combined_likelihood, color=wong[1], linewidth=1.2, alpha=0.9)
+            ax2.set_ylabel("Likelihood", fontsize=7, color=wong[1], labelpad=4)
         ax2.tick_params(axis="y", labelcolor=wong[1], labelsize=5)
-        ax2.set_ylim(0, None)
+        # Set ticks at min and max values only
+        likelihood_ylim = ax2.get_ylim()
+        ax2.set_yticks([likelihood_ylim[0], likelihood_ylim[1]])
+        ax2.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f"{x:.2g}"))
 
         # True position
         ax1.axvline(x_true[example_time], color=wong[7], linestyle="--", linewidth=0.8, alpha=0.7)
@@ -1026,50 +1072,42 @@ def plot_combined_diagnostics(
         hpdo_val = metrics["HPDO"][example_time]
         kl_val = metrics["KL"][example_time]
         title_text = f"{phase_name}\nHPD: {hpdo_val:.2f}  KL: {kl_val:.2f}"
-        ax1.set_title(title_text, fontsize=6, pad=3, fontweight="bold")
+        ax1.set_title(title_text, fontsize=7, pad=5, fontweight="bold")
 
-        ax1.tick_params(axis="x", labelsize=5)
-        ax1.set_xlabel("Position", fontsize=6, labelpad=2)
+        ax1.tick_params(axis="x", labelsize=6)
+        ax1.set_xlabel("Position", fontsize=7, labelpad=4)
 
     # Panel labels: 'a' for time-series section, 'b-f' for examples
-    # Label just the top time-series panel
-    axes_dict["F"].text(
+    ax_post.text(
         -0.08,
         1.05,
         "a",
-        transform=axes_dict["F"].transAxes,
-        fontsize=8,
+        transform=ax_post.transAxes,
+        fontsize=9,
         fontweight="bold",
         va="bottom",
         ha="right",
     )
 
-    # Label each example panel
     example_labels = ["b", "c", "d", "e", "f"]
-    example_panels = ["A", "B", "C", "D", "E"]
-
-    for label, panel_id in zip(example_labels, example_panels, strict=True):
-        axes_dict[panel_id].text(
-            -0.08,
+    for label, ax in zip(example_labels, example_axes, strict=True):
+        ax.text(
+            -0.15,
             1.05,
             label,
-            transform=axes_dict[panel_id].transAxes,
-            fontsize=8,
+            transform=ax.transAxes,
+            fontsize=9,
             fontweight="bold",
             va="bottom",
             ha="right",
         )
 
-    # Save (suppress known warning about twin axes with constrained_layout)
+    # Save
     import os
-    import warnings
 
     save_path_base = os.path.join(os.path.dirname(__file__), "combined_diagnostics")
-
-    with warnings.catch_warnings():
-        warnings.filterwarnings("ignore", message="constrained_layout not applied")
-        plt.savefig(f"{save_path_base}.pdf", dpi=450)
-        plt.savefig(f"{save_path_base}.png", dpi=450)
+    plt.savefig(f"{save_path_base}.pdf", dpi=450)
+    plt.savefig(f"{save_path_base}.png", dpi=450)
     plt.close()
     print(f"\nCombined diagnostics figure saved to {save_path_base}.{{pdf,png}}")
 
