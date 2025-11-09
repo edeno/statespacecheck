@@ -623,31 +623,35 @@ def plot_misfit_examples(
     """Plot examples of high misfit moments for each scenario.
 
     Finds the worst time point in each misfit phase and shows the distributions.
-    Shows 4 columns for the 4 misfit types.
+    Also includes a baseline example with good fit.
+    Shows 5 columns: baseline + 4 misfit types.
     """
-    # Define phase windows for misfit phases only (no baseline)
+    # Define phase windows - include baseline (good fit) and misfit phases
+    baseline_window = slice(1000, params.T_remap_start - 1000)  # Middle of baseline
     remap_window = slice(params.T_remap_start, params.T_remap_end)
     flat_window = slice(params.T_recovery1_end, params.T_flat_end)
     fast_window = slice(params.T_recovery2_end, params.T_fast_end)
     slow_window = slice(params.T_recovery3_end, params.T_slow_end)
 
     phases = [
-        ("Remapping", remap_window),
-        ("Flat Firing", flat_window),
-        ("Fast Movement", fast_window),
-        ("Slow Movement", slow_window),
+        ("Baseline", baseline_window, True),  # Third element indicates if it's baseline
+        ("Remapping", remap_window, False),
+        ("Flat Firing", flat_window, False),
+        ("Fast Movement", fast_window, False),
+        ("Slow Movement", slow_window, False),
     ]
 
-    # Publication quality: 450 DPI, single row with 4 columns
-    fig = plt.figure(figsize=(10.0, 2.5), dpi=450, constrained_layout=True)
-    gs = fig.add_gridspec(1, 4)
-    axes = [fig.add_subplot(gs[0, i]) for i in range(4)]
+    # Publication quality: 450 DPI, single row with 5 columns
+    fig = plt.figure(figsize=(12.0, 2.5), dpi=450, constrained_layout=True)
+    gs = fig.add_gridspec(1, 5)
+    axes = [fig.add_subplot(gs[0, i]) for i in range(5)]
 
     # Wong colorblind-friendly palette
     wong = ["#000000", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7"]
 
-    for phase_idx, (phase_name, phase_slice) in enumerate(phases):
-        # Find worst fit (lowest HPDO) but only consider time points with spikes
+    for phase_idx, (phase_name, phase_slice, is_baseline) in enumerate(phases):
+        # For baseline, find best fit (highest HPDO); for misfits, find worst fit (lowest HPDO)
+        # BUT: only consider time points with spikes so likelihood is informative
         phase_hpdo = metrics["HPDO"][phase_slice]
         phase_spikes = spikes[phase_slice]
 
@@ -656,7 +660,10 @@ def plot_misfit_examples(
         valid_hpdo = phase_hpdo.copy()
         valid_hpdo[~has_spikes] = np.nan  # Exclude times without spikes
 
-        example_idx_in_phase = np.nanargmin(valid_hpdo)  # Worst fit with spikes
+        if is_baseline:
+            example_idx_in_phase = np.nanargmax(valid_hpdo)  # Best fit with spikes
+        else:
+            example_idx_in_phase = np.nanargmin(valid_hpdo)  # Worst fit with spikes
         example_time = phase_slice.start + example_idx_in_phase
 
         # Recompute prior and likelihood at this time point
@@ -694,25 +701,63 @@ def plot_misfit_examples(
 
         # Plot prior on left axis (blue from Wong palette) with transparency
         line1 = ax1.plot(xs, prior, color=wong[5], linewidth=1.5, alpha=0.7, label="Prior")
-        ax1.set_ylabel("Prior", fontsize=7, color=wong[5], labelpad=3)
+        # Determine scale factor for prior and include in ylabel
+        prior_max = np.max(prior)
+        if prior_max > 0:
+            prior_order = int(np.floor(np.log10(prior_max)))
+            # Use scale factor if magnitude is outside reasonable range
+            if prior_order < -2 or prior_order > 2:
+                prior_scale = 10**prior_order
+                ax1.plot(xs, prior / prior_scale, color=wong[5], linewidth=1.5, alpha=0.7)
+                ax1.lines[0].remove()  # Remove the unscaled plot
+                ax1.set_ylabel(
+                    f"Prior (×10$^{{{prior_order}}}$)", fontsize=7, color=wong[5], labelpad=3
+                )
+            else:
+                ax1.set_ylabel("Prior", fontsize=7, color=wong[5], labelpad=3)
+        else:
+            ax1.set_ylabel("Prior", fontsize=7, color=wong[5], labelpad=3)
         ax1.tick_params(axis="y", labelcolor=wong[5], labelsize=6)
         ax1.set_ylim(0, None)
-        # Use scientific notation for small/large values
-        ax1.ticklabel_format(axis="y", style="scientific", scilimits=(-2, 2), useMathText=True)
-        ax1.yaxis.get_offset_text().set_fontsize(6)
-        ax1.yaxis.get_offset_text().set_color(wong[5])
 
         # Plot likelihood on right axis (orange from Wong palette) - solid line
-        line2 = ax2.plot(
-            xs, combined_likelihood, color=wong[1], linewidth=1.5, alpha=0.9, label="Likelihood"
-        )
-        ax2.set_ylabel("Likelihood", fontsize=7, color=wong[1], labelpad=3)
+        likelihood_max = np.max(combined_likelihood)
+        if likelihood_max > 0:
+            likelihood_order = int(np.floor(np.log10(likelihood_max)))
+            # Use scale factor if magnitude is outside reasonable range
+            if likelihood_order < -2 or likelihood_order > 2:
+                likelihood_scale = 10**likelihood_order
+                line2 = ax2.plot(
+                    xs,
+                    combined_likelihood / likelihood_scale,
+                    color=wong[1],
+                    linewidth=1.5,
+                    alpha=0.9,
+                    label="Likelihood",
+                )
+                ax2.set_ylabel(
+                    f"Likelihood (×10$^{{{likelihood_order}}}$)",
+                    fontsize=7,
+                    color=wong[1],
+                    labelpad=3,
+                )
+            else:
+                line2 = ax2.plot(
+                    xs,
+                    combined_likelihood,
+                    color=wong[1],
+                    linewidth=1.5,
+                    alpha=0.9,
+                    label="Likelihood",
+                )
+                ax2.set_ylabel("Likelihood", fontsize=7, color=wong[1], labelpad=3)
+        else:
+            line2 = ax2.plot(
+                xs, combined_likelihood, color=wong[1], linewidth=1.5, alpha=0.9, label="Likelihood"
+            )
+            ax2.set_ylabel("Likelihood", fontsize=7, color=wong[1], labelpad=3)
         ax2.tick_params(axis="y", labelcolor=wong[1], labelsize=6)
         ax2.set_ylim(0, None)
-        # Use scientific notation for small/large values
-        ax2.ticklabel_format(axis="y", style="scientific", scilimits=(-2, 2), useMathText=True)
-        ax2.yaxis.get_offset_text().set_fontsize(6)
-        ax2.yaxis.get_offset_text().set_color(wong[1])
 
         # Add true position line (purple from Wong palette)
         ax1.axvline(x_true[example_time], color=wong[7], linestyle="--", linewidth=1.0, alpha=0.7)
