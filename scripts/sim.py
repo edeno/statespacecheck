@@ -858,7 +858,7 @@ def plot_combined_diagnostics(
         7,
         6,
         figure=fig,
-        height_ratios=[1.5, 0.8, 0.8, 0.8, 0.3, 0.6, 0.6],  # Shorter examples
+        height_ratios=[1.5, 0.8, 0.8, 0.8, 0.5, 0.6, 0.6],  # Gap row increased to 0.5
         width_ratios=[1, 1, 1, 1, 1, 0.06],  # Last column is narrow colorbar space
         hspace=0.12,
         wspace=0.5,  # Spacing between columns (examples need separation)
