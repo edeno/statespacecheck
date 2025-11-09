@@ -977,7 +977,8 @@ def plot_combined_diagnostics(
         ("Slow Movement", slow_window, False, 4, "slow"),
     ]
 
-    example_axes = []
+    # First pass: compute all distributions to determine shared y-limits
+    plot_data = []
     for _phase_idx, (phase_name, phase_slice, is_baseline, col_idx, color_key) in enumerate(phases):
         # Find example time (best for baseline, worst for misfits)
         phase_hpdo = metrics["HPDO"][phase_slice]
@@ -1016,6 +1017,38 @@ def plot_combined_diagnostics(
 
         combined_likelihood = normalize(np.prod(likelihood, axis=1))
 
+        # Normalize likelihood to probability density
+        dx = xs[1] - xs[0]
+        likelihood_norm = combined_likelihood / (np.sum(combined_likelihood) * dx)
+
+        plot_data.append(
+            {
+                "phase_name": phase_name,
+                "col_idx": col_idx,
+                "color_key": color_key,
+                "example_time": example_time,
+                "prior": prior,
+                "likelihood_norm": likelihood_norm,
+            }
+        )
+
+    # Determine shared y-limits across all panels
+    all_y_values = []
+    for data in plot_data:
+        all_y_values.extend(data["prior"])
+        all_y_values.extend(data["likelihood_norm"])
+    y_min, y_max = np.min(all_y_values), np.max(all_y_values)
+
+    # Second pass: create plots with shared y-axis
+    example_axes = []
+    for data in plot_data:
+        phase_name = data["phase_name"]
+        col_idx = data["col_idx"]
+        color_key = data["color_key"]
+        example_time = data["example_time"]
+        prior = data["prior"]
+        likelihood_norm = data["likelihood_norm"]
+
         # Create subplot (spans 2 rows)
         ax1 = fig.add_subplot(gs[5:7, col_idx])
         example_axes.append(ax1)
@@ -1023,23 +1056,19 @@ def plot_combined_diagnostics(
         # Set background color matching phase
         ax1.set_facecolor(phase_colors[color_key])
 
-        # Normalize likelihood to be a proper probability density
-        dx = xs[1] - xs[0]  # Uniform spacing
-        likelihood_norm = combined_likelihood / (np.sum(combined_likelihood) * dx)
-
         # Plot both distributions on the same axis
         ax1.plot(xs, prior, color=wong[5], linewidth=1.2, alpha=0.7, label="Prior")
         ax1.plot(xs, likelihood_norm, color=wong[1], linewidth=1.2, alpha=0.9, label="Likelihood")
 
-        # Single y-axis label for probability density
-        if col_idx == 0:  # Only leftmost panel gets y-axis label
+        # Share y-axis: same limits for all panels, labels only on leftmost
+        ax1.set_ylim(y_min, y_max)
+        if col_idx == 0:
             ax1.set_ylabel("Probability Density", fontsize=7, labelpad=4)
-        ax1.tick_params(axis="y", labelsize=5)
-
-        # Set ticks at min and max values only
-        ylim = ax1.get_ylim()
-        ax1.set_yticks([ylim[0], ylim[1]])
-        ax1.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f"{x:.2g}"))
+            ax1.tick_params(axis="y", labelsize=5)
+            ax1.set_yticks([y_min, y_max])
+            ax1.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f"{x:.2g}"))
+        else:
+            ax1.yaxis.set_major_formatter(plt.NullFormatter())
 
         # True position
         ax1.axvline(x_true[example_time], color=wong[7], linestyle="--", linewidth=0.8, alpha=0.7)
@@ -1050,13 +1079,10 @@ def plot_combined_diagnostics(
         title_text = f"{phase_name}\nHPD: {hpdo_val:.2f}  KL: {kl_val:.2f}"
         ax1.set_title(title_text, fontsize=7, pad=5, fontweight="bold")
 
-        # Share x-axis: same limits for all panels, labels only on leftmost
+        # All panels show x-axis labels
         ax1.set_xlim(xs[0], xs[-1])
-        if col_idx == 0:
-            ax1.tick_params(axis="x", labelsize=6)
-            ax1.set_xlabel("Position", fontsize=7, labelpad=4)
-        else:
-            ax1.tick_params(axis="x", labelbottom=False)
+        ax1.tick_params(axis="x", labelsize=6)
+        ax1.set_xlabel("Position", fontsize=7, labelpad=4)
 
         # Add legend to first panel only
         if col_idx == 0:
