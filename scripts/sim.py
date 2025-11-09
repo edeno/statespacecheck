@@ -610,6 +610,186 @@ def plot_transformed(
     return fig
 
 
+def plot_misfit_examples(
+    xs: NDArray,
+    x_true: NDArray,
+    spikes: NDArray,
+    metrics: dict[str, NDArray],
+    params: DecodeParams,
+    pf_centers: NDArray[np.floating],
+    pf_width: float,
+    rate_scale: float,
+) -> None:
+    """Plot examples of high misfit moments for each scenario.
+
+    Finds the worst time point in each misfit phase and shows the distributions.
+    Also includes a baseline example with good fit.
+    """
+    # Define phase windows - include baseline (good fit) and misfit phases
+    baseline_window = slice(1000, params.T_remap_start - 1000)  # Middle of baseline
+    remap_window = slice(params.T_remap_start, params.T_remap_end)
+    flat_window = slice(params.T_recovery1_end, params.T_flat_end)
+    fast_window = slice(params.T_recovery2_end, params.T_fast_end)
+    slow_window = slice(params.T_recovery3_end, params.T_slow_end)
+
+    phases = [
+        ("Baseline (Good Fit)", baseline_window, True),  # Third element indicates if it's baseline
+        ("Remapping", remap_window, False),
+        ("Flat Firing", flat_window, False),
+        ("Fast Movement", fast_window, False),
+        ("Slow Movement", slow_window, False),
+    ]
+
+    # Publication quality: 450 DPI, larger figure for 5 rows
+    # Use gridspec for better control over spacing
+    fig = plt.figure(figsize=(7.0, 9.5), dpi=450)
+    gs = fig.add_gridspec(
+        5, 2, hspace=0.5, wspace=0.3, top=0.96, bottom=0.04, left=0.10, right=0.90
+    )
+    axes = np.array([[fig.add_subplot(gs[i, j]) for j in range(2)] for i in range(5)])
+
+    # Wong colorblind-friendly palette
+    wong = ["#000000", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7"]
+
+    for phase_idx, (phase_name, phase_slice, is_baseline) in enumerate(phases):
+        # For baseline, find best fit (highest HPDO); for misfits, find worst fit (lowest HPDO)
+        # BUT: only consider time points with spikes so likelihood is informative
+        phase_hpdo = metrics["HPDO"][phase_slice]
+        phase_spikes = spikes[phase_slice]
+
+        # Mask times without spikes (likelihood will be flat/uninformative)
+        has_spikes = phase_spikes.sum(axis=1) > 0
+        valid_hpdo = phase_hpdo.copy()
+        valid_hpdo[~has_spikes] = np.nan  # Exclude times without spikes
+
+        if is_baseline:
+            example_idx_in_phase = np.nanargmax(valid_hpdo)  # Best fit with spikes
+        else:
+            example_idx_in_phase = np.nanargmin(valid_hpdo)  # Worst fit with spikes
+        example_time = phase_slice.start + example_idx_in_phase
+
+        # Recompute prior and likelihood at this time point
+        # Get posterior from previous timestep
+        if example_time > 0:
+            prev_post = metrics["post"][example_time - 1]
+        else:
+            prev_post = np.ones_like(xs) / len(xs)
+
+        # Select appropriate transition matrix
+        if params.T_recovery2_end <= example_time <= params.T_fast_end:
+            transition_matrix = gaussian_transition_matrix(xs, params.sigx_pred_fast_phase)
+        elif params.T_recovery3_end <= example_time <= params.T_slow_end:
+            transition_matrix = gaussian_transition_matrix(xs, params.sigx_pred_slow_phase)
+        else:
+            transition_matrix = gaussian_transition_matrix(xs, params.sigx_pred)
+
+        # Compute prior
+        prior = normalize(prev_post @ transition_matrix)
+
+        # Compute combined likelihood
+        likelihood = likelihood_grid_for_counts(
+            xs, pf_centers, pf_width, rate_scale, spikes[example_time]
+        )
+
+        # Apply remapping if in remap window
+        if params.T_remap_start <= example_time <= params.T_remap_end:
+            likelihood = apply_remap_for_likelihoods(likelihood, params.remap_from_to, active=True)
+
+        combined_likelihood = normalize(np.prod(likelihood, axis=1))
+
+        # Plot prior and likelihood with twin axes - use Wong colorblind-friendly palette
+        ax1 = axes[phase_idx, 0]
+        ax2 = ax1.twinx()
+
+        # Plot prior on left axis (blue from Wong palette) with transparency
+        line1 = ax1.plot(
+            xs, prior, color=wong[5], linewidth=2.0, alpha=0.7, label="Prior"
+        )  # #0072B2 blue
+        ax1.set_ylabel("Prior", fontsize=7, color=wong[5], labelpad=10)
+        ax1.tick_params(axis="y", labelcolor=wong[5], labelsize=6)
+        ax1.set_ylim(0, None)
+
+        # Plot likelihood on right axis (orange from Wong palette) with dashed style for visibility
+        line2 = ax2.plot(
+            xs,
+            combined_likelihood,
+            color=wong[1],
+            linewidth=2.5,
+            linestyle="--",
+            alpha=0.9,
+            label="Likelihood",
+        )  # #E69F00 orange, dashed
+        ax2.set_ylabel("Likelihood", fontsize=7, color=wong[1], labelpad=10)
+        ax2.tick_params(axis="y", labelcolor=wong[1], labelsize=6)
+        ax2.set_ylim(0, None)
+
+        # Add true position line (purple from Wong palette)
+        ax1.axvline(
+            x_true[example_time], color=wong[7], linestyle="--", linewidth=1.5, alpha=0.7
+        )  # #CC79A7 purple
+
+        # Add phase name as row title above the distributions plot
+        ax1.set_title(phase_name, fontsize=8, pad=8, fontweight="bold", loc="left")
+
+        ax1.tick_params(axis="x", labelsize=6)
+        if phase_idx == 0:
+            # Add legend outside to save space
+            lines = line1 + line2
+            labels = [line.get_label() for line in lines]
+            ax1.legend(lines, labels, fontsize=6, loc="upper right", frameon=False)
+        if phase_idx == 4:  # Last row (5 rows total now)
+            ax1.set_xlabel("Position", fontsize=7, labelpad=8)
+
+        # Show diagnostic values
+        ax = axes[phase_idx, 1]
+        ax.axis("off")
+
+        hpdo_val = metrics["HPDO"][example_time]
+        kl_val = metrics["KL"][example_time]
+        spike_prob_vals = metrics["spikeProb"][example_time]
+
+        # Handle case where all spike_prob values are NaN (no spikes)
+        if np.all(np.isnan(spike_prob_vals)):
+            spike_prob_min = np.nan
+            spike_prob_text = "N/A (no spikes)"
+        else:
+            spike_prob_min = np.nanmin(spike_prob_vals)
+            spike_prob_text = (
+                f"{spike_prob_min:.4f}\n-log(min): {-np.log(spike_prob_min + 1e-12):.2f}"
+            )
+
+        text = f"Time: {example_time}\n"
+        text += f"True pos: {x_true[example_time]:.1f}\n\n"
+        text += f"HPD Overlap: {hpdo_val:.4f}\n"
+        text += f"KL Divergence: {kl_val:.4f}\n"
+        text += f"Min Spike Prob:\n{spike_prob_text}"
+
+        ax.text(
+            0.1,
+            0.5,
+            text,
+            transform=ax.transAxes,
+            fontsize=7,
+            verticalalignment="center",
+            family="monospace",
+            bbox={"boxstyle": "round", "facecolor": "wheat", "alpha": 0.3},
+        )
+
+    fig.suptitle("Model Fit Examples: Prior vs Likelihood", fontsize=10, y=0.98)
+
+    # Save to scripts directory (publication quality: both PDF and PNG)
+    import os
+
+    save_path_base = os.path.join(os.path.dirname(__file__), "misfit_examples")
+
+    # Save PDF (vector) for publication
+    plt.savefig(f"{save_path_base}.pdf", dpi=450, bbox_inches="tight")
+    # Save PNG (raster) for quick viewing
+    plt.savefig(f"{save_path_base}.png", dpi=450, bbox_inches="tight")
+    plt.close()
+    print(f"Misfit examples figure saved to {save_path_base}.{{pdf,png}}")
+
+
 # -----------------------------
 # Main orchestration
 # -----------------------------
@@ -754,6 +934,11 @@ def run_demo(params: DecodeParams) -> None:
 
     # Thresholds from clean baseline window (first 6k timesteps, before remapping starts)
     th = compute_thresholds(metrics, baseline_end=params.T_remap_start)
+
+    # Plot misfit examples showing distributions
+    plot_misfit_examples(
+        xs, x_true, spikes, metrics, params, params.pf_centers, params.pf_width, params.rate_scale
+    )
 
     # Plots (original) with highlighted regions
     # Mark all phase boundaries for visualization
