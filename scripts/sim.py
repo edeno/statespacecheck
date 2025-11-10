@@ -859,7 +859,7 @@ def plot_combined_diagnostics(
         6,
         figure=fig,
         height_ratios=[1.5, 0.8, 0.8, 0.8, 0.5, 0.6, 0.6],  # Gap row increased to 0.5
-        width_ratios=[1, 1, 1, 1, 1, 0.25],  # Last column wider for colorbar/legend
+        width_ratios=[1, 1, 1, 1, 1, 0.15],  # Thinner column for colorbar/legend
         hspace=0.12,
         wspace=0.15,  # Minimal spacing between columns
         left=0.08,
@@ -1081,7 +1081,17 @@ def plot_combined_diagnostics(
         # Add metrics as text annotation inside plot (upper left)
         hpdo_val = metrics["HPDO"][example_time]
         kl_val = metrics["KL"][example_time]
-        metrics_text = f"HPD: {hpdo_val:.2f}\nKL: {kl_val:.1f}"
+        spike_prob_vals = metrics["spikeProb"][example_time]
+        if not np.all(np.isnan(spike_prob_vals)):
+            spike_prob_min = np.nanmin(spike_prob_vals)
+            log_spike_prob = -np.log(spike_prob_min + 1e-12)
+        else:
+            log_spike_prob = np.nan
+
+        if np.isnan(log_spike_prob):
+            metrics_text = f"HPD: {hpdo_val:.2f}\nKL: {kl_val:.1f}\n-log p: N/A"
+        else:
+            metrics_text = f"HPD: {hpdo_val:.2f}\nKL: {kl_val:.1f}\n-log p: {log_spike_prob:.1f}"
         ax1.text(
             0.05,
             0.95,
@@ -1109,9 +1119,10 @@ def plot_combined_diagnostics(
     # Create dummy lines for legend
     prior_line = plt.Line2D([0], [0], color=wong[5], linewidth=1.2, alpha=0.7)
     likelihood_line = plt.Line2D([0], [0], color=wong[1], linewidth=1.2, alpha=0.9)
+    position_line = plt.Line2D([0], [0], color=wong[7], linestyle="--", linewidth=0.8, alpha=0.7)
     legend_ax.legend(
-        [prior_line, likelihood_line],
-        ["Prior", "Likelihood"],
+        [prior_line, likelihood_line, position_line],
+        ["Prior", "Likelihood", "Position"],
         loc="upper left",
         fontsize=6,
         frameon=False,
