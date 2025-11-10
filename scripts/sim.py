@@ -926,11 +926,11 @@ def plot_combined_diagnostics(
 
     # Colorbar for posterior only - in dedicated axes aligned with posterior panel
     cax = fig.add_subplot(gs[0, 5])
-    cbar = fig.colorbar(im, cax=cax, format="%.1e")
+    cbar = fig.colorbar(im, cax=cax)
+    # Use clearer formatting: show values in scientific notation
+    cbar.ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f"{x:.1e}" if x > 0 else "0"))
     cbar.set_label("Probability", fontsize=8, labelpad=6)
     cbar.ax.tick_params(labelsize=6, length=2, width=0.5)
-    # Format colorbar tick labels to remove redundant exponent
-    cbar.ax.yaxis.get_offset_text().set_fontsize(6)
 
     # Add phase boundaries to all time-series panels
     phase_boundaries = (
@@ -1034,12 +1034,17 @@ def plot_combined_diagnostics(
             }
         )
 
-    # Determine shared y-limits across all panels
+    # Determine shared y-limits across all panels using robust percentiles
     all_y_values = []
     for data in plot_data:
         all_y_values.extend(data["prior"])
         all_y_values.extend(data["likelihood_norm"])
-    y_min, y_max = np.min(all_y_values), np.max(all_y_values)
+    # Use percentiles to avoid outliers distorting the scale
+    y_min, y_max = np.percentile(all_y_values, [0.1, 99.9])
+    # Add small padding
+    y_range = y_max - y_min
+    y_min = max(0, y_min - 0.02 * y_range)
+    y_max = y_max + 0.02 * y_range
 
     # Second pass: create plots with shared y-axis
     example_axes = []
@@ -1067,7 +1072,8 @@ def plot_combined_diagnostics(
         if col_idx == 0:
             ax1.set_ylabel("Probability Density", fontsize=7, labelpad=4)
             ax1.tick_params(axis="y", labelsize=5)
-            ax1.set_yticks([y_min, y_max])
+            # Use 3 ticks for better readability
+            ax1.set_yticks(np.linspace(y_min, y_max, 3))
             ax1.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f"{x:.2g}"))
         else:
             ax1.yaxis.set_major_formatter(plt.NullFormatter())
