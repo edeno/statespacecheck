@@ -908,7 +908,7 @@ def plot_combined_diagnostics(
     ax_hpdo.tick_params(labelsize=7, labelbottom=False)
     # Add directional indicator and threshold annotation
     ax_hpdo.text(
-        1.01, 0.5, "↑ Worse fit", transform=ax_hpdo.transAxes, fontsize=6, va="center", ha="left"
+        1.01, 0.5, "↓ Worse fit", transform=ax_hpdo.transAxes, fontsize=6, va="center", ha="left"
     )
     ax_hpdo.text(
         1.01,
@@ -929,7 +929,7 @@ def plot_combined_diagnostics(
     ax_kl.tick_params(labelsize=7, labelbottom=False)
     # Add directional indicator and threshold annotation
     ax_kl.text(
-        1.01, 0.5, "↓ Worse fit", transform=ax_kl.transAxes, fontsize=6, va="center", ha="left"
+        1.01, 0.5, "↑ Worse fit", transform=ax_kl.transAxes, fontsize=6, va="center", ha="left"
     )
     ax_kl.text(
         1.01,
@@ -968,7 +968,7 @@ def plot_combined_diagnostics(
     ax_spike.tick_params(labelsize=7)
     # Add directional indicator and threshold annotation
     ax_spike.text(
-        1.01, 0.5, "↓ Worse fit", transform=ax_spike.transAxes, fontsize=6, va="center", ha="left"
+        1.01, 0.5, "↑ Worse fit", transform=ax_spike.transAxes, fontsize=6, va="center", ha="left"
     )
     ax_spike.text(
         1.01,
@@ -1155,7 +1155,15 @@ def plot_combined_diagnostics(
             ax1.yaxis.set_major_formatter(plt.NullFormatter())
 
         # True position
-        ax1.axvline(x_true[example_time], color=wong[7], linestyle="--", linewidth=0.8, alpha=0.7)
+        ax1.axvline(
+            x_true[example_time],
+            color="magenta",
+            linestyle="--",
+            linewidth=0.8,
+            alpha=0.7,
+            zorder=5,
+            clip_on=False,
+        )
 
         # Title with just phase name (de-emphasized)
         ax1.set_title(phase_name, fontsize=7, pad=4)
