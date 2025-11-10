@@ -700,7 +700,7 @@ def plot_misfit_examples(
         ax2 = ax1.twinx()
 
         # Plot prior on left axis (blue from Wong palette) with transparency
-        line1 = ax1.plot(xs, prior, color=wong[5], linewidth=1.5, alpha=0.7, label="Prior")
+        line1 = ax1.plot(xs, prior, color=wong[5], linewidth=1.5, alpha=0.7, label="Predictive")
         # Determine scale factor for prior and include in ylabel
         prior_max = np.max(prior)
         if prior_max > 0:
@@ -711,12 +711,12 @@ def plot_misfit_examples(
                 ax1.plot(xs, prior / prior_scale, color=wong[5], linewidth=1.5, alpha=0.7)
                 ax1.lines[0].remove()  # Remove the unscaled plot
                 ax1.set_ylabel(
-                    f"Prior (×10$^{{{prior_order}}}$)", fontsize=7, color=wong[5], labelpad=3
+                    f"Predictive (×10$^{{{prior_order}}}$)", fontsize=7, color=wong[5], labelpad=3
                 )
             else:
-                ax1.set_ylabel("Prior", fontsize=7, color=wong[5], labelpad=3)
+                ax1.set_ylabel("Predictive", fontsize=7, color=wong[5], labelpad=3)
         else:
-            ax1.set_ylabel("Prior", fontsize=7, color=wong[5], labelpad=3)
+            ax1.set_ylabel("Predictive", fontsize=7, color=wong[5], labelpad=3)
         ax1.tick_params(axis="y", labelcolor=wong[5], labelsize=6)
         ax1.set_ylim(0, None)
 
@@ -1140,7 +1140,7 @@ def plot_combined_diagnostics(
         ax1.set_facecolor(phase_colors[color_key])
 
         # Plot both distributions on the same axis
-        ax1.plot(xs, prior, color=wong[5], linewidth=1.2, alpha=0.7, label="Prior")
+        ax1.plot(xs, prior, color=wong[5], linewidth=1.2, alpha=0.7, label="Predictive")
         ax1.plot(xs, likelihood_norm, color=wong[1], linewidth=1.2, alpha=0.9, label="Likelihood")
 
         # Share y-axis: same limits for all panels, labels only on leftmost
@@ -1207,12 +1207,12 @@ def plot_combined_diagnostics(
     legend_ax = fig.add_subplot(gs[5:7, 5])
     legend_ax.axis("off")
     # Create dummy lines for legend
-    prior_line = plt.Line2D([0], [0], color=wong[5], linewidth=1.2, alpha=0.7)
+    predictive_line = plt.Line2D([0], [0], color=wong[5], linewidth=1.2, alpha=0.7)
     likelihood_line = plt.Line2D([0], [0], color=wong[1], linewidth=1.2, alpha=0.9)
     position_line = plt.Line2D([0], [0], color=wong[7], linestyle="--", linewidth=0.8, alpha=0.7)
     legend_ax.legend(
-        [prior_line, likelihood_line, position_line],
-        ["Prior", "Likelihood", "Position"],
+        [predictive_line, likelihood_line, position_line],
+        ["Predictive", "Likelihood", "Position"],
         loc="upper left",
         fontsize=6,
         frameon=False,
