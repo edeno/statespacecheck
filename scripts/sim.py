@@ -888,7 +888,7 @@ def plot_combined_diagnostics(
         cmap="bone_r",
     )
     ax_post.plot(np.arange(n_time), x_true, color="magenta", linewidth=1.0, alpha=0.85)
-    ax_post.set_ylabel("Position", fontsize=9, labelpad=7)
+    ax_post.set_ylabel("Position (a.u.)", fontsize=9, labelpad=7)
     ax_post.tick_params(labelsize=7, labelbottom=False)
 
     # HPDO
@@ -920,8 +920,8 @@ def plot_combined_diagnostics(
     )
     ax_spike.axhline(spike_prob_thresh_transformed, color=wong[1], linewidth=1.2, zorder=10)
     ax_spike.set_xlim(0, n_time)
-    ax_spike.set_ylabel("-log(Spike Prob)", fontsize=9, labelpad=7)
-    ax_spike.set_xlabel("Time", fontsize=9, labelpad=7)
+    ax_spike.set_ylabel("-log(p-value)", fontsize=9, labelpad=7)
+    ax_spike.set_xlabel("Time (a.u.)", fontsize=9, labelpad=7)
     ax_spike.tick_params(labelsize=7)
 
     # Colorbar for posterior only - in dedicated axes aligned with posterior panel
@@ -1117,7 +1117,7 @@ def plot_combined_diagnostics(
         # All panels show x-axis labels
         ax1.set_xlim(xs[0], xs[-1])
         ax1.tick_params(axis="x", labelsize=6)
-        ax1.set_xlabel("Position", fontsize=7, labelpad=4)
+        ax1.set_xlabel("Position (a.u.)", fontsize=7, labelpad=4)
 
     # Create legend in separate column (similar to colorbar)
     legend_ax = fig.add_subplot(gs[5:7, 5])
