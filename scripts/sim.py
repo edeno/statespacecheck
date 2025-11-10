@@ -1075,8 +1075,8 @@ def plot_combined_diagnostics(
         # True position
         ax1.axvline(x_true[example_time], color=wong[7], linestyle="--", linewidth=0.8, alpha=0.7)
 
-        # Title with just phase name
-        ax1.set_title(phase_name, fontsize=8, pad=5, fontweight="bold")
+        # Title with just phase name (de-emphasized)
+        ax1.set_title(phase_name, fontsize=7, pad=4)
 
         # Add metrics as text annotation inside plot (upper left)
         hpdo_val = metrics["HPDO"][example_time]
