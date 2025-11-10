@@ -902,13 +902,13 @@ def plot_combined_diagnostics(
 
     # HPDO
     ax_hpdo.plot(metrics["HPDO"], ".", markersize=0.8, alpha=0.6, color=wong[5], rasterized=True)
-    ax_hpdo.axhline(th.HPDO, color=wong[1], linewidth=1.2, zorder=10)
+    ax_hpdo.axhline(th.HPDO, color="#666666", linewidth=1.2, zorder=10)
     ax_hpdo.set_xlim(0, n_time)
     ax_hpdo.set_ylabel("HPD Overlap", fontsize=9, labelpad=7)
     ax_hpdo.tick_params(labelsize=7, labelbottom=False)
     # Add directional indicator and threshold annotation
     ax_hpdo.text(
-        1.01, 0.5, "↑ Better fit", transform=ax_hpdo.transAxes, fontsize=6, va="center", ha="left"
+        1.01, 0.5, "↑ Worse fit", transform=ax_hpdo.transAxes, fontsize=6, va="center", ha="left"
     )
     ax_hpdo.text(
         1.01,
@@ -918,18 +918,18 @@ def plot_combined_diagnostics(
         fontsize=6,
         va="center",
         ha="left",
-        color=wong[1],
+        color="#666666",
     )
 
     # KL Divergence
     ax_kl.plot(metrics["KL"], ".", markersize=0.8, alpha=0.6, color=wong[5], rasterized=True)
-    ax_kl.axhline(th.KL, color=wong[1], linewidth=1.2, zorder=10)
+    ax_kl.axhline(th.KL, color="#666666", linewidth=1.2, zorder=10)
     ax_kl.set_xlim(0, n_time)
     ax_kl.set_ylabel("KL Divergence", fontsize=9, labelpad=7)
     ax_kl.tick_params(labelsize=7, labelbottom=False)
     # Add directional indicator and threshold annotation
     ax_kl.text(
-        1.01, 0.5, "↓ Better fit", transform=ax_kl.transAxes, fontsize=6, va="center", ha="left"
+        1.01, 0.5, "↓ Worse fit", transform=ax_kl.transAxes, fontsize=6, va="center", ha="left"
     )
     ax_kl.text(
         1.01,
@@ -939,7 +939,7 @@ def plot_combined_diagnostics(
         fontsize=6,
         va="center",
         ha="left",
-        color=wong[1],
+        color="#666666",
     )
 
     # Spike Probability (transformed)
@@ -957,7 +957,7 @@ def plot_combined_diagnostics(
     )
     ax_spike.axhline(
         spike_prob_thresh_transformed,
-        color=wong[1],
+        color="#666666",
         linewidth=1.2,
         zorder=10,
     )
@@ -967,7 +967,7 @@ def plot_combined_diagnostics(
     ax_spike.tick_params(labelsize=7)
     # Add directional indicator and threshold annotation
     ax_spike.text(
-        1.01, 0.5, "↓ Better fit", transform=ax_spike.transAxes, fontsize=6, va="center", ha="left"
+        1.01, 0.5, "↓ Worse fit", transform=ax_spike.transAxes, fontsize=6, va="center", ha="left"
     )
     ax_spike.text(
         1.01,
@@ -977,7 +977,7 @@ def plot_combined_diagnostics(
         fontsize=6,
         va="center",
         ha="left",
-        color=wong[1],
+        color="#666666",
     )
 
     # Colorbar for posterior only - in dedicated axes aligned with posterior panel
