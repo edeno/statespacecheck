@@ -902,7 +902,7 @@ def plot_combined_diagnostics(
 
     # HPDO
     ax_hpdo.plot(metrics["HPDO"], ".", markersize=0.8, alpha=0.6, color=wong[5], rasterized=True)
-    ax_hpdo.axhline(th.HPDO, color="#666666", linewidth=1.2, zorder=10)
+    ax_hpdo.axhline(th.HPDO, color="#666666", linewidth=1.2, alpha=0.7, zorder=10)
     ax_hpdo.set_xlim(0, n_time)
     ax_hpdo.set_ylabel("HPD Overlap", fontsize=9, labelpad=7)
     ax_hpdo.tick_params(labelsize=7, labelbottom=False)
@@ -923,7 +923,7 @@ def plot_combined_diagnostics(
 
     # KL Divergence
     ax_kl.plot(metrics["KL"], ".", markersize=0.8, alpha=0.6, color=wong[5], rasterized=True)
-    ax_kl.axhline(th.KL, color="#666666", linewidth=1.2, zorder=10)
+    ax_kl.axhline(th.KL, color="#666666", linewidth=1.2, alpha=0.7, zorder=10)
     ax_kl.set_xlim(0, n_time)
     ax_kl.set_ylabel("KL Divergence", fontsize=9, labelpad=7)
     ax_kl.tick_params(labelsize=7, labelbottom=False)
@@ -959,6 +959,7 @@ def plot_combined_diagnostics(
         spike_prob_thresh_transformed,
         color="#666666",
         linewidth=1.2,
+        alpha=0.7,
         zorder=10,
     )
     ax_spike.set_xlim(0, n_time)
