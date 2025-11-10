@@ -1247,11 +1247,14 @@ def plot_combined_diagnostics(
     # Save
     import os
 
-    save_path_base = os.path.join(os.path.dirname(__file__), "combined_diagnostics")
+    # Save to figures directory as figure_2
+    figures_dir = os.path.join(os.path.dirname(__file__), "..", "figures")
+    os.makedirs(figures_dir, exist_ok=True)
+    save_path_base = os.path.join(figures_dir, "figure_2")
     plt.savefig(f"{save_path_base}.pdf", dpi=450, bbox_inches="tight")
     plt.savefig(f"{save_path_base}.png", dpi=450, bbox_inches="tight")
     plt.close()
-    print(f"\nCombined diagnostics figure saved to {save_path_base}.{{pdf,png}}")
+    print(f"\nFigure 2 saved to {save_path_base}.{{pdf,png}}")
 
 
 # -----------------------------
