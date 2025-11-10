@@ -1144,8 +1144,8 @@ def plot_combined_diagnostics(
     example_labels = ["b", "c", "d", "e", "f"]
     for label, ax in zip(example_labels, example_axes, strict=True):
         ax.text(
-            -0.15,
-            1.05,
+            -0.08,
+            1.08,
             label,
             transform=ax.transAxes,
             fontsize=9,
