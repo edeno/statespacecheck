@@ -1147,8 +1147,8 @@ def plot_combined_diagnostics(
     import os
 
     save_path_base = os.path.join(os.path.dirname(__file__), "combined_diagnostics")
-    plt.savefig(f"{save_path_base}.pdf", dpi=450)
-    plt.savefig(f"{save_path_base}.png", dpi=450)
+    plt.savefig(f"{save_path_base}.pdf", dpi=450, bbox_inches="tight")
+    plt.savefig(f"{save_path_base}.png", dpi=450, bbox_inches="tight")
     plt.close()
     print(f"\nCombined diagnostics figure saved to {save_path_base}.{{pdf,png}}")
 
