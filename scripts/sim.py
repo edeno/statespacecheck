@@ -859,7 +859,7 @@ def plot_combined_diagnostics(
         6,
         figure=fig,
         height_ratios=[1.5, 0.8, 0.8, 0.8, 0.5, 0.6, 0.6],  # Gap row increased to 0.5
-        width_ratios=[1, 1, 1, 1, 1, 0.15],  # Thinner column for colorbar/legend
+        width_ratios=[1, 1, 1, 1, 1, 0.10],  # Narrow column for colorbar/legend/annotations
         hspace=0.12,
         wspace=0.15,  # Minimal spacing between columns
         left=0.08,
@@ -887,9 +887,18 @@ def plot_combined_diagnostics(
         vmax=np.quantile(metrics["post"], 0.975),
         cmap="bone_r",
     )
-    ax_post.plot(np.arange(n_time), x_true, color="magenta", linewidth=1.0, alpha=0.85)
+    ax_post.plot(
+        np.arange(n_time),
+        x_true,
+        color="magenta",
+        linewidth=1.0,
+        alpha=0.85,
+        label="True position",
+    )
     ax_post.set_ylabel("Position (a.u.)", fontsize=9, labelpad=7)
     ax_post.tick_params(labelsize=7, labelbottom=False)
+    # Add legend for true position line (upper left)
+    ax_post.legend(loc="upper left", fontsize=6, frameon=False)
 
     # HPDO
     ax_hpdo.plot(metrics["HPDO"], ".", markersize=0.8, alpha=0.6, color=wong[5], rasterized=True)
@@ -897,6 +906,20 @@ def plot_combined_diagnostics(
     ax_hpdo.set_xlim(0, n_time)
     ax_hpdo.set_ylabel("HPD Overlap", fontsize=9, labelpad=7)
     ax_hpdo.tick_params(labelsize=7, labelbottom=False)
+    # Add directional indicator and threshold annotation
+    ax_hpdo.text(
+        1.01, 0.5, "↑ Better fit", transform=ax_hpdo.transAxes, fontsize=6, va="center", ha="left"
+    )
+    ax_hpdo.text(
+        1.01,
+        th.HPDO,
+        "Threshold",
+        transform=ax_hpdo.get_yaxis_transform(),
+        fontsize=6,
+        va="center",
+        ha="left",
+        color=wong[1],
+    )
 
     # KL Divergence
     ax_kl.plot(metrics["KL"], ".", markersize=0.8, alpha=0.6, color=wong[5], rasterized=True)
@@ -904,6 +927,20 @@ def plot_combined_diagnostics(
     ax_kl.set_xlim(0, n_time)
     ax_kl.set_ylabel("KL Divergence", fontsize=9, labelpad=7)
     ax_kl.tick_params(labelsize=7, labelbottom=False)
+    # Add directional indicator and threshold annotation
+    ax_kl.text(
+        1.01, 0.5, "↓ Better fit", transform=ax_kl.transAxes, fontsize=6, va="center", ha="left"
+    )
+    ax_kl.text(
+        1.01,
+        th.KL,
+        "Threshold",
+        transform=ax_kl.get_yaxis_transform(),
+        fontsize=6,
+        va="center",
+        ha="left",
+        color=wong[1],
+    )
 
     # Spike Probability (transformed)
     eps2 = 1e-12
@@ -918,11 +955,30 @@ def plot_combined_diagnostics(
         color=wong[5],
         rasterized=True,
     )
-    ax_spike.axhline(spike_prob_thresh_transformed, color=wong[1], linewidth=1.2, zorder=10)
+    ax_spike.axhline(
+        spike_prob_thresh_transformed,
+        color=wong[1],
+        linewidth=1.2,
+        zorder=10,
+    )
     ax_spike.set_xlim(0, n_time)
     ax_spike.set_ylabel("-log(p-value)", fontsize=9, labelpad=7)
     ax_spike.set_xlabel("Time (a.u.)", fontsize=9, labelpad=7)
     ax_spike.tick_params(labelsize=7)
+    # Add directional indicator and threshold annotation
+    ax_spike.text(
+        1.01, 0.5, "↓ Better fit", transform=ax_spike.transAxes, fontsize=6, va="center", ha="left"
+    )
+    ax_spike.text(
+        1.01,
+        spike_prob_thresh_transformed,
+        "Threshold",
+        transform=ax_spike.get_yaxis_transform(),
+        fontsize=6,
+        va="center",
+        ha="left",
+        color=wong[1],
+    )
 
     # Colorbar for posterior only - in dedicated axes aligned with posterior panel
     cax = fig.add_subplot(gs[0, 5])
@@ -961,6 +1017,25 @@ def plot_combined_diagnostics(
         ax.axvspan(t_recovery1_end, t_flat_end, alpha=0.15, color="gray")
         ax.axvspan(t_recovery2_end, t_fast_end, alpha=0.15, color="red")
         ax.axvspan(t_recovery3_end, t_slow_end, alpha=0.15, color="blue")
+
+    # Add phase labels above top panel
+    phase_labels_info = [
+        ((t_remap_start + t_remap_end) / 2, "Remap", "c"),
+        ((t_recovery1_end + t_flat_end) / 2, "Flat", "d"),
+        ((t_recovery2_end + t_fast_end) / 2, "Fast", "e"),
+        ((t_recovery3_end + t_slow_end) / 2, "Slow", "f"),
+    ]
+    for x_pos, label_text, panel_id in phase_labels_info:
+        ax_post.text(
+            x_pos,
+            1.02,
+            f"{label_text} ({panel_id})",
+            transform=ax_post.get_xaxis_transform(),
+            fontsize=6,
+            ha="center",
+            va="bottom",
+            style="italic",
+        )
 
     # ===== BOTTOM SECTION: Misfit Examples =====
 
