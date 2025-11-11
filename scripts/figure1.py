@@ -185,7 +185,11 @@ def create_figure() -> None:
             label="Predictive distribution",
         )
         ax.plot(
-            x, pdf_likelihood, color=color_likelihood, linewidth=1.5, label="Normalized likelihood"
+            x,
+            pdf_likelihood,
+            color=color_likelihood,
+            linewidth=1.5,
+            label="Normalized likelihood",
         )
 
         # Compute HPD regions
@@ -197,7 +201,10 @@ def create_figure() -> None:
         like_regions = []
 
         # Extract contiguous regions
-        for mask, regions_list in [(hpd_predictive, pred_regions), (hpd_likelihood, like_regions)]:
+        for mask, regions_list in [
+            (hpd_predictive, pred_regions),
+            (hpd_likelihood, like_regions),
+        ]:
             in_region = False
             start = None
             for i, val in enumerate(mask):
