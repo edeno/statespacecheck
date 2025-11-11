@@ -274,11 +274,15 @@ If you use this package in your research, please cite:
 ```bibtex
 @software{statespacecheck2025,
   title={statespacecheck: Goodness-of-fit diagnostics for state space models},
-  author={Your Name},
+  author={Denovellis, Eric and Zeng, Sirui and Eden, Uri T.},
   year={2025},
-  url={https://github.com/yourusername/statespacecheck}
+  version={0.1.0},
+  url={https://github.com/edeno/statespacecheck},
+  doi={10.5281/zenodo.XXXXXXX}
 }
 ```
+
+Note: A DOI will be assigned when the package is published to Zenodo.
 
 ## License
 
