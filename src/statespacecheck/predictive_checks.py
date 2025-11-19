@@ -306,7 +306,7 @@ def predictive_pvalue(
 
     Computes p-values for predictive checks by comparing observed log predictive
     densities to a distribution of simulated log predictive densities. The p-value
-    at each time point is the proportion of simulated values that are greater than
+    at each time point is the proportion of simulated values that are less than
     or equal to the observed value.
 
     This provides a posterior predictive check: if the model is correct, p-values
@@ -332,7 +332,7 @@ def predictive_pvalue(
     -------
     p_values : np.ndarray, shape (n_time,)
         P-value at each time point, computed as the proportion of simulated
-        log predictive densities >= observed value.
+        log predictive densities <= observed value.
         Values range from 0 to 1.
 
     Raises
@@ -368,7 +368,7 @@ def predictive_pvalue(
     Notes
     -----
     The p-value at time t is computed as:
-        p_value[t] = (1 / n_samples) * sum(simulated[t] >= observed[t])
+        p_value[t] = (1 / n_samples) * sum(simulated[t] <= observed[t])
 
     Interpretation:
     - p-value near 0.5: observed data consistent with model
@@ -418,9 +418,9 @@ def predictive_pvalue(
         )
         raise ValueError(msg)
 
-    # Compute p-values: proportion of samples >= observed
+    # Compute p-values: proportion of samples <= observed
     # Broadcasting: observed_arr has shape (n_time,), simulated_arr has shape (n_samples, n_time)
     # Comparison broadcasts to (n_samples, n_time), then mean over axis=0 gives (n_time,)
     # Explicit type annotation for mypy strict mode
-    p_values: DistributionArray = np.mean(simulated_arr >= observed_arr, axis=0)
+    p_values: DistributionArray = np.mean(simulated_arr <= observed_arr, axis=0)
     return p_values

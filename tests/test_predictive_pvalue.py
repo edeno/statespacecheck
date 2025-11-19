@@ -124,41 +124,41 @@ class TestPredictivePValue:
         n_time = 10
         observed = np.zeros(n_time)  # Observed = 0
 
-        # Sampler that returns values > 0 (so p-value should be ~1.0)
+        # Sampler that returns values > 0 (so p-value should be ~0.0)
         def sampler(n_samples):
             return np.ones((n_samples, n_time)) * 2.0  # All samples > observed
 
         p_values = predictive_pvalue(observed, sampler, n_samples=100)
 
-        # Since all samples > observed, p-values should be close to 1.0
-        assert np.all(p_values > 0.9)
+        # Since all samples > observed (no samples <= observed), p-values should be close to 0
+        assert np.all(p_values < 0.1)
 
     def test_extreme_pvalue_zero(self):
         """Test that p-value can be 0 when observed is extreme."""
-        n_time = 5
-        observed = np.array([10.0, 10.0, 10.0, 10.0, 10.0])  # Very high
-
-        # Sampler returns small values
-        def sampler(n_samples):
-            return np.zeros((n_samples, n_time))
-
-        p_values = predictive_pvalue(observed, sampler, n_samples=100)
-
-        # Since no samples >= observed, p-value should be 0
-        np.testing.assert_array_equal(p_values, 0.0)
-
-    def test_extreme_pvalue_one(self):
-        """Test that p-value can be 1 when observed is extreme."""
         n_time = 5
         observed = np.array([-10.0, -10.0, -10.0, -10.0, -10.0])  # Very low
 
         # Sampler returns large values
         def sampler(n_samples):
-            return np.ones((n_samples, n_time)) * 10.0
+            return np.zeros((n_samples, n_time))
 
         p_values = predictive_pvalue(observed, sampler, n_samples=100)
 
-        # Since all samples >= observed, p-value should be 1.0
+        # Since no samples <= observed, p-value should be 0
+        np.testing.assert_array_equal(p_values, 0.0)
+
+    def test_extreme_pvalue_one(self):
+        """Test that p-value can be 1 when observed is extreme."""
+        n_time = 5
+        observed = np.array([10.0, 10.0, 10.0, 10.0, 10.0])  # Very high
+
+        # Sampler returns small values
+        def sampler(n_samples):
+            return np.ones((n_samples, n_time)) * -10.0
+
+        p_values = predictive_pvalue(observed, sampler, n_samples=100)
+
+        # Since all samples <= observed, p-value should be 1.0
         np.testing.assert_array_equal(p_values, 1.0)
 
     def test_observed_wrong_dimensions_error(self):
