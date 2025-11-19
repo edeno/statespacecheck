@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.1] - 2025-11-19
+
+### Fixed
+
+- **`predictive_pvalue()`**: Corrected p-value computation to use `<=` comparison instead of `>=`, ensuring accurate calculation as the proportion of simulated values less than or equal to observed values. This fixes the interpretation for extreme value testing.
+
 ## [0.1.0] - 2025-11-11
 
 ### Added
@@ -55,4 +61,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Vectorized Operations**: Efficient NumPy-based implementation with no Python loops
 - **Scientific Python Standards**: Follows SPEC 0 for version support and best practices
 
+[0.1.1]: https://github.com/edeno/statespacecheck/releases/tag/v0.1.1
 [0.1.0]: https://github.com/edeno/statespacecheck/releases/tag/v0.1.0
