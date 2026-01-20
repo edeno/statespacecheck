@@ -221,7 +221,7 @@ def log_predictive_density(
 
     # Convert likelihood to log_likelihood if needed
     if likelihood is not None:
-        # Validate both distributions (both are probabilities)
+        # Validate state distribution (a probability) and likelihood (a function, not a dist)
         state, like = validate_paired_distributions(
             state_dist, likelihood, name1="state_dist", name2="likelihood", min_ndim=2
         )
@@ -256,7 +256,8 @@ def log_predictive_density(
 
         # Handle non-finite values: NaN → -inf (makes sense in log-space)
         # Note: We do NOT check for negative values (negative is expected in log-space!)
-        log_like = np.nan_to_num(log_like, nan=-np.inf, posinf=np.inf, neginf=-np.inf)
+        # posinf already checked above and raises, so only handle nan and neginf
+        log_like = np.nan_to_num(log_like, nan=-np.inf, neginf=-np.inf)
 
         log_like_flat = flatten_time_spatial(log_like)
 
@@ -309,8 +310,11 @@ def predictive_pvalue(
     at each time point is the proportion of simulated values that are less than
     or equal to the observed value.
 
-    This provides a posterior predictive check: if the model is correct, p-values
-    should be uniformly distributed. Systematic deviations indicate model misfit.
+    This computes a Monte Carlo predictive check p-value for a user-supplied
+    replicate-generating procedure. If the model is correct and the statistic is
+    continuous, p-values should be approximately uniformly distributed; ties and
+    discreteness can make them conservative. Systematic deviations indicate model
+    misfit.
 
     Parameters
     ----------
@@ -421,6 +425,9 @@ def predictive_pvalue(
     # Compute p-values: proportion of samples <= observed
     # Broadcasting: observed_arr has shape (n_time,), simulated_arr has shape (n_samples, n_time)
     # Comparison broadcasts to (n_samples, n_time), then mean over axis=0 gives (n_time,)
-    # Explicit type annotation for mypy strict mode
-    p_values: DistributionArray = np.mean(simulated_arr <= observed_arr, axis=0)
+    # Handle NaN in observed: propagate NaN rather than returning 0.0
+    mask = np.isfinite(observed_arr)
+    p_values: DistributionArray = np.full(n_time, np.nan)
+    if np.any(mask):
+        p_values[mask] = np.mean(simulated_arr[:, mask] <= observed_arr[mask], axis=0)
     return p_values
