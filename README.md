@@ -114,25 +114,29 @@ n_time = 1000  # Number of time steps
 # Example: One-step-ahead predictive distribution from Kalman filter
 # predicted_position: (n_time,) array of predicted positions in cm
 # predicted_std: (n_time,) array of prediction uncertainty
-predicted_position = 25 + 10 * np.sin(np.linspace(0, 4*np.pi, n_time))
+predicted_position = 25 + 10 * np.sin(np.linspace(0, 4 * np.pi, n_time))
 predicted_std = np.ones(n_time) * 2.0
 
 # Convert to spatial probability distribution over position bins
 # Note: Distributions are automatically normalized, no need to normalize manually
-state_dist = np.array([
-    norm.pdf(position_bins, loc=pred_pos, scale=pred_std)
-    for pred_pos, pred_std in zip(predicted_position, predicted_std)
-])
+state_dist = np.array(
+    [
+        norm.pdf(position_bins, loc=pred_pos, scale=pred_std)
+        for pred_pos, pred_std in zip(predicted_position, predicted_std)
+    ]
+)
 
 # Example: Likelihood from place cell firing (observation model)
 # spike_counts: (n_cells, n_time) array of spike counts
 # place_fields: (n_cells, n_bins) array of firing rate maps
 # For this example, we'll simulate the likelihood
 # Note: Automatically normalized, no manual normalization needed
-likelihood = np.array([
-    norm.pdf(position_bins, loc=pred_pos + np.random.randn(), scale=3.0)
-    for pred_pos in predicted_position
-])
+likelihood = np.array(
+    [
+        norm.pdf(position_bins, loc=pred_pos + np.random.randn(), scale=3.0)
+        for pred_pos in predicted_position
+    ]
+)
 
 # Assess goodness-of-fit
 divergence = kl_divergence(state_dist, likelihood)
