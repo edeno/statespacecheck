@@ -88,7 +88,8 @@ def plot_diagnostics(
     if flags is not None:
         flags_arr = np.asarray(flags, dtype=bool)
         if flags_arr.shape != overlap_arr.shape:
-            raise ValueError("flags must have same shape as metrics")
+            msg = "flags must have same shape as metrics"
+            raise ValueError(msg)
     else:
         flags_arr = None
 

@@ -40,8 +40,9 @@ def generate_1d_gaussian_distribution(
     elif len(mean_arr) == 1 and len(std_arr) > 1:
         mean_arr = np.full_like(std_arr, mean_arr[0])
     elif mean_arr.shape != std_arr.shape:
+        msg = f"mean and std must have same shape, got {mean_arr.shape} vs {std_arr.shape}"
         raise ValueError(
-            f"mean and std must have same shape, got {mean_arr.shape} vs {std_arr.shape}"
+            msg
         )
 
     n_time = len(mean_arr)
@@ -62,7 +63,7 @@ def generate_spatial_navigation_data(
     n_time: int = 100,
     track_length: float = 100.0,
     n_bins: int = 50,
-    velocity: float = 10.0,
+    velocity: float = 10.0,  # noqa: ARG001 - documented but not used
     state_uncertainty: float = 2.0,
     likelihood_uncertainty: float = 3.0,
     drift: float = 0.0,
@@ -104,10 +105,7 @@ def generate_spatial_navigation_data(
         - 'likelihood': np.ndarray, shape (n_time, n_bins) - Likelihood distributions
         - 'time': np.ndarray, shape (n_time,) - Time points
     """
-    if seed is not None:
-        rng = np.random.default_rng(seed)
-    else:
-        rng = np.random.default_rng()
+    rng = np.random.default_rng(seed)
 
     # Position bins
     position_bins = np.linspace(0, track_length, n_bins)
@@ -248,13 +246,15 @@ def generate_multimodal_distribution(
     n_components = len(means)
 
     if len(stds) != n_components:
-        raise ValueError(f"means and stds must have same length, got {n_components} vs {len(stds)}")
+        msg = f"means and stds must have same length, got {n_components} vs {len(stds)}"
+        raise ValueError(msg)
 
     if weights is None:
         weights = [1.0 / n_components] * n_components
     elif len(weights) != n_components:
+        msg = f"weights must have same length as means, got {len(weights)} vs {n_components}"
         raise ValueError(
-            f"weights must have same length as means, got {len(weights)} vs {n_components}"
+            msg
         )
 
     # Normalize weights

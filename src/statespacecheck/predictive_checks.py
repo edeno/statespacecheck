@@ -217,7 +217,8 @@ def log_predictive_density(
     """
     # Validate that exactly one of likelihood or log_likelihood is provided
     if (likelihood is None) == (log_likelihood is None):
-        raise ValueError("Exactly one of 'likelihood' or 'log_likelihood' must be provided")
+        msg = "Exactly one of 'likelihood' or 'log_likelihood' must be provided"
+        raise ValueError(msg)
 
     # Convert likelihood to log_likelihood if needed
     if likelihood is not None:
@@ -237,21 +238,28 @@ def log_predictive_density(
         log_like = np.asarray(log_likelihood, dtype=float)
 
         if log_like.ndim < 2:
-            raise ValueError(
+            msg = (
                 f"log_likelihood must be at least 2D with shape (n_time, ...), "
                 f"got shape {log_like.shape}"
             )
+            raise ValueError(
+                msg
+            )
 
         if log_like.shape != state.shape:
-            raise ValueError(
+            msg = (
                 f"state_dist and log_likelihood must have same shape, "
                 f"got {state.shape} vs {log_like.shape}"
+            )
+            raise ValueError(
+                msg
             )
 
         # Check for +inf in log_likelihood (indicates upstream bug or overflow)
         if np.isposinf(log_like).any():
+            msg = "log_likelihood contains +inf; this indicates an upstream bug or overflow"
             raise ValueError(
-                "log_likelihood contains +inf; this indicates an upstream bug or overflow"
+                msg
             )
 
         # Handle non-finite values: NaN → -inf (makes sense in log-space)

@@ -178,7 +178,7 @@ class TestValidatePairedDistributions:
         dist1 = np.array([[0.2, 0.3, 0.5]])
         dist2 = np.array([[0.3, 0.4]])  # Different shape
 
-        with pytest.raises(ValueError, match="foo.*bar.*must have same shape"):
+        with pytest.raises(ValueError, match=r"foo.*bar.*must have same shape"):
             validate_paired_distributions(dist1, dist2, name1="foo", name2="bar")
 
 

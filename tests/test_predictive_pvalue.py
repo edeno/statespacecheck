@@ -57,7 +57,7 @@ class TestPredictivePValue:
 
         # Test that collected p-values are uniformly distributed
         # Using Kolmogorov-Smirnov test against uniform(0, 1)
-        ks_stat, ks_pvalue = kstest(p_values_collected, "uniform")
+        _, ks_pvalue = kstest(p_values_collected, "uniform")
 
         # We should NOT reject null hypothesis (p-values are uniform)
         # Using alpha=0.01 for robustness

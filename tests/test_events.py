@@ -211,7 +211,8 @@ class TestEventDiagnostics:
             marks,
             return_likelihood=True,
         )
-        assert grid.likelihood is not None and grid.likelihood.shape == (3, 3, 4)
+        assert grid.likelihood is not None
+        assert grid.likelihood.shape == (3, 3, 4)
         assert_allclose(grid.likelihood.reshape(3, 12), flat.likelihood)
         for name in ("hpd_overlap", "kl_divergence", "predictive_pvalue"):
             assert_allclose(getattr(grid, name), getattr(flat, name))

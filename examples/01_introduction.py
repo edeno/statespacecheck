@@ -63,11 +63,14 @@ try:
 
     print("✓ statespacecheck imported successfully")
 except ImportError as e:
-    raise ImportError(
+    msg = (
         "statespacecheck not found. Please install it first:\n"
         "  cd /path/to/statespacecheck\n"
         "  pip install -e .\n"
         "Then restart the kernel."
+    )
+    raise ImportError(
+        msg
     ) from e
 
 from utils import configure_notebook_plotting, generate_1d_gaussian_distribution

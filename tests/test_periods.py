@@ -294,7 +294,8 @@ class TestRobustZscore:
         z = _robust_zscore(x)
         # With only one value, z-score should be 0
         assert z[1] == 0.0
-        assert np.isnan(z[0]) and np.isnan(z[2])
+        assert np.isnan(z[0])
+        assert np.isnan(z[2])
 
 
 class TestFlagLowOverlap:

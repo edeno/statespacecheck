@@ -183,9 +183,8 @@ def kl_divergence(
     # Clip to non-negative values to handle floating point precision errors
     # scipy.stats.entropy can return tiny negative values (~1e-113) with subnormal numbers
     # KL divergence is mathematically always non-negative, so clip spurious negatives to 0
-    kl_div = np.maximum(kl_div, 0.0)
+    return np.maximum(kl_div, 0.0)
 
-    return kl_div
 
 
 def hpd_overlap(
@@ -291,6 +290,5 @@ def hpd_overlap(
     # This matches the normalization pattern used elsewhere in the codebase
     with np.errstate(divide="ignore", invalid="ignore"):
         overlap: DistributionArray = intersection / denom
-    overlap = np.nan_to_num(overlap, nan=0.0, posinf=0.0, neginf=0.0)
+    return np.nan_to_num(overlap, nan=0.0, posinf=0.0, neginf=0.0)
 
-    return overlap

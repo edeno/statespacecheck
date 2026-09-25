@@ -19,7 +19,7 @@ def test_version_attribute_exists() -> None:
 def test_version_fallback_to_metadata() -> None:
     """Test that version fallback works when _version module is unavailable."""
     # Remove statespacecheck from sys.modules to force reimport
-    modules_to_remove = [key for key in sys.modules.keys() if key.startswith("statespacecheck")]
+    modules_to_remove = [key for key in sys.modules if key.startswith("statespacecheck")]
     original_modules = {key: sys.modules[key] for key in modules_to_remove}
 
     try:
