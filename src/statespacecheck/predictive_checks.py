@@ -409,11 +409,6 @@ def predictive_pvalue(
         msg = f"n_samples must be positive, got {n_samples}"
         raise ValueError(msg)
 
-    # Validate sample_log_pred is callable
-    if not callable(sample_log_pred):
-        msg = f"sample_log_pred must be callable, got {type(sample_log_pred).__name__}"
-        raise TypeError(msg)
-
     # Generate samples
     simulated = sample_log_pred(n_samples)
 

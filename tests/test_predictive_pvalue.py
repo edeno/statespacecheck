@@ -191,7 +191,7 @@ class TestPredictivePValue:
         observed = np.array([1.0, 2.0, 3.0])
         not_callable = np.array([[1, 2, 3], [4, 5, 6]])
 
-        with pytest.raises(TypeError, match="sample_log_pred must be callable"):
+        with pytest.raises(TypeError, match="not callable"):
             predictive_pvalue(observed, not_callable)
 
     def test_sampler_wrong_output_shape_error(self):

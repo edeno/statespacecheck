@@ -27,12 +27,12 @@ jobs:
         with:
           fetch-depth: 0
 
-      # Match mypy's python_version (the minimum supported Python), so the
-      # installed NumPy stubs are ones that Python version can parse.
+      # Match mypy's python_version: NumPy's stubs use PEP 695 `type`
+      # statements, which only Python 3.12+ can parse.
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.10"
+          python-version: "3.12"
 
       - name: Install uv
         uses: astral-sh/setup-uv@v4
