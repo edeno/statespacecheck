@@ -18,12 +18,11 @@ Thank you for your interest in contributing to statespacecheck! This document pr
    cd statespacecheck
    ```
 
-2. **Create a virtual environment and install dependencies**
+2. **Create the environment**
    ```bash
-   # Using uv (recommended - much faster)
-   uv venv
-   source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-   uv pip install -e ".[dev]"
+   # Using uv (recommended): installs the package in editable mode plus the
+   # `dev` dependency group, at the versions pinned in uv.lock
+   uv sync
 
    # Or using pip
    python -m venv .venv
@@ -33,11 +32,12 @@ Thank you for your interest in contributing to statespacecheck! This document pr
 
 3. **Verify installation**
    ```bash
-   python -c "import statespacecheck; print(statespacecheck.__version__)"
-   pytest --version
-   ruff --version
-   mypy --version
+   uv run python -c "import statespacecheck; print(statespacecheck.__version__)"
    ```
+
+`uv run <command>` runs a command in the locked environment; it is the task
+runner. There is no nox or tox file, on purpose: every check below is a single
+`uv run` command, and CI runs the same commands.
 
 ## Development Workflow
 
@@ -45,7 +45,7 @@ Thank you for your interest in contributing to statespacecheck! This document pr
 
 This project follows strict code quality standards:
 
-- **Formatting**: [ruff format](https://docs.astral.sh/ruff/formatter/) (100 char line length)
+- **Formatting**: [ruff format](https://docs.astral.sh/ruff/formatter/) (95 char line length)
 - **Linting**: [ruff check](https://docs.astral.sh/ruff/) (comprehensive rules including NumPy-specific)
 - **Type checking**: [mypy](https://mypy-lang.org/) in strict mode (no `# type: ignore` allowed)
 - **Testing**: [pytest](https://pytest.org/) with 100% coverage requirement
@@ -57,32 +57,38 @@ Before committing, run all quality checks:
 
 ```bash
 # Format code
-ruff format .
+uv run ruff format .
 
 # Check formatting (CI runs this)
-ruff format --check .
+uv run ruff format --check .
 
 # Lint code
-ruff check .
+uv run ruff check .
 
 # Fix auto-fixable linting issues
-ruff check --fix .
+uv run ruff check --fix .
 
-# Type check
-mypy src/
+# Type check (strict; the files to check are set in pyproject.toml)
+uv run mypy
 
-# Run tests with coverage
-pytest
+# Run the tests and the docstring examples, with coverage
+uv run pytest
 
 # Run tests without coverage report
-pytest --no-cov
+uv run pytest --no-cov
 
 # Run specific test file
-pytest tests/test_highest_density.py -v
+uv run pytest tests/test_highest_density.py -v
 
 # Run specific test
-pytest tests/test_highest_density.py::TestHighestDensityRegion::test_exact_hd_region_1d -xvs
+uv run pytest tests/test_highest_density.py::TestHighestDensityRegion::test_exact_hd_region_1d -xvs
+
+# Check that uv.lock matches pyproject.toml
+uv lock --check
 ```
+
+Warnings are errors in the test suite (`filterwarnings = ["error"]`): a test
+that expects a warning says so with `pytest.warns`.
 
 ### Pre-commit Hooks
 
@@ -90,11 +96,8 @@ Pre-commit hooks automatically run code quality checks before every commit.
 
 **Setup (one-time):**
 ```bash
-# Install dependencies (includes pre-commit)
-uv pip install -e ".[dev]"
-
-# Install the git hooks
-uv run pre-commit install
+# Install the git hooks (uvx runs pre-commit without installing it)
+uvx pre-commit install
 ```
 
 **Usage:**
@@ -102,13 +105,13 @@ uv run pre-commit install
 # Hooks run automatically on `git commit`
 
 # Run manually on all files
-uv run pre-commit run --all-files
+uvx pre-commit run --all-files
 
 # Run manually on staged files only
-uv run pre-commit run
+uvx pre-commit run
 
 # Update hook versions
-uv run pre-commit autoupdate
+uvx pre-commit autoupdate
 ```
 
 **What it checks:**
@@ -365,7 +368,7 @@ def test_highest_density_region_with_peaked_distribution() -> None:
 
 ### Python Style
 
-- **Line length**: 100 characters (ruff enforces this)
+- **Line length**: 95 characters (ruff enforces this)
 - **Imports**: Sorted and grouped (ruff handles this)
 - **Quotes**: Double quotes for strings (ruff enforces this)
 - **Naming**:

@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- Development tooling follows the [Scientific Python development guide](https://learn.scientific-python.org/development/): strict pytest (warnings are errors, docstring examples run as doctests), strict mypy, the guide's ruff rule set at line length 95, a `dev` dependency group with a committed `uv.lock`, and codespell.
+- The package ships `py.typed`, so type checkers use its annotations, and a `CITATION.cff`.
+- The license is declared as the SPDX expression `MIT` (PEP 639); Python 3.14 is listed as supported.
+- `predictive_pvalue()` no longer checks that `sample_log_pred` is callable before calling it; a non-callable still raises `TypeError`, now with Python's own message.
+
+### Fixed
+
+- Docstring examples in `periods.py`, `predictive_pvalue()` and `plot_diagnostics()` now run as written.
+
 ## [0.2.0] - 2026-09-25
 
 ### Added
