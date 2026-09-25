@@ -304,14 +304,11 @@ def flag_low_overlap(
     Examples
     --------
     >>> import numpy as np
-    >>> from statespacecheck.periods import flag_low_overlap, combine_flags
+    >>> from statespacecheck.periods import flag_low_overlap
     >>> overlap = np.array([0.8, 0.8, 0.3, 0.3, 0.3, 0.3, 0.3, 0.8])
     >>> flags = flag_low_overlap(overlap, threshold=0.4, min_len=5)
     >>> flags
     array([False, False,  True,  True,  True,  True,  True, False])
-    >>> # Combine with other diagnostics
-    >>> kl_flags = flag_extreme_kl(kl_values, z_thresh=3.0, min_len=5)
-    >>> combined = combine_flags(flags, kl_flags, min_votes=2, min_len=5)
 
     See Also
     --------
@@ -357,11 +354,10 @@ def find_low_overlap_intervals(
     >>> intervals = find_low_overlap_intervals(overlap, threshold=0.4, min_len=5)
     >>> intervals
     [(2, 7)]
-    >>> # Extract first problematic interval
-    >>> if intervals:
-    >>>     start, stop = intervals[0]
-    >>>     problem_overlap = overlap[start:stop]  # Correct: excludes stop
-    >>>     print(f"Problem period: timepoints {start}-{stop-1}")
+    >>> # Extract the first problematic interval; stop is exclusive
+    >>> start, stop = intervals[0]
+    >>> print(f"Problem period: timepoints {start}-{stop - 1}")
+    Problem period: timepoints 2-6
 
     See Also
     --------
@@ -417,7 +413,7 @@ def flag_extreme_kl(
     >>> kl = np.ones(20)
     >>> kl[5:10] = 100.0  # Extreme spike
     >>> flags = flag_extreme_kl(kl, z_thresh=3.0, min_len=5)
-    >>> np.sum(flags[5:10])
+    >>> int(np.sum(flags[5:10]))
     5
 
     See Also
@@ -464,11 +460,8 @@ def flag_extreme_pvalues(
     >>> pvalues = np.ones(20) * 0.5
     >>> pvalues[5:10] = 0.01  # Very low p-values
     >>> flags = flag_extreme_pvalues(pvalues, alpha=0.05, min_len=5)
-    >>> np.sum(flags[5:10])
+    >>> int(np.sum(flags[5:10]))
     5
-    >>> # Combine with KL-based flags
-    >>> kl_flags = flag_extreme_kl(kl, z_thresh=3.0, min_len=5)
-    >>> combined = combine_flags(flags, kl_flags, min_votes=2, min_len=5)
 
     See Also
     --------
@@ -516,24 +509,19 @@ def combine_flags(
     Examples
     --------
     >>> import numpy as np
-    >>> from statespacecheck.periods import (
-    >>>     flag_extreme_kl, flag_extreme_pvalues, flag_low_overlap, combine_flags
-    >>> )
-    >>> # Combine two diagnostic methods (require both to agree)
-    >>> kl_flags = flag_extreme_kl(kl, z_thresh=3.0, min_len=5)
-    >>> overlap_flags = flag_low_overlap(overlap, tau=0.4, min_len=5)
-    >>> strict = combine_flags(kl_flags, overlap_flags, min_votes=2, min_len=5)
-    >>>
-    >>> # Combine three methods (require any 2 to agree)
-    >>> pval_flags = flag_extreme_pvalues(pvals, alpha=0.05, min_len=5)
-    >>> moderate = combine_flags(
-    >>>     kl_flags, overlap_flags, pval_flags, min_votes=2, min_len=5
-    >>> )
-    >>>
+    >>> from statespacecheck.periods import combine_flags
+    >>> kl_flags = np.array([False, True, True, True, True, True, False, False])
+    >>> overlap_flags = np.array([False, False, True, True, True, True, True, False])
+    >>> pval_flags = np.array([False, False, False, True, True, True, True, True])
+    >>> # Require both of two methods to agree
+    >>> combine_flags(kl_flags, overlap_flags, min_votes=2, min_len=3)
+    array([False, False,  True,  True,  True,  True, False, False])
+    >>> # Require any two of three methods to agree
+    >>> combine_flags(kl_flags, overlap_flags, pval_flags, min_votes=2, min_len=3)
+    array([False, False,  True,  True,  True,  True,  True, False])
     >>> # Require all three methods to agree (strict consensus)
-    >>> consensus = combine_flags(
-    >>>     kl_flags, overlap_flags, pval_flags, min_votes=3, min_len=5
-    >>> )
+    >>> combine_flags(kl_flags, overlap_flags, pval_flags, min_votes=3, min_len=3)
+    array([False, False, False,  True,  True,  True, False, False])
 
     See Also
     --------

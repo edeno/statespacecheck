@@ -360,7 +360,7 @@ def predictive_pvalue(
     >>> p_vals = predictive_pvalue(observed, sampler, n_samples=100)
     >>> p_vals.shape
     (3,)
-    >>> np.all((p_vals >= 0) & (p_vals <= 1))
+    >>> bool(np.all((p_vals >= 0) & (p_vals <= 1)))
     True
 
     See Also

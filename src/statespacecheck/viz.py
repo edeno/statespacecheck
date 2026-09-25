@@ -78,7 +78,7 @@ def plot_diagnostics(
     >>> kl = np.random.uniform(0.1, 2.0, 100)
     >>> pvals = np.random.uniform(0.1, 0.9, 100)
     >>> fig = plot_diagnostics(time, overlap, kl, pvals)
-    >>> plt.show()
+    >>> plt.close(fig)
     """
     time_arr = np.asarray(time)
     overlap_arr = np.asarray(overlap, dtype=float)
