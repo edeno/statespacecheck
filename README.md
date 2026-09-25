@@ -17,6 +17,7 @@ The posterior distribution combines information from both models, weighing curre
 
 - **KL Divergence**: Measure information divergence between posterior and likelihood distributions at each time point
 - **HPD Overlap**: Compute spatial overlap between highest posterior density regions
+- **Per-spike diagnostics**: For spike trains and other marked point-process data, compute HPD overlap, KL divergence, and an exact predictive p-value for every event
 - **Vectorized Operations**: Efficient NumPy-based implementation with no Python loops
 - **Flexible Dimensionality**: Supports both 1D `(n_time, n_position_bins)` and 2D `(n_time, n_x_bins, n_y_bins)` spatial arrays
 - **Robust Edge Case Handling**: Proper treatment of NaN values, zero sums, and empty distributions
@@ -147,6 +148,35 @@ low_overlap = overlap < 0.3
 print(f"Time points with high divergence: {np.sum(high_divergence)}/{n_time}")
 print(f"Time points with low overlap: {np.sum(low_overlap)}/{n_time}")
 ```
+
+### Per-Spike Diagnostics
+
+For spike-sorted data decoded with a point-process observation model, each
+spike's likelihood is its unit's place field (intensity) normalized over
+position. `event_diagnostics` compares that single-spike likelihood with the
+one-step predictive distribution of the spike's time bin, and evaluates the
+predictive check exactly over the finite set of units:
+
+```python
+import numpy as np
+from statespacecheck import baseline_threshold, event_diagnostics
+
+# predictive:   (n_time, n_bins) one-step predictive distribution from your decoder
+# place_fields: (n_bins, n_units) expected spike count of each unit in each position bin
+# spike_time_ind, spike_unit: (n_spikes,) time bin and unit of each spike
+result = event_diagnostics(predictive, place_fields, spike_time_ind, spike_unit)
+result.hpd_overlap  # (n_spikes,) low values indicate poor local fit
+result.kl_divergence  # (n_spikes,) high values indicate poor local fit
+result.predictive_pvalue  # (n_spikes,) low values indicate poor local fit
+
+# Flag spikes against thresholds from a period where the model is trusted
+baseline = spike_time_ind < n_baseline_bins
+hpd_threshold = baseline_threshold(result.hpd_overlap[baseline], 0.01)
+flagged = (result.hpd_overlap <= hpd_threshold) | (result.predictive_pvalue <= 0.05)
+```
+
+The building blocks are also available individually: `event_likelihood`,
+`predictive_mark_probabilities`, and `mark_predictive_pvalue`.
 
 ## API Reference
 

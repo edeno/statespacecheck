@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Per-event diagnostics for marked point-process data** (`statespacecheck.events`):
+  - `event_likelihood()`: normalized single-event likelihood from mark intensities
+  - `predictive_mark_probabilities()`: event-weighted predictive distribution over marks
+  - `mark_predictive_pvalue()`: exact predictive p-value over a finite set of marks
+  - `event_diagnostics()`: HPD overlap, KL divergence, and predictive p-value for every event, batched for long recordings
+  - `baseline_threshold()`: flagging threshold from a quantile of baseline per-event values
+  - `EventDiagnostics`: named tuple returned by `event_diagnostics()`
+
 ## [0.1.1] - 2025-11-19
 
 ### Fixed
