@@ -6,6 +6,14 @@ state space models.
 """
 
 from statespacecheck._validation import DistributionArray
+from statespacecheck.events import (
+    EventDiagnostics,
+    baseline_threshold,
+    event_diagnostics,
+    event_likelihood,
+    mark_predictive_pvalue,
+    predictive_mark_probabilities,
+)
 from statespacecheck.highest_density import DEFAULT_COVERAGE, highest_density_region
 from statespacecheck.periods import (
     aggregate_over_period,
@@ -42,6 +50,12 @@ __all__ = [
     "flag_low_overlap",
     "combine_flags",
     "plot_diagnostics",
+    "EventDiagnostics",
+    "event_likelihood",
+    "predictive_mark_probabilities",
+    "mark_predictive_pvalue",
+    "event_diagnostics",
+    "baseline_threshold",
 ]
 
 try:

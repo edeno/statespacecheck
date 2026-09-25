@@ -51,6 +51,7 @@ pip install statespacecheck
 ```python
 # Verify installation
 import statespacecheck
+
 print(f"✓ statespacecheck v{statespacecheck.__version__} installed successfully")
 
 # Quick functionality test
@@ -86,7 +87,7 @@ kl_div = kl_divergence(state_dist, likelihood)  # (3)!
 overlap = hpd_overlap(
     state_dist,
     likelihood,
-    coverage=0.95  # (4)!
+    coverage=0.95,  # (4)!
 )
 # Returns: (n_time,) array of overlap proportions (0 = no overlap, 1 = complete)
 
