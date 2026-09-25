@@ -114,6 +114,7 @@
      ```python
      import numpy as np
      import statespacecheck as ssc
+
      assert ssc.__version__ != "0.0.0"
      predictive = np.array([[0.7, 0.2, 0.1], [0.1, 0.2, 0.7]])
      fields = np.array([[5.0, 0.1], [1.0, 1.0], [0.1, 5.0]])

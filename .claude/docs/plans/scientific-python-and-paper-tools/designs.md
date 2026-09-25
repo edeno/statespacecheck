@@ -81,13 +81,13 @@ def _sample_state_bins(
 This processes one batch of events. `state` has shape `(nb, n_bins)` and is the flattened `state_dist[start:stop]`; `marks` is `observed_marks[start:stop]`.
 
 ```python
-log_state = _safe_log(state / state.sum(axis=1, keepdims=True))            # (nb, n_bins)
-log_norm = logsumexp(log_state + _safe_log(ground_flat), axis=1)            # log Σ Λ P
+log_state = _safe_log(state / state.sum(axis=1, keepdims=True))  # (nb, n_bins)
+log_norm = logsumexp(log_state + _safe_log(ground_flat), axis=1)  # log Σ Λ P
 observed_intensity = _evaluate_intensity(mark_intensity, marks, nb, n_bins)
 observed_log = logsumexp(log_state + _safe_log(observed_intensity), axis=1) - log_norm
 
 event_weighted = event_weighted_predictive(state, ground_flat).reshape(nb, n_bins)
-state_bins = _sample_state_bins(event_weighted, n_samples, rng)             # (nb, S)
+state_bins = _sample_state_bins(event_weighted, n_samples, rng)  # (nb, S)
 replicated_marks = sample_marks(state_bins.ravel(), rng)
 _check_leading_axis(replicated_marks, nb * n_samples, "sample_marks")
 replicated_intensity = _evaluate_intensity(
@@ -139,10 +139,10 @@ Per batch:
 ```python
 predictive_batch = predictive_flat[time_ind[start:stop]]
 observed_intensity = _evaluate_intensity(mark_intensity, event_marks[start:stop], nb, n_bins)
-likelihood_batch = event_likelihood(observed_intensity)          # raises on all-zero rows
+likelihood_batch = event_likelihood(observed_intensity)  # raises on all-zero rows
 event_hpd[start:stop] = hpd_overlap(predictive_batch, likelihood_batch, coverage=coverage)
 event_kl[start:stop] = kl_divergence(predictive_batch, likelihood_batch)
-event_pvalue[start:stop] = _monte_carlo_batch(...)               # shared with monte_carlo_mark_pvalue
+event_pvalue[start:stop] = _monte_carlo_batch(...)  # shared with monte_carlo_mark_pvalue
 ```
 
 - Factor the per-batch Monte Carlo body out as `_monte_carlo_batch`, which both public functions call, so there is one implementation.
