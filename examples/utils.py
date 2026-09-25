@@ -41,15 +41,16 @@ def generate_1d_gaussian_distribution(
         mean_arr = np.full_like(std_arr, mean_arr[0])
     elif mean_arr.shape != std_arr.shape:
         msg = f"mean and std must have same shape, got {mean_arr.shape} vs {std_arr.shape}"
-        raise ValueError(
-            msg
-        )
+        raise ValueError(msg)
 
     n_time = len(mean_arr)
 
     # Generate distributions
     distributions = np.array(
-        [norm.pdf(position_bins, loc=m, scale=s) for m, s in zip(mean_arr, std_arr, strict=True)]
+        [
+            norm.pdf(position_bins, loc=m, scale=s)
+            for m, s in zip(mean_arr, std_arr, strict=True)
+        ]
     )
 
     # If inputs were both scalars, return 1D array
@@ -112,7 +113,9 @@ def generate_spatial_navigation_data(
 
     # Generate true position trajectory (back and forth movement)
     time = np.arange(n_time)
-    true_position = (track_length / 2) + (track_length / 3) * np.sin(2 * np.pi * time / n_time * 2)
+    true_position = (track_length / 2) + (track_length / 3) * np.sin(
+        2 * np.pi * time / n_time * 2
+    )
 
     # Add small random walk
     true_position += rng.normal(0, 0.5, size=n_time).cumsum()
@@ -189,7 +192,9 @@ def generate_misspecified_model_data(
     time = np.arange(n_time)
 
     # Generate true position trajectory
-    true_position = (track_length / 2) + (track_length / 3) * np.sin(2 * np.pi * time / n_time * 2)
+    true_position = (track_length / 2) + (track_length / 3) * np.sin(
+        2 * np.pi * time / n_time * 2
+    )
 
     # Initialize distributions
     state_means = true_position.copy()
@@ -206,7 +211,9 @@ def generate_misspecified_model_data(
 
     # Generate distributions
     state_dist = generate_1d_gaussian_distribution(position_bins, state_means, state_stds)
-    likelihood = generate_1d_gaussian_distribution(position_bins, likelihood_means, likelihood_stds)
+    likelihood = generate_1d_gaussian_distribution(
+        position_bins, likelihood_means, likelihood_stds
+    )
 
     return {
         "position_bins": position_bins,
@@ -253,9 +260,7 @@ def generate_multimodal_distribution(
         weights = [1.0 / n_components] * n_components
     elif len(weights) != n_components:
         msg = f"weights must have same length as means, got {len(weights)} vs {n_components}"
-        raise ValueError(
-            msg
-        )
+        raise ValueError(msg)
 
     # Normalize weights
     weights_arr = np.array(weights)

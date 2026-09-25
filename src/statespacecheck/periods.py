@@ -115,9 +115,7 @@ def aggregate_over_period(
             f"metric_values must be 1-dimensional, "
             f"got {metric_arr.ndim}D array with shape {metric_arr.shape}"
         )
-        raise ValueError(
-            msg
-        )
+        raise ValueError(msg)
 
     # Validate time_mask
     mask_arr = np.asarray(time_mask, dtype=bool)
@@ -126,9 +124,7 @@ def aggregate_over_period(
             f"time_mask must have same length as metric_values, "
             f"got {mask_arr.shape} vs {metric_arr.shape}"
         )
-        raise ValueError(
-            msg
-        )
+        raise ValueError(msg)
 
     # Validate reduction parameter
     if reduction not in ("mean", "sum"):
@@ -143,9 +139,7 @@ def aggregate_over_period(
                 f"weights must have same length as metric_values, "
                 f"got {weights_arr.shape} vs {metric_arr.shape}"
             )
-            raise ValueError(
-                msg
-            )
+            raise ValueError(msg)
         if not np.isfinite(weights_arr).all():
             msg = "weights must be finite (no NaN or inf values)"
             raise ValueError(msg)
@@ -548,9 +542,7 @@ def combine_flags(
             "How to fix: Pass one or more boolean flag arrays as arguments, e.g.:\n"
             "    combined = combine_flags(kl_flags, overlap_flags, min_votes=2)"
         )
-        raise ValueError(
-            msg
-        )
+        raise ValueError(msg)
     flag_arrays = [np.asarray(flag_arr, dtype=bool) for flag_arr in flags]
     n_time = flag_arrays[0].shape[0]
     if any(flag_arr.shape != (n_time,) for flag_arr in flag_arrays):
@@ -565,9 +557,7 @@ def combine_flags(
             f"  2. Verify arrays come from same dataset with same time axis\n"
             f"  3. Ensure no accidental transposition or subsetting"
         )
-        raise ValueError(
-            msg
-        )
+        raise ValueError(msg)
     votes = np.sum(np.stack(flag_arrays, axis=0), axis=0)
     combined = votes >= int(min_votes)
     return _enforce_min_len(combined, min_len)

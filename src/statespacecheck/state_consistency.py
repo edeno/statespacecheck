@@ -186,7 +186,6 @@ def kl_divergence(
     return np.maximum(kl_div, 0.0)
 
 
-
 def hpd_overlap(
     state_dist: DistributionArray,
     likelihood: DistributionArray,
@@ -291,4 +290,3 @@ def hpd_overlap(
     with np.errstate(divide="ignore", invalid="ignore"):
         overlap: DistributionArray = intersection / denom
     return np.nan_to_num(overlap, nan=0.0, posinf=0.0, neginf=0.0)
-

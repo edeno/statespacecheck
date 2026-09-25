@@ -36,7 +36,9 @@ class TestKLDivergence:
         kl_div = kl_divergence(state_dist, state_dist)
 
         # CRITICAL: Must return (n_time,) shape, not (n_time, n_x)
-        assert kl_div.shape == (n_time,), f"Expected shape (n_time,)={n_time}, got {kl_div.shape}"
+        assert kl_div.shape == (n_time,), (
+            f"Expected shape (n_time,)={n_time}, got {kl_div.shape}"
+        )
         assert np.allclose(kl_div, 0.0, atol=1e-10)
 
     def test_1d_spatial_different_distributions(self, rng) -> None:
@@ -137,7 +139,9 @@ class TestHPDOverlap:
         overlap = hpd_overlap(state_dist, state_dist, coverage=0.95)
 
         # CRITICAL: Must return (n_time,) shape
-        assert overlap.shape == (n_time,), f"Expected shape (n_time,)={n_time}, got {overlap.shape}"
+        assert overlap.shape == (n_time,), (
+            f"Expected shape (n_time,)={n_time}, got {overlap.shape}"
+        )
         assert np.allclose(overlap, 1.0)
 
     def test_1d_spatial_completely_different_distributions(self) -> None:

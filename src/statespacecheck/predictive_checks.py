@@ -242,25 +242,19 @@ def log_predictive_density(
                 f"log_likelihood must be at least 2D with shape (n_time, ...), "
                 f"got shape {log_like.shape}"
             )
-            raise ValueError(
-                msg
-            )
+            raise ValueError(msg)
 
         if log_like.shape != state.shape:
             msg = (
                 f"state_dist and log_likelihood must have same shape, "
                 f"got {state.shape} vs {log_like.shape}"
             )
-            raise ValueError(
-                msg
-            )
+            raise ValueError(msg)
 
         # Check for +inf in log_likelihood (indicates upstream bug or overflow)
         if np.isposinf(log_like).any():
             msg = "log_likelihood contains +inf; this indicates an upstream bug or overflow"
-            raise ValueError(
-                msg
-            )
+            raise ValueError(msg)
 
         # Handle non-finite values: NaN → -inf (makes sense in log-space)
         # Note: We do NOT check for negative values (negative is expected in log-space!)
@@ -293,7 +287,9 @@ def log_predictive_density(
 
     # Convert normalized state to log-space
     with np.errstate(divide="ignore"):
-        log_state_normalized = np.where(state_normalized > 0, np.log(state_normalized), -np.inf)
+        log_state_normalized = np.where(
+            state_normalized > 0, np.log(state_normalized), -np.inf
+        )
 
     # Compute log predictive density using logsumexp
     # log ∑_x p(x) * p(y|x) = logsumexp(log p(x) + log p(y|x))

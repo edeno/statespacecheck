@@ -121,7 +121,8 @@ class TestHighestDensityRegionProperties:
 
         # Coverage should be >= requested (allowing small numerical error)
         assert np.all(
-            (actual_coverage[valid_rows] >= cov - 1e-10) | (actual_coverage[valid_rows] >= 0.999)
+            (actual_coverage[valid_rows] >= cov - 1e-10)
+            | (actual_coverage[valid_rows] >= 0.999)
         )
 
     @given(dist=valid_distribution_1d())

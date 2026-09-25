@@ -69,9 +69,7 @@ except ImportError as e:
         "  pip install -e .\n"
         "Then restart the kernel."
     )
-    raise ImportError(
-        msg
-    ) from e
+    raise ImportError(msg) from e
 
 from utils import configure_notebook_plotting, generate_1d_gaussian_distribution
 
@@ -129,7 +127,12 @@ likelihood = generate_1d_gaussian_distribution(position_bins, mean=true_position
 fig, ax = plt.subplots(figsize=(10, 5))
 ax.plot(position_bins, state_dist, label="State distribution", linewidth=2.5, color="#1f77b4")
 ax.plot(
-    position_bins, likelihood, label="Likelihood", linewidth=2.5, color="#ff7f0e", linestyle="--"
+    position_bins,
+    likelihood,
+    label="Likelihood",
+    linewidth=2.5,
+    color="#ff7f0e",
+    linestyle="--",
 )
 ax.fill_between(position_bins, state_dist, alpha=0.3, color="#1f77b4")
 ax.fill_between(position_bins, likelihood, alpha=0.3, color="#ff7f0e")
@@ -164,11 +167,15 @@ state_mean = 30.0
 likelihood_mean = 70.0  # Large spatial offset!
 
 state_dist_poor = generate_1d_gaussian_distribution(position_bins, mean=state_mean, std=2.0)
-likelihood_poor = generate_1d_gaussian_distribution(position_bins, mean=likelihood_mean, std=3.0)
+likelihood_poor = generate_1d_gaussian_distribution(
+    position_bins, mean=likelihood_mean, std=3.0
+)
 
 # Visualize
 fig, ax = plt.subplots(figsize=(10, 5))
-ax.plot(position_bins, state_dist_poor, label="State distribution", linewidth=2.5, color="#1f77b4")
+ax.plot(
+    position_bins, state_dist_poor, label="State distribution", linewidth=2.5, color="#1f77b4"
+)
 ax.plot(
     position_bins,
     likelihood_poor,
@@ -302,7 +309,9 @@ overlap_values = []
 for offset in offsets:
     # Generate distributions with increasing offset
     state_test = generate_1d_gaussian_distribution(position_bins, mean=40.0, std=2.0)
-    likelihood_test = generate_1d_gaussian_distribution(position_bins, mean=40.0 + offset, std=2.5)
+    likelihood_test = generate_1d_gaussian_distribution(
+        position_bins, mean=40.0 + offset, std=2.5
+    )
 
     # Add time dimension
     state_test_2d = state_test[np.newaxis, :]
@@ -385,7 +394,9 @@ for unc in uncertainties:
 # Visualize
 fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
 
-ax1.plot(uncertainties, kl_values_unc, linewidth=2.5, marker="o", markersize=6, color="#1f77b4")
+ax1.plot(
+    uncertainties, kl_values_unc, linewidth=2.5, marker="o", markersize=6, color="#1f77b4"
+)
 ax1.set_xlabel("Likelihood Uncertainty (std, cm)")
 ax1.set_ylabel("KL Divergence")
 ax1.set_title("Effect of Uncertainty on KL Divergence")

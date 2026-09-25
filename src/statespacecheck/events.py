@@ -75,9 +75,7 @@ def _flatten_mark_intensities(
             f"mark_intensities must have shape {(*spatial_shape, 'n_marks')} to match the "
             f"state distribution's spatial axes; got {mark_intensities.shape}"
         )
-        raise ValueError(
-            msg
-        )
+        raise ValueError(msg)
     if mark_intensities.shape[-1] == 0:
         msg = "mark_intensities must contain at least one mark"
         raise ValueError(msg)
@@ -87,7 +85,9 @@ def _flatten_mark_intensities(
     return mark_intensities.reshape(-1, mark_intensities.shape[-1])
 
 
-def _validate_state_distribution(state_dist: DistributionArray, name: str) -> DistributionArray:
+def _validate_state_distribution(
+    state_dist: DistributionArray, name: str
+) -> DistributionArray:
     """Validate a ``(n_events, ...)`` distribution and flatten it to ``(n_events, n_bins)``."""
     state_dist = np.asarray(state_dist)
     if state_dist.ndim < 2:
@@ -95,9 +95,7 @@ def _validate_state_distribution(state_dist: DistributionArray, name: str) -> Di
             f"{name} must have shape (n_events, ...) with at least one spatial axis; "
             f"got shape {state_dist.shape}"
         )
-        raise ValueError(
-            msg
-        )
+        raise ValueError(msg)
     if not np.all(np.isfinite(state_dist)) or np.any(state_dist < 0.0):
         msg = f"{name} must contain only finite nonnegative values"
         raise ValueError(msg)
@@ -167,9 +165,7 @@ def event_likelihood(event_intensities: NDArray[np.floating]) -> DistributionArr
             "event_intensities must have shape (n_events, ...) with a non-empty spatial "
             f"axis; got shape {event_intensities.shape}"
         )
-        raise ValueError(
-            msg
-        )
+        raise ValueError(msg)
     if not np.all(np.isfinite(event_intensities)) or np.any(event_intensities < 0.0):
         msg = "event_intensities must contain only finite nonnegative values"
         raise ValueError(msg)
@@ -184,9 +180,7 @@ def event_likelihood(event_intensities: NDArray[np.floating]) -> DistributionArr
             "Cannot compute an event likelihood for rows that are zero everywhere; "
             f"row indices: {bad[:10].tolist()}"
         )
-        raise ValueError(
-            msg
-        )
+        raise ValueError(msg)
     likelihood: DistributionArray = np.exp(log_intensity - log_norm)
     return likelihood.reshape(event_intensities.shape)
 
@@ -250,9 +244,7 @@ def predictive_mark_probabilities(
     if nonfinite_total.any():
         bad = np.flatnonzero(nonfinite_total)
         msg = f"Predictive total event intensity is non-finite for row indices: {bad[:10].tolist()}"
-        raise ValueError(
-            msg
-        )
+        raise ValueError(msg)
     zero_total = total_intensity[:, 0] == 0.0
     if zero_total.any():
         bad = np.flatnonzero(zero_total)
@@ -260,9 +252,7 @@ def predictive_mark_probabilities(
             "Predictive mark distribution is undefined for rows with zero total "
             f"event intensity; row indices: {bad[:10].tolist()}"
         )
-        raise ValueError(
-            msg
-        )
+        raise ValueError(msg)
     mark_probabilities: NDArray[np.floating] = expected_intensities / total_intensity
     return mark_probabilities
 
@@ -321,10 +311,10 @@ def mark_predictive_pvalue(
     n_events, n_marks = mark_probabilities.shape
     marks = _validate_marks(observed_marks, n_marks, "observed_marks")
     if marks.shape[0] != n_events:
-        msg = f"observed_marks must have one entry per event ({n_events}); got {marks.shape[0]}"
-        raise ValueError(
-            msg
+        msg = (
+            f"observed_marks must have one entry per event ({n_events}); got {marks.shape[0]}"
         )
+        raise ValueError(msg)
     n_bins = int(np.prod(np.shape(state_dist)[1:]))
     observed = mark_probabilities[np.arange(n_events), marks]
     atol = (
@@ -398,7 +388,9 @@ def event_diagnostics(
     >>> from statespacecheck import event_diagnostics
     >>> predictive = np.array([[0.7, 0.2, 0.1], [0.1, 0.2, 0.7]])  # (n_time, n_bins)
     >>> place_fields = np.array([[5.0, 0.1], [1.0, 1.0], [0.1, 5.0]])  # (n_bins, n_marks)
-    >>> result = event_diagnostics(predictive, place_fields, np.array([0, 1]), np.array([0, 0]))
+    >>> result = event_diagnostics(
+    ...     predictive, place_fields, np.array([0, 1]), np.array([0, 0])
+    ... )
     >>> result.predictive_pvalue.round(3)
     array([1.   , 0.172])
     """
@@ -412,9 +404,7 @@ def event_diagnostics(
             "predictive must have shape (n_time, ...) with at least one spatial axis; "
             f"got shape {predictive.shape}"
         )
-        raise ValueError(
-            msg
-        )
+        raise ValueError(msg)
     spatial_shape = predictive.shape[1:]
     rates = _flatten_mark_intensities(mark_intensities, spatial_shape)
     n_time = predictive.shape[0]
@@ -425,9 +415,7 @@ def event_diagnostics(
             "event_time_ind and event_marks must have the same length; got "
             f"{time_ind.shape[0]} and {marks.shape[0]}"
         )
-        raise ValueError(
-            msg
-        )
+        raise ValueError(msg)
     predictive_flat = predictive.reshape(n_time, -1)
 
     n_events = time_ind.shape[0]
@@ -444,7 +432,9 @@ def event_diagnostics(
         predictive_batch = predictive_flat[time_ind[start:stop]]
         likelihood_batch = event_likelihood(rates[:, batch_marks].T)
 
-        event_hpd[start:stop] = hpd_overlap(predictive_batch, likelihood_batch, coverage=coverage)
+        event_hpd[start:stop] = hpd_overlap(
+            predictive_batch, likelihood_batch, coverage=coverage
+        )
         event_kl[start:stop] = kl_divergence(predictive_batch, likelihood_batch)
         event_pvalue[start:stop] = mark_predictive_pvalue(predictive_batch, rates, batch_marks)
         if likelihood is not None:
@@ -454,7 +444,9 @@ def event_diagnostics(
         hpd_overlap=event_hpd,
         kl_divergence=event_kl,
         predictive_pvalue=event_pvalue,
-        likelihood=None if likelihood is None else likelihood.reshape(n_events, *spatial_shape),
+        likelihood=None
+        if likelihood is None
+        else likelihood.reshape(n_events, *spatial_shape),
     )
 
 
@@ -498,9 +490,7 @@ def baseline_threshold(baseline_values: NDArray[np.floating], quantile: float) -
     values = np.asarray(baseline_values, dtype=float).ravel()
     if np.any(np.isinf(values)):
         msg = "baseline_values contains infinity; a finite threshold cannot be estimated"
-        raise ValueError(
-            msg
-        )
+        raise ValueError(msg)
     if not np.any(np.isfinite(values)):
         msg = "baseline_values contains no finite values; the threshold would be NaN"
         raise ValueError(msg)

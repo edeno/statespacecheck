@@ -13,7 +13,9 @@ def rng():
 # Test data generation helpers
 
 
-def make_random_distribution_1d(rng: np.random.Generator, n_time: int, n_bins: int) -> np.ndarray:
+def make_random_distribution_1d(
+    rng: np.random.Generator, n_time: int, n_bins: int
+) -> np.ndarray:
     """Create random 1D distributions using Dirichlet.
 
     Returns array of shape (n_time, n_bins) where each time slice
@@ -179,7 +181,9 @@ def assert_time_vector(
     actual: np.ndarray, n_time: int, message: str = "Expected time vector"
 ) -> None:
     """Assert that array is 1D with length n_time."""
-    assert actual.shape == (n_time,), f"{message}: expected shape ({n_time},), got {actual.shape}"
+    assert actual.shape == (n_time,), (
+        f"{message}: expected shape ({n_time},), got {actual.shape}"
+    )
 
 
 def sum_over_spatial(arr: np.ndarray) -> np.ndarray:

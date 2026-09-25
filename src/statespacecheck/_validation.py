@@ -27,9 +27,7 @@ def validate_coverage(coverage: float) -> None:
             f"and must be a value between 0 and 1 (exclusive). "
             f"For example, use 0.95 for a 95% credible region."
         )
-        raise ValueError(
-            msg
-        )
+        raise ValueError(msg)
 
 
 def validate_distribution(
@@ -79,9 +77,7 @@ def validate_distribution(
             f"for 2D spatial data use shape (n_time, n_x_bins, n_y_bins). "
             f"Did you forget to add the time dimension?"
         )
-        raise ValueError(
-            msg
-        )
+        raise ValueError(msg)
 
     # Handle non-finite values
     clean: DistributionArray
@@ -98,9 +94,7 @@ def validate_distribution(
                 f"consider setting them to 0 instead of NaN, or ensure "
                 f"allow_nan=True in the validation."
             )
-            raise ValueError(
-                msg
-            )
+            raise ValueError(msg)
 
     # Check for negative values
     finite_mask = np.isfinite(arr)
@@ -111,9 +105,7 @@ def validate_distribution(
             f"Probability distributions and weights must be >= 0. "
             f"Check your data for errors or ensure proper normalization."
         )
-        raise ValueError(
-            msg
-        )
+        raise ValueError(msg)
 
     return clean
 
@@ -181,9 +173,7 @@ def validate_paired_distributions(
             f"or one distribution missing time/spatial dimensions. "
             f"Ensure both arrays use consistent binning and time indexing."
         )
-        raise ValueError(
-            msg
-        )
+        raise ValueError(msg)
 
     return clean1, clean2
 

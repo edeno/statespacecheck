@@ -115,7 +115,9 @@ class TestMarkPredictivePvalue:
         p-value is 1/6, not 0.3."""
         state = np.array([[0.5, 0.5], [0.5, 0.5]])
         intensities = np.array([[9.0, 1.0], [1.0, 1.0]])
-        assert_allclose(mark_predictive_pvalue(state, intensities, np.array([0, 1])), [1, 1 / 6])
+        assert_allclose(
+            mark_predictive_pvalue(state, intensities, np.array([0, 1])), [1, 1 / 6]
+        )
 
     def test_zero_rate_state_carries_no_event_mass(self):
         state = np.array([[0.2, 0.5, 0.3]])
@@ -157,7 +159,9 @@ class TestMarkPredictivePvalue:
             slack = 3 * np.sqrt(alpha * (1 - alpha) / n_events)
             assert np.mean(pvalue <= alpha) <= alpha + slack
 
-    @pytest.mark.parametrize("marks", [np.array([0, 5]), np.array([-1, 0]), np.array([0.0, 1.0])])
+    @pytest.mark.parametrize(
+        "marks", [np.array([0, 5]), np.array([-1, 0]), np.array([0.0, 1.0])]
+    )
     def test_invalid_marks_raise(self, marks):
         with pytest.raises(ValueError, match="observed_marks"):
             mark_predictive_pvalue(np.full((2, 2), 0.5), np.ones((2, 3)), marks)
@@ -178,7 +182,9 @@ class TestEventDiagnostics:
         assert_array_equal(
             result.hpd_overlap, hpd_overlap(predictive[time_ind], likelihood, coverage=0.9)
         )
-        assert_array_equal(result.kl_divergence, kl_divergence(predictive[time_ind], likelihood))
+        assert_array_equal(
+            result.kl_divergence, kl_divergence(predictive[time_ind], likelihood)
+        )
         assert_array_equal(
             result.predictive_pvalue,
             mark_predictive_pvalue(predictive[time_ind], intensities, marks),
@@ -203,7 +209,9 @@ class TestEventDiagnostics:
         predictive = rng.dirichlet(np.ones(12), size=5)
         intensities = rng.random((12, 3))
         time_ind, marks = np.array([0, 2, 4]), np.array([2, 0, 1])
-        flat = event_diagnostics(predictive, intensities, time_ind, marks, return_likelihood=True)
+        flat = event_diagnostics(
+            predictive, intensities, time_ind, marks, return_likelihood=True
+        )
         grid = event_diagnostics(
             predictive.reshape(5, 3, 4),
             intensities.reshape(3, 4, 3),
@@ -219,7 +227,10 @@ class TestEventDiagnostics:
 
     def test_no_events(self):
         result = event_diagnostics(
-            np.full((3, 2), 0.5), np.ones((2, 2)), np.array([], dtype=int), np.array([], dtype=int)
+            np.full((3, 2), 0.5),
+            np.ones((2, 2)),
+            np.array([], dtype=int),
+            np.array([], dtype=int),
         )
         assert result.hpd_overlap.shape == (0,)
 
@@ -231,7 +242,9 @@ class TestEventDiagnostics:
 
     def test_out_of_range_time_index_raises(self):
         with pytest.raises(ValueError, match="event_time_ind"):
-            event_diagnostics(np.full((2, 2), 0.5), np.ones((2, 2)), np.array([2]), np.array([0]))
+            event_diagnostics(
+                np.full((2, 2), 0.5), np.ones((2, 2)), np.array([2]), np.array([0])
+            )
 
     def test_mismatched_event_arrays_raise(self):
         with pytest.raises(ValueError, match="same length"):
