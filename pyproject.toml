@@ -140,20 +140,27 @@ indent-style = "space"
 docstring-code-format = true
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
-python_files = ["test_*.py"]
-python_functions = ["test_*"]
+minversion = "8"
+# src/ for the docstring examples
+testpaths = ["tests", "src"]
 addopts = [
-    "-v",
+    "-ra",
+    "--doctest-modules",
+    "--strict-config",
     "--strict-markers",
-    "--cov=statespacecheck",
+    "--cov=src/statespacecheck",
     "--cov-report=term-missing",
-    "--cov-report=html",
 ]
+xfail_strict = true
+log_level = "INFO"
+# every warning is an error: a test that expects one says so with pytest.warns
+filterwarnings = ["error"]
 
 [tool.coverage.run]
-source = ["src"]
-omit = ["*/tests/*"]
+branch = true
+# by path: with the src layout the module name resolves ambiguously
+source = ["src/statespacecheck"]
+omit = ["*/tests/*", "*/_version.py"]
 
 [tool.coverage.report]
 exclude_lines = [
