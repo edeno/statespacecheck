@@ -69,7 +69,7 @@ Measured cost of the stricter settings on the current code:
 - The diagnostics cache fingerprint includes the installed package version (`figure04_cache.py:260-261`). Bumping the version recomputes the Figure 4 diagnostics.
 - Both figure summaries record the installed package version in `provenance.source.statespacecheck_version` (`scientific_artifacts.py`). The manuscript cites it through `\StatespacecheckVersion`, and `reported_values.py` refuses summaries, or a Figure 4 cache, that record different versions.
 - `site/js/metrics.js` mirrors the package's sorted-mark diagnostics and has a parity fixture (`site_export.py:657`).
-- **The paper repo has unmerged work** on branches `statespacecheck-boundary` (5 unpushed commits, `df887f2..82a0b80`, as of 2026-09-25) and `shorten-fig-captions`. Both change `manuscript/main.pdf`, a regenerated file: after merging, rebuild it rather than resolving the conflict by hand. Phase 5 must not start until both are merged to `main`.
+- **The paper repo has unmerged work** on branches `statespacecheck-boundary` (unpushed, `df887f2..cbc7bfd` as of 2026-09-25) and `shorten-fig-captions`. Both change `manuscript/main.pdf`, a regenerated file: after merging, rebuild it rather than resolving the conflict by hand. Phase 5 must not start until both are merged to `main`.
 
 ## Scope and dependency policy
 

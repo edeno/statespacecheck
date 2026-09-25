@@ -8,7 +8,7 @@
 
 **Precondition (hard):**
 
-- The paper's `statespacecheck-boundary` branch (5 unpushed commits on 2026-09-25, `df887f2..82a0b80`) and `shorten-fig-captions` branch are merged to `main`. Both change `manuscript/main.pdf`; after merging, rebuild it rather than resolving that conflict by hand.
+- The paper's `statespacecheck-boundary` branch (unpushed, `df887f2..cbc7bfd` on 2026-09-25) and `shorten-fig-captions` branch are merged to `main`. Both change `manuscript/main.pdf`; after merging, rebuild it rather than resolving that conflict by hand.
 - `git status` on the paper's `main` is clean.
 - statespacecheck 0.3.0 is on PyPI (phase 4b).
 
