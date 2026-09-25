@@ -49,7 +49,7 @@ Measured cost of the stricter settings on the current code:
 - `src/statespacecheck/__init__.py:37-67`:
   - Phase 1 sorts `__all__` (RUF022); the `importlib.metadata` fallback for `__version__` stays, as in spectral_connectivity.
   - Phases 4a and 4b add exports.
-- `src/statespacecheck/events.py:176-244` (`predictive_mark_probabilities`) and `:319-427` (`event_diagnostics`): left unchanged. The new functions sit beside them, and `event_diagnostics` output must stay bit-identical for the paper.
+- `src/statespacecheck/events.py:176-244` (`predictive_mark_probabilities`) and `:319-427` (`event_diagnostics`): numerical output unchanged. The new functions sit beside them, and `event_diagnostics` output must stay bit-identical for the paper. Phase 4b task 1 hardens their error messages and validation without changing any output.
 - `src/statespacecheck/predictive_checks.py:409-411`: the dead `callable` check is removed in phase 1.
 - `src/statespacecheck/periods.py:25-30,100-106`: docstrings cite "the paper's weighted average equations", which `main.tex` no longer contains. Fixed in phase 3; behaviour unchanged. You chose to keep `periods.py`, `viz.py` and the generic predictive-check functions as general tools.
 - `docs/tutorials/*.ipynb` and `examples/*.ipynb` are byte-identical copies. Phase 3 makes `examples/` the only source.
@@ -57,17 +57,19 @@ Measured cost of the stricter settings on the current code:
 **Paper (`statespacecheck-paper`)**
 
 - `pyproject.toml:34` pins `statespacecheck>=0.2.0`.
-- Calls into the package:
-  - `src/statespacecheck_paper/diagnostics.py:459`: `event_diagnostics`.
-  - `diagnostics.py:625`: `baseline_threshold`.
+- Calls into the package (line numbers from branch `statespacecheck-boundary` at `82a0b80`):
+  - `src/statespacecheck_paper/diagnostics.py:451`: `event_diagnostics`.
+  - `decoding.py:401`: `event_diagnostics`, for Figure 3's rate-override windows.
+  - `diagnostics.py:611`: `baseline_threshold`, wrapped in `float()` only because the package shipped no `py.typed` (removed in phase 5).
   - `figure02_panels.py:154-155`: `kl_divergence`, `hpd_overlap`.
-  - `figure04_diagnostics.py:387`, `site_export.py:896` and `interactive/data_source.py:493`: `event_likelihood`.
+  - `figure04_diagnostics.py:387`, `site_export.py:897` and `interactive/data_source.py:493`: `event_likelihood`.
 - `figure02_panels.py:170-211` hand-rolls the Monte Carlo predictive p-value. Phase 5 replaces it with `monte_carlo_mark_pvalue`.
 - `plotting.py:77` (`compute_hpd_region`) duplicates `highest_density_region`. Its callers are `plotting.py:244-245` and `figure02_panels.py:377,474-475`. Phase 5 replaces it.
 - `manuscript/main.tex:375` has the red "archival DOI" TODO; phase 5 fills it.
 - The diagnostics cache fingerprint includes the installed package version (`figure04_cache.py:260-261`). Bumping the version recomputes the Figure 4 diagnostics.
+- Both figure summaries record the installed package version in `provenance.source.statespacecheck_version` (`scientific_artifacts.py`). The manuscript cites it through `\StatespacecheckVersion`, and `reported_values.py` refuses summaries, or a Figure 4 cache, that record different versions.
 - `site/js/metrics.js` mirrors the package's sorted-mark diagnostics and has a parity fixture (`site_export.py:657`).
-- **The paper repo currently has uncommitted work** on branch `statespacecheck-boundary`. Phase 5 must not start until that branch is merged to `main`.
+- **The paper repo has unmerged work** on branches `statespacecheck-boundary` (5 unpushed commits, `df887f2..82a0b80`, as of 2026-09-25) and `shorten-fig-captions`. Both change `manuscript/main.pdf`, a regenerated file: after merging, rebuild it rather than resolving the conflict by hand. Phase 5 must not start until both are merged to `main`.
 
 ## Scope and dependency policy
 
@@ -104,6 +106,13 @@ Measured cost of the stricter settings on the current code:
 - No change to the paper's thresholds, flag rules or decoder. Those are paper-specific by design (`statespacecheck-paper/README.md:165-174`).
 - No port of the continuous-mark diagnostics to `site/js/metrics.js`; the site shows sorted data only.
 
+### Deferred
+
+Raised in the review of the paper's move to 0.2.0; not in any phase of this plan:
+
+- **Reusing work across events that share a time bin.** `event_diagnostics` recomputes the predictive HPD region and the predictive mark probabilities for every event, even when several events fall in the same bin. Computing them once per unique `time_ind` would cut that work, but the matrix product's reduction order depends on the number of rows, so the p-values could change in the last bit (statespacecheck `tests/test_events.py::test_batch_size_does_not_change_results` shows this for batch sizes). That breaks the bit-identity goal above. Revisit only if a profile shows the diagnostics dominate a user's runtime.
+- **Moving the paper's desktop viewer into this package** ([Open Question 4](#open-questions)).
+
 ### Dependency policy
 
 - Runtime dependency floors stay `numpy>=1.26.0` and `matplotlib>=3.8.0`. `scipy>=1.11.0` becomes `>=1.11.1` in phase 2, because 1.11.0 is yanked (as in spectral_connectivity). The new floors job (phase 2) proves they work. Raise any other floor only if that job fails, and record why in the CHANGELOG.
@@ -120,7 +129,7 @@ Measured cost of the stricter settings on the current code:
 - Coverage stays at the current level; phase-4 modules have 100% line coverage.
 - On discrete marks, `monte_carlo_mark_pvalue` agrees with the exact `mark_predictive_pvalue` within 4 binomial standard errors at `n_samples=20_000`.
 - Paper after phase 5:
-  - Figure 3 and 4 numbers (`manuscript/reported_values.tex`) are unchanged apart from `\RecStatespacecheckVersion`.
+  - Figure 3 and 4 numbers (`manuscript/reported_values.tex`) are unchanged apart from `\StatespacecheckVersion`.
   - The Figure 2 p-value changes only by Monte Carlo resampling, within 4 binomial SE of the old value.
 
 ## Risks and Mitigations
@@ -133,7 +142,7 @@ Measured cost of the stricter settings on the current code:
 | Line length 100 → 95 reformats many lines and muddies blame. | One commit that runs only `ruff format`, listed in `.git-blame-ignore-revs`. |
 | The Monte Carlo sampler's memory is `batch × n_samples × n_bins`. | Batch over events (see [designs.md](designs.md#memory-and-batching)); default budget ≈ 130 MB. |
 | Monte Carlo results depend on the RNG stream, so the paper's Figure 2 changes. | Figure 2 is a schematic. Accept the change and check the new p-value is within MC error of the old one. `reported_values.tex` must not contain the Figure 2 p-value; verify that in phase 5. |
-| The paper has uncommitted work on `statespacecheck-boundary`. | Phase 5 has a hard precondition that the branch is merged. |
+| The paper has unmerged work on `statespacecheck-boundary` and `shorten-fig-captions`. | Phase 5 has a hard precondition that both are merged. |
 | No real clusterless dataset is available in either repo. | Validate on simulated clusterless data: calibration under a correct model, and power under a misspecified one. The real-data smoke test uses the sorted paper data run through the clusterless path, which must match `event_diagnostics`. |
 
 ## Rollout Strategy
@@ -150,6 +159,7 @@ Measured cost of the stricter settings on the current code:
 1. **Name of the clusterless entry point.** Current answer: `clusterless_event_diagnostics`, the term neuroscience users search for. Its docstring notes it applies to any mark space that can be sampled. The alternative is `continuous_mark_event_diagnostics`. Confirm at phase 4b review.
 2. **Should `main.tex:350` mention clusterless support?** Current answer: yes, one sentence, drafted in phase 5 for the user to approve. The manuscript is the user's text, so don't commit it without sign-off.
 3. **Zenodo DOI scope.** Current answer: enable Zenodo for `statespacecheck` (phase 4b) and cite the v0.3.0 concept DOI in `main.tex:375`. Whether `statespacecheck-paper` also gets its own DOI is the user's call; ask during phase 5.
+4. **Should the paper's desktop viewer move into this package?** Current answer: not in this plan. `statespacecheck_paper.interactive` (about 4,200 lines) is tied to the paper: its cache builder imports the paper's Figure 3 simulation and Figure 4 decoder modules, its data source expects the paper's two models (`continuous`, `contfrag`) or the Figure 3 cache, and it needs PySide6, pyqtgraph, zarr, xarray and pandas. The display code (`viewer.py`, `panels.py`, about 2,600 lines) is fairly general. A move would need a documented array input (predictive `(n_time, n_bins)`, likelihood, position bins, event times and marks, intensities `(n_bins, n_marks)`, optional filtered/smoothed distributions), a builder from plain arrays, and an optional extra (`statespacecheck[viewer]`) so the core stays numpy/scipy/matplotlib. If the user wants it, plan it as its own phase after phase 5.
 
 ## Estimated Effort
 
@@ -159,5 +169,5 @@ Measured cost of the stricter settings on the current code:
 | 2 | ~350 LOC YAML | |
 | 3 | ~150 LOC | plus deleting 4 duplicate notebooks |
 | 4a | ~350 LOC | source ~150, tests ~200 |
-| 4b | ~450 LOC | source ~100, tests ~150, tutorial ~200 |
+| 4b | ~550 LOC | source ~150, tests ~200, tutorial ~200 (includes task 1's error and validation hardening) |
 | 5 | ~150 LOC changed | plus regenerated artifacts |
