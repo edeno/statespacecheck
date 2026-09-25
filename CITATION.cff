@@ -1,0 +1,31 @@
+cff-version: 1.2.0
+message: If you use this software, please cite it with the metadata below.
+type: software
+title: statespacecheck
+abstract: >-
+  Goodness-of-fit diagnostics for state space models: time-resolved and
+  per-event measures of consistency between the predictive state
+  distribution and the likelihood of each observation, for identifying when
+  and where a model fails to agree with the data.
+authors:
+  - family-names: Denovellis
+    given-names: Eric
+    email: eric.denovellis@ucsf.edu
+  - family-names: Zeng
+    given-names: Sirui
+    email: zengsr@bu.edu
+  - family-names: Eden
+    given-names: Uri T.
+    email: tzvi@bu.edu
+repository-code: https://github.com/edeno/statespacecheck
+url: https://edeno.github.io/statespacecheck
+license: MIT
+version: 0.2.0
+date-released: "2026-09-25"
+keywords:
+  - neuroscience
+  - state-space-models
+  - goodness-of-fit
+  - bayesian
+  - diagnostics
+  - kalman-filter
