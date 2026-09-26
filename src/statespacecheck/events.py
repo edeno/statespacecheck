@@ -237,7 +237,7 @@ def event_likelihood(event_intensities: ArrayLike) -> DistributionArray:
     >>> event_likelihood(np.array([[1.0, 2.0, 1.0]]))
     array([[0.25, 0.5 , 0.25]])
     """
-    event_intensities = np.asarray(event_intensities)
+    event_intensities = np.asarray(event_intensities, dtype=np.float64)
     if event_intensities.ndim < 2 or event_intensities[0].size == 0:
         msg = (
             "event_intensities must have shape (n_events, ...) with a non-empty spatial "

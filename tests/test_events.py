@@ -62,6 +62,10 @@ class TestEventLikelihood:
         with pytest.raises(ValueError, match="finite nonnegative"):
             event_likelihood(np.array([[1.0, bad]]))
 
+    def test_returns_float64_for_other_float_inputs(self):
+        likelihood = event_likelihood(np.array([[1.0, 2.0, 1.0]], dtype=np.float32))
+        assert likelihood.dtype == np.float64
+
     def test_requires_event_axis(self):
         with pytest.raises(ValueError, match="n_events"):
             event_likelihood(np.array([1.0, 2.0]))
