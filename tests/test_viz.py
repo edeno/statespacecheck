@@ -5,6 +5,7 @@ from __future__ import annotations
 import subprocess
 import sys
 
+import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
 import numpy as np
 import pytest
@@ -250,10 +251,15 @@ class TestPlotDiagnostics:
 
 
 def test_datetime_time_axis_with_flags() -> None:
-    """Flagged runs are shaded on a datetime time axis too."""
+    """A single flagged sample is visible on a datetime axis in whole seconds."""
     time = np.datetime64("2026-01-01T00:00:00") + np.arange(20) * np.timedelta64(1, "s")
     flags = np.zeros(20, dtype=bool)
-    flags[5:8] = True
+    flags[5] = True
     fig = plot_diagnostics(time, np.ones(20), np.ones(20), np.ones(20), flags=flags)
-    assert len(fig.axes[0].patches) == 1
+    spans = fig.axes[0].patches
+    assert len(spans) == 1
+    # The span covers the flagged second, half a second either side, in date numbers
+    extent = spans[0].get_extents().transformed(fig.axes[0].transData.inverted())
+    seconds = (np.array([extent.x0, extent.x1]) - mdates.date2num(time[5])) * 86400
+    np.testing.assert_allclose(seconds, [-0.5, 0.5], atol=1e-3)
     plt.close(fig)

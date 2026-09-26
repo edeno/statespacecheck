@@ -146,19 +146,21 @@ def plot_diagnostics(
         # Shade each run over its samples' full width, half a step either side,
         # so a run of one sample is visible too; the step is in the time axis's
         # own units (numbers or datetime64), and other time types get no padding.
-        if time_arr.size > 1 and (
-            np.issubdtype(time_arr.dtype, np.number)
-            or np.issubdtype(time_arr.dtype, np.datetime64)
-        ):
-            half_step = np.median(np.diff(time_arr)) / 2
+        # Datetimes are padded in the axis's float date numbers (days), because
+        # halving a timedelta64 truncates to its unit (half of 1 s would be 0 s).
+        span_time = time_arr
+        if np.issubdtype(time_arr.dtype, np.datetime64):
+            span_time = np.asarray(axes[0].convert_xunits(time_arr), dtype=float)
+        if time_arr.size > 1 and np.issubdtype(span_time.dtype, np.number):
+            half_step = np.median(np.diff(span_time)) / 2
         elif np.issubdtype(time_arr.dtype, np.number):
             half_step = 0.5
         else:
-            half_step = time_arr[0] - time_arr[0]
+            half_step = span_time[0] - span_time[0]
         for start, stop in _contiguous_runs(flags_arr):
             for axi in axes:
                 axi.axvspan(
-                    time_arr[start] - half_step, time_arr[stop - 1] + half_step, alpha=0.15
+                    span_time[start] - half_step, span_time[stop - 1] + half_step, alpha=0.15
                 )
 
     fig.tight_layout()
