@@ -37,7 +37,8 @@ def plot_diagnostics(
     1. HPD overlap, with a line at ``overlap_threshold``;
     2. KL divergence, with its robust z-score on a secondary axis and a line
        at ``kl_z_threshold`` (the rule of
-       :func:`~statespacecheck.periods.flag_extreme_kl`);
+       :func:`~statespacecheck.periods.flag_extreme_kl`); infinite values
+       (disjoint supports) are marked with triangles at the top;
     3. predictive p-values, with a line at ``pvalue_threshold``. Small
        p-values indicate misfit; p-values near 1 indicate a typical
        observation.
@@ -128,6 +129,20 @@ def plot_diagnostics(
 
     ax = axes[1]
     ax.plot(time_arr, kl_arr, linewidth=1)
+    infinite = np.isposinf(kl_arr)
+    if infinite.any():
+        # Disjoint supports give infinite KL, the worst misfit, which a line cannot
+        # show: mark each near the top of the panel
+        ax.plot(
+            time_arr[infinite],
+            np.full(infinite.sum(), 0.95),
+            linestyle="none",
+            marker="^",
+            color="C3",
+            transform=ax.get_xaxis_transform(),
+            label="KL = ∞",
+        )
+        ax.legend(loc="upper left")
     ax.set_ylabel("KL divergence")
     ax.grid(True, alpha=0.3)
     z_ax = ax.twinx()

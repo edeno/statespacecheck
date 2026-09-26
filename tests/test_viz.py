@@ -89,6 +89,16 @@ class TestPlotDiagnostics:
         with pytest.raises(ValueError, match="same length as time"):
             plot_diagnostics(np.arange(10), np.ones(10), np.ones(9), np.ones(10))
 
+    def test_infinite_kl_is_marked(self) -> None:
+        """Infinite KL (disjoint supports) cannot be drawn as a line; each gets a marker."""
+        kl = np.full(50, 0.5)
+        kl[20:25] = np.inf
+        fig = plot_diagnostics(np.arange(50.0), np.ones(50), kl, np.ones(50))
+        markers = [line for line in fig.axes[1].lines if line.get_label() == "KL = ∞"]
+        assert len(markers) == 1
+        np.testing.assert_array_equal(markers[0].get_xdata(), np.arange(20.0, 25.0))
+        plt.close(fig)
+
     def test_non_boolean_flags_raise(self) -> None:
         """Metric values passed as flags would shade every nonzero point."""
         overlap = np.full(10, 0.9)
