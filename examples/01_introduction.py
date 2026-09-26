@@ -52,8 +52,6 @@
 # First, let's import the packages we'll need and verify the environment is configured correctly.
 
 # %%
-import sys
-
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -76,10 +74,6 @@ from utils import configure_notebook_plotting, generate_1d_gaussian_distribution
 # Configure plotting
 configure_notebook_plotting()
 
-# Verify environment
-print(f"✓ Python {sys.version.split()[0]}")
-print(f"✓ NumPy {np.__version__}")
-print(f"✓ Matplotlib {plt.matplotlib.__version__}")
 print("✓ Environment configured correctly!")
 
 # %% [markdown]
