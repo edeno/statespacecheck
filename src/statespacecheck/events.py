@@ -11,6 +11,8 @@ per-event quantities that the distribution-level diagnostics in
   space, giving the single-event likelihood.
 - :func:`predictive_mark_probabilities` gives the predictive probability of each
   mark for the next event.
+- :func:`event_weighted_predictive` gives the state distribution of the next
+  event, weighting the predictive distribution by the total event intensity.
 - :func:`mark_predictive_pvalue` evaluates the predictive check exactly by
   summing over the finite set of marks.
 - :func:`event_diagnostics` computes HPD overlap, KL divergence, and the exact
@@ -101,8 +103,23 @@ def _flatten_mark_intensities(
     return table.reshape(-1, table.shape[-1])
 
 
+def _reject_masked(
+    values: object,
+    name: str,
+    hint: str = "Pass an ndarray (zero where a state has no mass or intensity)",
+) -> None:
+    """Raise for a masked array, whose mask conversion to ndarray would drop."""
+    if isinstance(values, np.ma.MaskedArray):
+        msg = (
+            f"{name} is a masked array; converting it would drop the mask and use the "
+            f"values under it. {hint}"
+        )
+        raise ValueError(msg)
+
+
 def _validate_state_distribution(state_dist: ArrayLike, name: str) -> DistributionArray:
     """Validate a ``(n_events, ...)`` distribution and flatten it to ``(n_events, n_bins)``."""
+    _reject_masked(state_dist, name)
     state_dist = np.asarray(state_dist, dtype=float)
     if state_dist.ndim < 2:
         msg = (
@@ -333,6 +350,95 @@ def predictive_mark_probabilities(
         raise ValueError(msg)
     mark_probabilities: DistributionArray = expected_intensities / total_intensity
     return mark_probabilities
+
+
+def _validate_ground_intensity(
+    ground_intensity: ArrayLike, spatial_shape: tuple[int, ...]
+) -> DistributionArray:
+    """Check the ground intensity against the state grid and flatten it to ``(n_bins,)``."""
+    _reject_masked(ground_intensity, "ground_intensity")
+    ground = np.asarray(ground_intensity, dtype=np.float64)
+    if ground.shape != spatial_shape:
+        msg = (
+            f"ground_intensity must have shape {spatial_shape} to match the state "
+            f"distribution's spatial axes; got {ground.shape}"
+        )
+        raise ValueError(msg)
+    if not np.all(np.isfinite(ground)) or np.any(ground < 0.0):
+        msg = "ground_intensity must contain only finite nonnegative values"
+        raise ValueError(msg)
+    return ground.ravel()
+
+
+def _no_event_intensity_message(rows: NDArray[np.intp]) -> str:
+    """Error message for rows whose total event intensity under the state is zero."""
+    return (
+        "Event-weighted predictive distribution is undefined for rows with zero total "
+        f"event intensity; row indices: {_first(rows)}"
+    )
+
+
+def event_weighted_predictive(
+    state_dist: ArrayLike, ground_intensity: ArrayLike
+) -> DistributionArray:
+    """Compute the state distribution of the next event.
+
+    ``P_event(x) = Lambda(x) P(x) / sum_u Lambda(u) P(u)``, where ``P`` is the
+    predictive state distribution and ``Lambda`` the ground intensity, the
+    total event intensity at each state. A randomly chosen event is more
+    likely to come from states with a higher total event intensity, so the
+    state of an event is distributed as ``P`` weighted by ``Lambda``. With a
+    constant, positive ground intensity it is the normalized ``P``.
+
+    Parameters
+    ----------
+    state_dist : np.ndarray, shape (n_events, ...)
+        Predictive state distribution for each event, where ``...`` represents
+        one or more spatial axes. Rows need not be normalized.
+    ground_intensity : np.ndarray, shape (...)
+        Nonnegative total event intensity at every state, over the same
+        spatial axes. For sorted marks with intensities ``mark_intensities``
+        of shape ``(..., n_marks)``, this is ``mark_intensities.sum(axis=-1)``.
+
+    Returns
+    -------
+    event_weighted : np.ndarray, shape (n_events, ...)
+        Event-weighted state distribution; each row sums to 1.
+
+    Raises
+    ------
+    ValueError
+        If shapes are inconsistent, inputs are negative or non-finite, or a
+        row has zero total event intensity under the state distribution, for
+        which the event's state is undefined.
+
+    See Also
+    --------
+    predictive_mark_probabilities : The mark distribution of the next event.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from statespacecheck import event_weighted_predictive
+    >>> state = np.array([[0.5, 0.5]])
+    >>> event_weighted_predictive(state, np.array([1.0, 3.0]))
+    array([[0.25, 0.75]])
+    """
+    state = _validate_state_distribution(state_dist, "state_dist")
+    ground = _validate_ground_intensity(ground_intensity, np.shape(state_dist)[1:])
+    # In log space, the product and its normalization cannot overflow, and no
+    # entry is lost to underflow before normalizing, whatever the scales of the
+    # state and the intensity (entries far below the row's total still round to 0)
+    with np.errstate(divide="ignore"):
+        log_weighted = np.log(state) + np.log(ground)
+    log_total = logsumexp(log_weighted, axis=1, keepdims=True)
+    zero_total = np.isneginf(log_total[:, 0])
+    if zero_total.any():
+        raise ValueError(_no_event_intensity_message(np.flatnonzero(zero_total)))
+    event_weighted: DistributionArray = np.exp(log_weighted - log_total).reshape(
+        np.shape(state_dist)
+    )
+    return event_weighted
 
 
 def mark_predictive_pvalue(

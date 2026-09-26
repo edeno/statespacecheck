@@ -1,6 +1,6 @@
 # Scientific Python Compliance and Paper Tools Implementation Plan
 
-**Status:** Phases 1–3 and 3b merged to `main` (phase 3b as [PR #4](https://github.com/edeno/statespacecheck/pull/4)); phase 3b task 27 (repository settings) awaits the user's go-ahead; phases 4a–5 not started.
+**Status:** Phases 1–3 and 3b merged to `main` (phase 3b as [PR #4](https://github.com/edeno/statespacecheck/pull/4)); phase 3b task 27 (repository settings) awaits the user's go-ahead; phase 4a in review on branch `mc-mark-pvalue` (default Monte Carlo batch size 8, not 32: see designs.md#memory-and-batching); phases 4b–5 not started.
 
 Bring `statespacecheck` in line with the [Scientific Python development guide](https://learn.scientific-python.org/development/) using the same layout, tooling and CI as `ripple_detection` and `spectral_connectivity`. Then add the diagnostics the manuscript in `statespacecheck-paper` describes but the package does not yet provide:
 

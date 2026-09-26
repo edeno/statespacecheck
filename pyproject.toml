@@ -184,6 +184,7 @@ xfail_strict = true
 log_level = "INFO"
 # every warning is an error: a test that expects one says so with pytest.warns
 filterwarnings = ["error"]
+markers = ["slow: Monte Carlo tests that take seconds (deselect with -m 'not slow')"]
 
 [tool.coverage.run]
 branch = true

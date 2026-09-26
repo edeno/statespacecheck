@@ -6,8 +6,8 @@ Phases 4a and 4b implement these contracts and phase 5 consumes them. **Do not w
 
 - [Model and notation](#model-and-notation)
 - [`event_weighted_predictive`](#event_weighted_predictive)
-- [Callable protocols: `MarkIntensity`, `MarkSampler`](#callable-protocols)
-- [`MarkPredictiveCheck` and `monte_carlo_mark_pvalue`](#monte_carlo_mark_pvalue)
+- [Callable protocols: `LogMarkIntensity`, `MarkSampler`](#callable-protocols)
+- [`MarkModel`, `MarkPredictiveCheck` and `monte_carlo_mark_pvalue`](#monte_carlo_mark_pvalue)
 - [`clusterless_event_diagnostics`](#clusterless_event_diagnostics)
 - [Placement and exports](#placement-and-exports)
 
@@ -57,8 +57,8 @@ These are defined as public type aliases in `statespacecheck/continuous_marks.py
 from collections.abc import Callable
 from typing import Any
 
-MarkIntensity = Callable[[NDArray[Any]], NDArray[np.floating]]
-"""marks (n, *mark_shape) -> lambda(x, y) at every state bin, shape (n, *spatial_shape)."""
+LogMarkIntensity = Callable[[NDArray[Any]], NDArray[np.floating]]
+"""marks (n, *mark_shape) -> log lambda(x, y) at every state bin, shape (n, *spatial_shape)."""
 
 MarkSampler = Callable[[NDArray[np.intp], np.random.Generator], NDArray[Any]]
 """(flat state-bin indices (n,), rng) -> marks (n, *mark_shape), each drawn from g(. | x)."""
@@ -67,13 +67,19 @@ MarkSampler = Callable[[NDArray[np.intp], np.random.Generator], NDArray[Any]]
 **Semantics:**
 
 - State-bin indices are flat indices into `np.prod(spatial_shape)`, the same C-order flattening as `state_dist.reshape(n, -1)`.
-- `MarkIntensity` must return finite, nonnegative values of shape `(n, *spatial_shape)`. The package validates this and raises `ValueError` otherwise.
+- `LogMarkIntensity` returns the **log** of the joint intensity, shape `(n, *spatial_shape)`: finite, or `-inf` where the intensity is zero. The package raises `ValueError` for NaN or `+inf`. It is a log because many-feature mark densities underflow: with 32 waveform features a typical mark's intensity is about `exp(-140)`, below the smallest float32, and a callback that exponentiated in float32 made every observed and replicated density zero, so they tied and an extreme mark got p = 1 (found in phase 4a review with a `non_local_detector` KDE model).
+- A replicated mark with zero intensity at every state with predictive mass cannot occur in exact arithmetic (it was drawn at a state where its intensity is positive), so it raises `ValueError`: the sampler and the intensity disagree, or the intensity underflowed.
 - `MarkSampler` must return an array whose first axis has length `n`. It must draw only from the `rng` it is given; that is what makes seeded results reproducible.
-- **Caller's responsibility:** `ground_intensity` must equal `∫ λ(x, y) dy` for the same model as `MarkIntensity` and `MarkSampler`. The package cannot check this; each docstring must say so.
+- **Caller's responsibility:** a `MarkModel`'s `ground_intensity` must equal `∫ λ(x, y) dy` for the same model as its `log_intensity` and `sample`. The package cannot check this; each docstring must say so.
 
 ## `monte_carlo_mark_pvalue`
 
 ```python
+class MarkModel(NamedTuple):
+    log_intensity: LogMarkIntensity
+    sample: MarkSampler
+    ground_intensity: ArrayLike                         # (...)
+
 class MarkPredictiveCheck(NamedTuple):
     pvalue: NDArray[np.floating]                        # (n_events,)
     observed_log_density: NDArray[np.floating]          # (n_events,)  log f_pred(y_obs)
@@ -81,31 +87,30 @@ class MarkPredictiveCheck(NamedTuple):
 
 def monte_carlo_mark_pvalue(
     state_dist: DistributionArray,          # (n_events, ...)
-    mark_intensity: MarkIntensity,
+    model: MarkModel,
     observed_marks: NDArray[Any],           # (n_events, *mark_shape)
     *,
-    ground_intensity: NDArray[np.floating], # (...)
-    sample_marks: MarkSampler,
     n_samples: int = 1000,
     rng: np.random.Generator | int | None = None,
     return_samples: bool = False,
-    batch_size: int = DEFAULT_MONTE_CARLO_BATCH_SIZE,  # 32
+    batch_size: int = DEFAULT_MONTE_CARLO_BATCH_SIZE,  # 8
 ) -> MarkPredictiveCheck:
 ```
 
-**Positional order** follows `mark_predictive_pvalue(state_dist, mark_intensities, observed_marks)` (`events.py:247-251`).
+**Positional order** follows `mark_predictive_pvalue(state_dist, mark_intensities, observed_marks)`: the model is the second argument, as the intensity table is there. The model is one `MarkModel` (decided in the phase 4a review) because its three parts describe one model and nothing can check that separately passed parts agree; adapters and fixtures return a `MarkModel`. Bundling does not establish consistency: the docstrings keep the caller's responsibility. Anything but a `MarkModel` raises `TypeError`.
 
 **Returns:**
 
-- `pvalue = mean_s 1{ log f_pred(ỹ_s) ≤ log f_pred(y_obs) + tol }`, with `tol = 16 * eps * n_bins`. This is the log-space counterpart of `mark_predictive_pvalue`'s tie tolerance (`events.py:306-312`).
+- `pvalue = mean_s 1{ log f_pred(ỹ_s) ≤ log f_pred(y_obs) + tol }`, with `tol = 16 * eps * (n_bins + M)`, where `M` bounds, for each of the three log sums (observed, replicate, and twice the normalizer), the magnitude of the terms `log P + log λ` that affect it before they cancel: terms within 40 of the sum (a term further below changes it by under 4e-18 relative), so `|term| <= |sum| + 40`, plus twice their largest `|log P|`. Regression tests: a fixed `16 * eps * n_bins` split exact ties when the intensities were scaled by 1e-30; a bound from the sums' magnitudes missed cancellation (`log P = -230`, `log λ = +230`); a bound over all states let a state without predictive mass (log λ ≈ -5e15) make every replicate tie. This is the log-space counterpart of `mark_predictive_pvalue`'s tie tolerance.
 - `observed_log_density` is always returned.
 - `simulated_log_density` is returned only if `return_samples=True`. It can be large; Figure 2 of the paper uses it for its histogram.
 
 **Validation:**
 
 - `n_samples >= 1` and `batch_size >= 1`, else `ValueError`.
-- `observed_marks.shape[0] == n_events`.
-- The output of each callable is validated as described under [Callable protocols](#callable-protocols).
+- `observed_marks.shape[0] == n_events`, and numeric observed marks are finite.
+- The output of each callable is validated as described under [Callable protocols](#callable-protocols). In addition (phase 4a review): masked arrays and log intensities narrower than float64 raise (float32 rounding splits ties); replicated marks must have the observed marks' shape; a finite log intensity at a state with predictive mass but zero ground intensity raises; masked state distributions and ground intensities raise.
+- The event-weighted distribution is computed for all events before the batches, so errors name events by their index.
 
 **Reproducibility:**
 
@@ -117,12 +122,10 @@ def monte_carlo_mark_pvalue(
 ```python
 def clusterless_event_diagnostics(
     predictive: DistributionArray,          # (n_time, ...)
-    mark_intensity: MarkIntensity,
+    model: MarkModel,
     event_time_ind: NDArray[np.integer],    # (n_events,)
     event_marks: NDArray[Any],              # (n_events, *mark_shape)
     *,
-    ground_intensity: NDArray[np.floating], # (...)
-    sample_marks: MarkSampler,
     coverage: float = DEFAULT_COVERAGE,
     n_samples: int = 1000,
     rng: np.random.Generator | int | None = None,
@@ -135,7 +138,7 @@ def clusterless_event_diagnostics(
 
 **Returns** the existing `EventDiagnostics` (`events.py:43-65`), unchanged, with these fields:
 
-- `hpd_overlap` and `kl_divergence`: between `predictive[event_time_ind]` and `event_likelihood(mark_intensity(event_marks))`.
+- `hpd_overlap` and `kl_divergence`: between `predictive[event_time_ind]` and the single-event likelihood `exp(model.log_intensity(event_marks))`, normalized over states in log space (the computation `event_likelihood` does after its `log`, so that for discrete marks the result is bit-identical).
 - `predictive_pvalue`: `monte_carlo_mark_pvalue(...).pvalue`.
 - `likelihood`: returned only if requested.
 
@@ -146,12 +149,10 @@ def clusterless_event_diagnostics(
 
 The discrete-mark encoding:
 
-- `mark_intensity = lambda m: rates[:, m].T`
-- `ground_intensity = rates.sum(-1)`
-- `sample_marks` draws a categorical from `rates[x] / rates[x].sum()`
+`MarkModel(log_intensity=lambda m: np.log(rates[:, m].T), sample=..., ground_intensity=rates.sum(-1))`, where `sample` draws a categorical from `rates[x] / rates[x].sum()`.
 
 ## Placement and exports
 
 - `event_weighted_predictive` goes in `src/statespacecheck/events.py`, next to `predictive_mark_probabilities`.
-- Everything else goes in a new module, `src/statespacecheck/continuous_marks.py`: `MarkIntensity`, `MarkSampler`, `MarkPredictiveCheck`, `monte_carlo_mark_pvalue`, `clusterless_event_diagnostics`, `DEFAULT_MONTE_CARLO_BATCH_SIZE`.
+- Everything else goes in a new module, `src/statespacecheck/continuous_marks.py`: `LogMarkIntensity`, `MarkSampler`, `MarkModel`, `MarkPredictiveCheck`, `monte_carlo_mark_pvalue`, `clusterless_event_diagnostics`, `DEFAULT_MONTE_CARLO_BATCH_SIZE`.
 - Add each new public name to `src/statespacecheck/__init__.py` imports and to `__all__`, kept sorted (RUF022). `DEFAULT_MONTE_CARLO_BATCH_SIZE` stays module-level only, like `DEFAULT_EVENT_BATCH_SIZE` (`events.py:40`).
