@@ -11,6 +11,7 @@ from statespacecheck.continuous_marks import (
     MarkModel,
     MarkPredictiveCheck,
     MarkSampler,
+    clusterless_event_diagnostics,
     monte_carlo_mark_pvalue,
 )
 from statespacecheck.events import (
@@ -56,6 +57,7 @@ __all__ = [
     "__version__",
     "aggregate_over_period",
     "baseline_threshold",
+    "clusterless_event_diagnostics",
     "combine_flags",
     "event_diagnostics",
     "event_likelihood",

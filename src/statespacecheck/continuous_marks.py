@@ -23,20 +23,28 @@ state grid, in the C order of ``state_dist.reshape(n_events, -1)``.
 """
 
 from collections.abc import Callable
+from functools import partial
 from typing import Any, NamedTuple, TypeAlias
 
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
 from scipy.special import logsumexp
 
-from ._validation import DistributionArray, flatten_time_spatial
+from ._validation import DistributionArray, flatten_time_spatial, validate_coverage
 from .events import (
+    EventDiagnostics,
+    _check_predictive_rows,
     _first,
     _no_event_intensity_message,
+    _normalize_log,
     _reject_masked,
+    _used_time_bins,
     _validate_ground_intensity,
     _validate_state_distribution,
+    _validate_time_indices,
 )
+from .highest_density import DEFAULT_COVERAGE
+from .state_consistency import hpd_overlap, kl_divergence
 
 LogMarkIntensity: TypeAlias = Callable[[NDArray[Any]], NDArray[np.floating]]
 """Log of the joint intensity of marks at every state.
@@ -534,3 +542,218 @@ def monte_carlo_mark_pvalue(
         if simulated_log is not None:
             simulated_log[start:stop] = batch_simulated
     return MarkPredictiveCheck(pvalue, observed_log, simulated_log)
+
+
+def _no_likelihood_message(first_event: int, rows: NDArray[np.intp]) -> str:
+    """Error message for events whose observed mark has zero intensity everywhere."""
+    return (
+        f"The observed marks of events {_first(first_event + rows)} have zero intensity "
+        "at every state (model.log_intensity is -inf everywhere), so they have no "
+        "likelihood"
+    )
+
+
+def clusterless_event_diagnostics(
+    predictive: ArrayLike,
+    model: MarkModel,
+    event_time_ind: ArrayLike,
+    event_marks: ArrayLike,
+    *,
+    coverage: float = DEFAULT_COVERAGE,
+    n_samples: int = 1000,
+    rng: np.random.Generator | int | None = None,
+    return_likelihood: bool = False,
+    batch_size: int = DEFAULT_MONTE_CARLO_BATCH_SIZE,
+) -> EventDiagnostics:
+    """Compute HPD overlap, KL divergence, and predictive p-value for events with any marks.
+
+    The per-event diagnostics of :func:`~statespacecheck.event_diagnostics` for
+    marks that cannot be enumerated, such as the waveform features of
+    clusterless decoding; they apply to any mark space the model can sample.
+    Each event is compared with the one-step predictive distribution ``P`` of
+    its time bin:
+
+    - The single-event likelihood is the joint intensity of the observed mark
+      normalized over states, ``Q(x) = lambda(x, y_obs) / sum_u lambda(u, y_obs)``
+      (computed in log space); HPD overlap and KL divergence compare it with
+      ``P``.
+    - The predictive p-value is :func:`monte_carlo_mark_pvalue`'s, from the
+      predictive mark density
+      ``f_pred(y) = sum_x lambda(x, y) P(x) / sum_x Lambda(x) P(x)``.
+
+    With a finite set of marks, such as the units of spike-sorted data, use
+    :func:`~statespacecheck.event_diagnostics`: its p-value is exact. Written
+    as a :class:`MarkModel` of integer marks, those marks give the same HPD
+    overlap, KL divergence and likelihood bit for bit, and the same p-values
+    within Monte Carlo error.
+
+    Parameters
+    ----------
+    predictive : np.ndarray, shape (n_time, ...)
+        One-step predictive state distribution ``p(x_t | y_{1:t-1})`` at each
+        time bin, where ``...`` represents one or more spatial axes. Only the
+        time bins that events use are checked and used.
+    model : MarkModel
+        The observation model: the log joint intensity ``log lambda(x, y)``
+        (called with marks of shape ``(n, *mark_shape)``, it returns shape
+        ``(n, ...)``, with ``-inf`` where the intensity is zero), a sampler of
+        marks at flat state-bin indices, and the ground intensity, shape
+        ``(...)``. Its parts must describe the same model; see
+        :class:`MarkModel`.
+    event_time_ind : np.ndarray, shape (n_events,)
+        Time-bin index of each event. Events that share a time bin are each
+        compared with that bin's predictive distribution.
+    event_marks : np.ndarray, shape (n_events, *mark_shape)
+        The mark of each event, for example its waveform features.
+    coverage : float, default 0.95
+        Coverage probability of the HPD regions.
+    n_samples : int, default 1000
+        Replicated marks per event for the p-value; its Monte Carlo standard
+        error is ``sqrt(p (1 - p) / n_samples)``.
+    rng : np.random.Generator, int, or None, optional
+        Random number generator or seed. Default is None (fresh entropy).
+    return_likelihood : bool, default False
+        If True, also return each event's normalized likelihood,
+        shape ``(n_events, ...)``.
+    batch_size : int, default 8
+        Events processed at a time; see :func:`monte_carlo_mark_pvalue` for its
+        effect on memory.
+
+    Returns
+    -------
+    EventDiagnostics
+        Per-event ``hpd_overlap``, ``kl_divergence``, and ``predictive_pvalue``
+        arrays of shape ``(n_events,)``, plus ``likelihood`` if requested.
+
+    Raises
+    ------
+    TypeError
+        If ``model`` is not a :class:`MarkModel`.
+    ValueError
+        If shapes are inconsistent, time indices are out of range, inputs are
+        negative or non-finite, ``n_samples`` or ``batch_size`` is not a
+        positive integer, or ``coverage`` is outside ``(0, 1]``; if an event's
+        time bin has no predictive mass where the ground intensity is
+        positive, or its observed mark has zero intensity at every state; or
+        if a callable returns invalid output (see
+        :func:`monte_carlo_mark_pvalue`). Errors name events and time bins by
+        their index in the inputs.
+
+    See Also
+    --------
+    event_diagnostics : The exact diagnostics for a finite set of marks.
+    monte_carlo_mark_pvalue : The p-value alone, for given state distributions.
+
+    Notes
+    -----
+    The p-values are :func:`monte_carlo_mark_pvalue`'s for
+    ``predictive[event_time_ind]``: the same seed and ``batch_size`` give
+    identical results. HPD overlap, KL divergence and the likelihood do not
+    depend on the seed or on ``batch_size``.
+
+    Examples
+    --------
+    Two units' place fields written as a model of integer marks, whose exact
+    diagnostics :func:`~statespacecheck.event_diagnostics` also gives:
+
+    >>> import numpy as np
+    >>> from statespacecheck import MarkModel, clusterless_event_diagnostics, event_diagnostics
+    >>> predictive = np.array([[0.7, 0.2, 0.1], [0.1, 0.2, 0.7]])  # (n_time, n_bins)
+    >>> place_fields = np.array([[5.0, 0.1], [1.0, 1.0], [0.1, 5.0]])  # (n_bins, n_marks)
+    >>> def log_mark_intensity(marks):
+    ...     return np.log(place_fields[:, marks].T)
+    >>> def sample_marks(bins, rng):  # unit 1 with probability place_fields[x, 1] / Lambda(x)
+    ...     unit_1 = place_fields[bins, 1] / place_fields[bins].sum(axis=1)
+    ...     return (rng.random(len(bins)) < unit_1).astype(int)
+    >>> model = MarkModel(log_mark_intensity, sample_marks, place_fields.sum(axis=1))
+    >>> time_ind, marks = np.array([0, 1]), np.array([0, 0])
+    >>> result = clusterless_event_diagnostics(
+    ...     predictive, model, time_ind, marks, n_samples=5000, rng=0
+    ... )
+    >>> result.predictive_pvalue.round(2)
+    array([1.  , 0.17])
+    >>> exact = event_diagnostics(predictive, place_fields, time_ind, marks)
+    >>> exact.predictive_pvalue.round(3)
+    array([1.   , 0.172])
+    >>> bool(np.array_equal(result.kl_divergence, exact.kl_divergence))
+    True
+    """
+    _check_mark_model(model)
+    validate_coverage(coverage)
+    _check_positive_integer(n_samples, "n_samples")
+    _check_positive_integer(batch_size, "batch_size")
+    _reject_masked(predictive, "predictive")
+    predictive = np.asarray(predictive, dtype=np.float64)
+    if predictive.ndim < 2:
+        msg = (
+            "predictive must have shape (n_time, ...) with at least one spatial axis; "
+            f"got shape {predictive.shape}"
+        )
+        raise ValueError(msg)
+    spatial_shape = predictive.shape[1:]
+    ground = _validate_ground_intensity(model.ground_intensity, spatial_shape)
+    time_ind = _validate_time_indices(event_time_ind, predictive.shape[0])
+    n_events = time_ind.shape[0]
+    marks = _validate_observed_marks(event_marks, n_events, "event_marks")
+    predictive_flat = flatten_time_spatial(predictive)
+    used_time = _used_time_bins(predictive.shape[0], time_ind)
+    _check_predictive_rows(predictive_flat, used_time, time_ind)
+    # An event needs a state with predictive mass where events occur (checked here,
+    # before the model is called, rather than batch by batch)
+    no_events = used_time & ~((predictive_flat > 0.0) & (ground > 0.0)).any(axis=1)
+    bad_time = np.flatnonzero(no_events)
+    if bad_time.size:
+        events = np.flatnonzero(np.isin(time_ind, bad_time))
+        msg = (
+            f"At time bins {_first(bad_time)} the predictive distribution puts no "
+            "probability where model.ground_intensity is positive, so the mark "
+            f"distribution is undefined; used by events {_first(events)}"
+        )
+        raise ValueError(msg)
+
+    generator = np.random.default_rng(rng)
+    event_hpd: DistributionArray = np.empty(n_events)
+    event_kl: DistributionArray = np.empty(n_events)
+    event_pvalue: DistributionArray = np.empty(n_events)
+    likelihood: DistributionArray | None = (
+        np.empty((n_events, ground.shape[0])) if return_likelihood else None
+    )
+    for start in range(0, n_events, batch_size):
+        stop = min(start + batch_size, n_events)
+        predictive_batch = predictive_flat[time_ind[start:stop]]
+        observed_log_intensity = _evaluate_log_intensity(
+            model.log_intensity, marks[start:stop], stop - start, spatial_shape
+        )
+        # C order, as event_likelihood receives it from event_diagnostics: the
+        # normalizing sum's rounding depends on the layout
+        likelihood_batch = _normalize_log(
+            np.ascontiguousarray(observed_log_intensity),
+            partial(_no_likelihood_message, start),
+        )
+        event_hpd[start:stop] = hpd_overlap(
+            predictive_batch, likelihood_batch, coverage=coverage
+        )
+        event_kl[start:stop] = kl_divergence(predictive_batch, likelihood_batch)
+        event_pvalue[start:stop], _, _ = _monte_carlo_batch(
+            predictive_batch,
+            ground,
+            observed_log_intensity,
+            marks.shape[1:],
+            model.log_intensity,
+            model.sample,
+            spatial_shape,
+            n_samples,
+            generator,
+            start,
+        )
+        if likelihood is not None:
+            likelihood[start:stop] = likelihood_batch
+
+    return EventDiagnostics(
+        hpd_overlap=event_hpd,
+        kl_divergence=event_kl,
+        predictive_pvalue=event_pvalue,
+        likelihood=None
+        if likelihood is None
+        else likelihood.reshape(n_events, *spatial_shape),
+    )
