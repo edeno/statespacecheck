@@ -186,6 +186,16 @@ class TestEventWeightedPredictive:
         with pytest.raises(ValueError, match=match):
             event_weighted_predictive(state, ground)
 
+    @pytest.mark.parametrize(
+        ("state", "expected"),
+        [
+            (np.array([[1e308, 1e308]]), [[0.5, 0.5]]),  # state * ground overflows
+            (np.array([[1e-310, 3e-310]]), [[0.25, 0.75]]),  # subnormal state
+        ],
+    )
+    def test_extreme_state_scale(self, state, expected):
+        assert_allclose(event_weighted_predictive(state, np.array([2.0, 2.0])), expected)
+
     def test_zero_total_rows_are_listed(self):
         state = np.array([[1.0, 0.0], [0.5, 0.5], [1.0, 0.0]])
         with pytest.raises(ValueError, match=r"row indices: \[0, 2\]"):

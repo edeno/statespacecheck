@@ -37,6 +37,7 @@ from ._validation import (
     DistributionArray,
     check_threshold_not_nan,
     flatten_time_spatial,
+    row_sums_rescaled,
     validate_coverage,
 )
 from .highest_density import DEFAULT_COVERAGE
@@ -385,8 +386,8 @@ def event_weighted_predictive(
     ------
     ValueError
         If shapes are inconsistent, inputs are negative or non-finite, or a
-        row has zero (or non-finite) total event intensity under the state
-        distribution, for which the event's state is undefined.
+        row has zero total event intensity under the state distribution, for
+        which the event's state is undefined.
 
     See Also
     --------
@@ -402,17 +403,20 @@ def event_weighted_predictive(
     """
     state = _validate_state_distribution(state_dist, "state_dist")
     ground = _validate_ground_intensity(ground_intensity, np.shape(state_dist)[1:])
-    with np.errstate(over="ignore", invalid="ignore"):
-        weighted = state * ground
-        total = weighted.sum(axis=1, keepdims=True)
-    undefined = ~np.isfinite(total[:, 0]) | (total[:, 0] == 0.0)
-    if undefined.any():
+    # Scale each row by a power of two so its largest value is below 1, which is
+    # exact, so the product with the (finite) ground intensity cannot overflow;
+    # row_sums_rescaled handles totals that overflow or are subnormal
+    _, exponents = np.frexp(state.max(axis=1, initial=0.0))
+    weighted, total = row_sums_rescaled(np.ldexp(state, -exponents[:, np.newaxis]) * ground)
+    if np.any(total == 0.0):
         msg = (
-            "Event-weighted predictive distribution is undefined for rows with zero or "
-            f"non-finite total event intensity; row indices: {_first(np.flatnonzero(undefined))}"
+            "Event-weighted predictive distribution is undefined for rows with zero "
+            f"total event intensity; row indices: {_first(np.flatnonzero(total == 0.0))}"
         )
         raise ValueError(msg)
-    event_weighted: DistributionArray = (weighted / total).reshape(np.shape(state_dist))
+    event_weighted: DistributionArray = (weighted / total[:, np.newaxis]).reshape(
+        np.shape(state_dist)
+    )
     return event_weighted
 
 
