@@ -89,7 +89,7 @@ def monte_carlo_mark_pvalue(
     n_samples: int = 1000,
     rng: np.random.Generator | int | None = None,
     return_samples: bool = False,
-    batch_size: int = DEFAULT_MONTE_CARLO_BATCH_SIZE,  # 32
+    batch_size: int = DEFAULT_MONTE_CARLO_BATCH_SIZE,  # 8
 ) -> MarkPredictiveCheck:
 ```
 

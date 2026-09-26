@@ -48,7 +48,7 @@
    - the module docstring: the marked point-process model in words; when to use it (continuous or intractable marks, e.g. clusterless waveform features) versus `events.py` (finite marks)
    - the `MarkIntensity` and `MarkSampler` aliases
    - `MarkPredictiveCheck`
-   - `DEFAULT_MONTE_CARLO_BATCH_SIZE = 32`, with its memory comment
+   - `DEFAULT_MONTE_CARLO_BATCH_SIZE` (8; see [designs.md#memory-and-batching](designs.md#memory-and-batching)), with its memory comment
    - the private helpers `_safe_log`, `_evaluate_intensity`, `_check_leading_axis`, `_sample_state_bins` and `_monte_carlo_batch`
    - `monte_carlo_mark_pvalue`
 

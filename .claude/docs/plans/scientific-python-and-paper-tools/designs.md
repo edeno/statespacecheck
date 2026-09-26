@@ -121,9 +121,9 @@ Edge cases, each with a test:
 
 ## Memory and batching
 
-- The largest temporary is `replicated_intensity`, `batch × n_samples × n_bins × 8 B`.
-- `DEFAULT_MONTE_CARLO_BATCH_SIZE = 32` keeps it about 131 MB at 1,000 samples × 512 bins. Put that arithmetic in the comment next to the constant, following `events.py:37-40`.
-- The docstring says how to lower `batch_size` for large grids.
+- The temporaries over every replicated mark at every state are `batch × n_samples × n_bins × 8 B` each, and peak memory is about six of them, because `logsumexp` copies its input. Measured in phase 4a at 1,000 samples × 512 bins: 101, 201, 403 and 805 MB at batch sizes 4, 8, 16 and 32, at the same speed (6.6–7.5 ms per event).
+- So `DEFAULT_MONTE_CARLO_BATCH_SIZE = 8` (about 200 MB), not the 32 first planned. The comment next to the constant gives the arithmetic.
+- The docstring gives the peak-memory formula and says how to lower `batch_size` for large grids.
 
 ## Clusterless diagnostics
 

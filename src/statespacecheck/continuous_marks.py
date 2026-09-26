@@ -50,10 +50,11 @@ generator; returns marks of shape ``(n, *mark_shape)``, each drawn from
 is given, so that seeded results are reproducible.
 """
 
-# Events processed per batch in :func:`monte_carlo_mark_pvalue`. The largest
-# working array holds the intensity of every replicated mark at every state,
-# batch x n_samples x n_bins x 8 B: 32 x 1000 x 512 x 8 B ~ 131 MB.
-DEFAULT_MONTE_CARLO_BATCH_SIZE = 32
+# Events processed per batch in :func:`monte_carlo_mark_pvalue`. Memory is
+# dominated by arrays over every replicated mark at every state, batch x
+# n_samples x n_bins x 8 B (8 x 1000 x 512 x 8 B ~ 33 MB); the peak is about six
+# of them (logsumexp copies its input), ~200 MB. Larger batches are not faster.
+DEFAULT_MONTE_CARLO_BATCH_SIZE = 8
 
 
 class MarkPredictiveCheck(NamedTuple):
@@ -192,13 +193,15 @@ def _monte_carlo_batch(
     state_bins = _sample_state_bins(event_weighted, n_samples, rng)
     replicated_marks = sample_marks(state_bins.ravel(), rng)
     _check_leading_axis(replicated_marks, n_batch * n_samples, "sample_marks")
-    replicated_intensity = _evaluate_intensity(
-        mark_intensity, np.asarray(replicated_marks), n_batch * n_samples, spatial_shape
+    # The (n_batch, n_samples, n_bins) arrays dominate memory: take the log into a
+    # new array (the intensities may be the caller's), then add in place
+    log_joint = _safe_log(
+        _evaluate_intensity(
+            mark_intensity, np.asarray(replicated_marks), n_batch * n_samples, spatial_shape
+        )
     ).reshape(n_batch, n_samples, n_bins)
-    simulated_log = (
-        logsumexp(_safe_log(replicated_intensity) + log_state[:, np.newaxis, :], axis=2)
-        - log_norm[:, np.newaxis]
-    )
+    log_joint += log_state[:, np.newaxis, :]
+    simulated_log = logsumexp(log_joint, axis=2) - log_norm[:, np.newaxis]
 
     tolerance = 16 * np.finfo(np.float64).eps * n_bins
     pvalue = np.mean(simulated_log <= observed_log[:, np.newaxis] + tolerance, axis=1)
@@ -269,9 +272,10 @@ def monte_carlo_mark_pvalue(
         Also return the log predictive density of every replicated mark.
         Default is False.
     batch_size : int, optional
-        Events processed at a time. The largest working array has
-        ``batch_size * n_samples * n_bins`` floats (about 131 MB at the default
-        32 with 1000 samples and 512 bins); lower it for larger grids.
+        Events processed at a time. Peak memory is about
+        ``6 * batch_size * n_samples * n_bins * 8`` bytes (about 200 MB at the
+        default 8 with 1000 samples and 512 bins); lower it for larger grids or
+        more samples.
 
     Returns
     -------
