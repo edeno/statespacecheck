@@ -1,6 +1,6 @@
 # Scientific Python Compliance and Paper Tools Implementation Plan
 
-**Status:** Phases 1 and 2 merged to `main`; phase 3 implemented on branch `sp-docs`; phases 4a–5 not started.
+**Status:** Phases 1–3 merged to `main`; phase 3b in progress on branch `paper-first-ux`; phases 4a–5 not started.
 
 Bring `statespacecheck` in line with the [Scientific Python development guide](https://learn.scientific-python.org/development/) using the same layout, tooling and CI as `ripple_detection` and `spectral_connectivity`. Then add the diagnostics the manuscript in `statespacecheck-paper` describes but the package does not yet provide:
 
@@ -28,6 +28,7 @@ For agent invocation, **load only the slice you need**:
   - [phase-1-packaging.md](phase-1-packaging.md): `pyproject.toml`, strict pytest/mypy/ruff, dependency group plus lockfile, `py.typed`, `CITATION.cff`. Branch `sp-packaging`.
   - [phase-2-ci-precommit.md](phase-2-ci-precommit.md): pre-commit hook set; hardened CI/release workflow; Dependabot; zizmor; floors job. Branch `sp-ci`.
   - [phase-3-docs.md](phase-3-docs.md): one source for tutorials; notebooks executed in CI; docs workflow hardened; CONTRIBUTING/README refreshed; stale "paper" docstrings fixed. Branch `sp-docs`.
+  - [phase-3b-paper-first.md](phase-3b-paper-first.md): the paper's per-event workflow first in README, docs and tutorials; flagging helpers corrected to the paper's rules; `flag_events`; clearer errors; terminology, typing, import time and memory; citation and community files. Branch `paper-first-ux`.
   - [phase-4a-monte-carlo-pvalue.md](phase-4a-monte-carlo-pvalue.md): `event_weighted_predictive`, `monte_carlo_mark_pvalue`. Branch `mc-mark-pvalue`.
   - [phase-4b-clusterless-diagnostics.md](phase-4b-clusterless-diagnostics.md): `event_diagnostics` error and validation hardening (output unchanged), `clusterless_event_diagnostics`, tutorial, Zenodo, v0.3.0 release. Branch `clusterless-diagnostics`.
   - [phase-5-paper-adoption.md](phase-5-paper-adoption.md): paper repo moves to statespacecheck 0.3.0; replaces its hand-rolled Monte Carlo and HPD mask; drops its `py.typed` workaround and range-checks `baseline_end_index`; regenerates figures, site fixture and DOI. Branch `statespacecheck-0.3` in `statespacecheck-paper`.
