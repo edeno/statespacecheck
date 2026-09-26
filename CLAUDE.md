@@ -49,8 +49,8 @@ All distributions must be properly normalized. The time dimension is always firs
 
 `uv run <command>` against the locked environment is the task runner. There is
 no nox or tox file, on purpose: each check is one `uv run` command, and CI runs
-the same commands. This is a deliberate departure from the Scientific Python
-development guide, shared with ripple_detection and spectral_connectivity.
+the same checks. This is a deliberate departure from the Scientific Python
+development guide, the same choice ripple_detection made.
 
 **Environment setup:**
 
@@ -67,6 +67,7 @@ uv run ruff check .       # lint
 uv run ruff check --fix . # fix auto-fixable lint issues
 uv run mypy               # strict type check (files set in pyproject.toml)
 uv lock --check           # uv.lock matches pyproject.toml
+uvx codespell             # spell check (configured in pyproject.toml)
 uvx pre-commit run --all-files
 ```
 
@@ -94,9 +95,9 @@ expects a warning uses `pytest.warns`.
 This project follows scientific Python best practices:
 
 - **Package management**: Use `uv` for all dependency management and virtual environment operations
-- **Environment**: Always activate and work within `.venv` virtual environment
-- **Formatting**: Code is formatted with `ruff format` (95 character line length)
-- **Linting**: Code is linted with `ruff check` using the Scientific Python guide's rule set (the same as ripple_detection and spectral_connectivity) plus pydocstyle
+- **Environment**: `uv sync` creates `.venv`; run tools with `uv run` (no activation needed)
+- **Formatting**: Code is formatted with `ruff format` (wraps code at 95 characters; long strings and comments are not checked)
+- **Linting**: Code is linted with `ruff check` using ripple_detection's rule set (a subset of the Scientific Python guide's; it leaves out PL, TRY and others) plus pydocstyle
 - **Type checking**: Code is type-checked with `mypy` in strict mode
   - **IMPORTANT**: Never use `# type: ignore` comments. If mypy complains, fix the underlying issue by refactoring code, improving type annotations, or adjusting mypy configuration
 - **Docstrings**: All public functions must have numpy-style docstrings with shape specifications in the format `Shape (n_time, n_position)` on a separate line after the parameter description

@@ -27,8 +27,8 @@ jobs:
         with:
           fetch-depth: 0
 
-      # Match mypy's python_version: NumPy's stubs use PEP 695 `type`
-      # statements, which only Python 3.12+ can parse.
+      # Match mypy's python_version: scipy-stubs uses PEP 695 `type`
+      # statements and requires Python 3.12+.
       - name: Set up Python
         uses: actions/setup-python@v5
         with:

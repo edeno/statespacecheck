@@ -9,16 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Development tooling follows the [Scientific Python development guide](https://learn.scientific-python.org/development/): strict pytest (warnings are errors, docstring examples run as doctests), strict mypy, the guide's ruff rule set at line length 95, a `dev` dependency group with a committed `uv.lock`, and codespell.
+- Development tooling follows the [Scientific Python development guide](https://learn.scientific-python.org/development/): strict pytest (warnings are errors, docstring examples run as doctests), strict mypy, a ruff rule set based on the guide's at line length 95, a `dev` dependency group with a committed `uv.lock`, and codespell.
 - The package ships `py.typed`, so type checkers use its annotations, and a `CITATION.cff`.
-- The license is declared as the SPDX expression `MIT` (PEP 639); Python 3.14 is listed as supported.
+- The license is declared as the SPDX expression `MIT` (PEP 639); Python 3.14 is supported and tested.
 - `predictive_pvalue()` no longer checks that `sample_log_pred` is callable before calling it; a non-callable still raises `TypeError`, now with Python's own message.
 - `predictive_pvalue()` raises `ValueError` when the sampler returns NaN, which previously pulled p-values toward 0 and read as misfit. An observed log predictive density of `-inf` now gives a p-value of 0 and `+inf` gives 1, instead of NaN; only a NaN observation gives NaN.
 
 ### Fixed
 
 - `predictive_mark_probabilities()`, `mark_predictive_pvalue()` and `event_diagnostics()` no longer emit a spurious "divide by zero encountered in matmul" `RuntimeWarning` on macOS with NumPy < 2.3; results are unchanged.
-- Docstring examples in `periods.py`, `predictive_pvalue()` and `plot_diagnostics()` now run as written.
+- Docstring examples in `periods.py`, `predictive_pvalue()` and `plot_diagnostics()` now run and show their actual output; they run as doctests.
 
 ## [0.2.0] - 2026-09-25
 

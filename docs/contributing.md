@@ -37,7 +37,7 @@ Thank you for your interest in contributing to statespacecheck! This document pr
 
 `uv run <command>` runs a command in the locked environment; it is the task
 runner. There is no nox or tox file, on purpose: every check below is a single
-`uv run` command, and CI runs the same commands.
+`uv run` command, and CI runs the same checks.
 
 ## Development Workflow
 
@@ -45,10 +45,10 @@ runner. There is no nox or tox file, on purpose: every check below is a single
 
 This project follows strict code quality standards:
 
-- **Formatting**: [ruff format](https://docs.astral.sh/ruff/formatter/) (95 char line length)
+- **Formatting**: [ruff format](https://docs.astral.sh/ruff/formatter/) (wraps code at 95 characters)
 - **Linting**: [ruff check](https://docs.astral.sh/ruff/) (comprehensive rules including NumPy-specific)
 - **Type checking**: [mypy](https://mypy-lang.org/) in strict mode (no `# type: ignore` allowed)
-- **Testing**: [pytest](https://pytest.org/) with 100% coverage requirement
+- **Testing**: [pytest](https://pytest.org/) with coverage reporting; new code should be fully covered
 - **Docstrings**: [NumPy style](https://numpydoc.readthedocs.io/)
 
 ### Running Checks Locally
@@ -85,6 +85,9 @@ uv run pytest tests/test_highest_density.py::TestHighestDensityRegion::test_exac
 
 # Check that uv.lock matches pyproject.toml
 uv lock --check
+
+# Spell check (configured in pyproject.toml)
+uvx codespell
 ```
 
 Warnings are errors in the test suite (`filterwarnings = ["error"]`): a test
@@ -96,7 +99,8 @@ Pre-commit hooks automatically run code quality checks before every commit.
 
 **Setup (one-time):**
 ```bash
-# Install the git hooks (uvx runs pre-commit without installing it)
+# Install the git hooks (uvx runs pre-commit without installing it;
+# with pip, `pip install pre-commit` and drop the `uvx`)
 uvx pre-commit install
 ```
 
@@ -120,7 +124,8 @@ uvx pre-commit autoupdate
 - Type checking with mypy
 - All tests with pytest
 
-This matches exactly what CI runs, so commits that pass hooks will pass CI.
+CI runs the same tools, but the hook versions can lag behind the ones in
+`uv.lock`; CI is the final word.
 
 ## Continuous Integration
 
@@ -234,7 +239,8 @@ This project uses **VCS-based versioning** with `hatch-vcs`:
 ### Release Checklist
 
 - [ ] All tests pass on main branch
-- [ ] CHANGELOG updated (if you maintain one)
+- [ ] CHANGELOG updated: the `[Unreleased]` section renamed to the version and date
+- [ ] `CITATION.cff` `version` and `date-released` updated
 - [ ] Documentation is up to date
 - [ ] Version tag follows semantic versioning
 - [ ] Tag pushed to GitHub
@@ -291,6 +297,7 @@ Add approval gates for extra safety:
 ```
 tests/
 ├── conftest.py                      # Shared fixtures
+├── helpers.py                       # Shared test data generators
 ├── test_highest_density.py          # HPD region tests
 ├── test_state_consistency.py        # KL divergence, HPD overlap tests
 ├── test_predictive_density.py       # Predictive checks tests
@@ -302,29 +309,29 @@ tests/
 ### Running Tests
 
 ```bash
-# All tests with coverage
-pytest
+# All tests and docstring examples, with coverage
+uv run pytest
 
 # Verbose output
-pytest -v
+uv run pytest -v
 
 # Stop on first failure
-pytest -x
+uv run pytest -x
 
 # Show print statements
-pytest -s
+uv run pytest -s
 
 # Run specific test class
-pytest tests/test_highest_density.py::TestHighestDensityRegion -v
+uv run pytest tests/test_highest_density.py::TestHighestDensityRegion -v
 
 # Run specific test method
-pytest tests/test_highest_density.py::TestHighestDensityRegion::test_exact_hd_region_1d -xvs
+uv run pytest tests/test_highest_density.py::TestHighestDensityRegion::test_exact_hd_region_1d -xvs
 
 # Run tests matching pattern
-pytest -k "test_hpd" -v
+uv run pytest -k "test_hpd" -v
 
-# Run with coverage report
-pytest --cov=statespacecheck --cov-report=html
+# HTML coverage report
+uv run pytest --cov-report=html
 # Then open htmlcov/index.html
 ```
 
@@ -368,7 +375,7 @@ def test_highest_density_region_with_peaked_distribution() -> None:
 
 ### Python Style
 
-- **Line length**: 95 characters (ruff enforces this)
+- **Line length**: 95 characters (`ruff format` wraps code; long strings and comments are not checked)
 - **Imports**: Sorted and grouped (ruff handles this)
 - **Quotes**: Double quotes for strings (ruff enforces this)
 - **Naming**:
