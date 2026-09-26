@@ -381,10 +381,24 @@ def find_low_overlap_intervals(
 
 def flag_extreme_kl(
     kl: NDArray[np.floating],
+    *,
     z_thresh: float = 3.0,
     min_len: int = 5,
 ) -> NDArray[np.bool_]:
-    """Flag times where KL divergence is extreme via robust z-score.
+    """Flag times where KL divergence is extreme relative to the rest of the recording.
+
+    A time point is flagged when its robust z-score (median and MAD of the
+    finite values) exceeds ``z_thresh``, or when its KL divergence is
+    infinite, which happens when the two distributions have disjoint support.
+
+    The z-score is computed from the same values it tests, so the rule finds
+    time points that stand out from the recording; a model that fits equally
+    badly everywhere is not flagged. The paper instead flags values at or
+    above a threshold set on a baseline period
+    (:func:`~statespacecheck.baseline_threshold`, its 99th percentile) and
+    uses KL divergence only as a reference, because it also flags consistent
+    observations when the prediction is broad; see
+    :func:`~statespacecheck.flag_events`.
 
     Parameters
     ----------
@@ -407,7 +421,7 @@ def flag_extreme_kl(
 
     Notes
     -----
-    Inf/NaN KL values are ignored (not flagged) by default.
+    NaN values are never flagged; ``+inf`` values are always flagged.
 
     The min_len parameter filters short runs to reduce false positives from
     single-timepoint artifacts or noise. This is a practical filter, not a
@@ -428,13 +442,14 @@ def flag_extreme_kl(
 
     See Also
     --------
+    flag_events : The paper's per-event flagging rule
     flag_low_overlap : Flag periods with low HPD overlap
     flag_extreme_pvalues : Flag extreme predictive p-values
     combine_flags : Combine multiple diagnostic methods
     """
     kl_arr = np.asarray(kl, dtype=float)
     zscores = _robust_zscore(kl_arr)
-    flags = np.isfinite(zscores) & (zscores > z_thresh)
+    flags = (np.isfinite(zscores) & (zscores > z_thresh)) | np.isposinf(kl_arr)
     return _enforce_min_len(flags, min_len)
 
 

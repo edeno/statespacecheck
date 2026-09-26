@@ -405,6 +405,20 @@ class TestFindLowOverlapIntervals:
 class TestFlagExtremeKL:
     """Test flag_extreme_kl function."""
 
+    def test_infinite_kl_always_flagged(self) -> None:
+        """Infinite KL (disjoint supports) is the most extreme misfit: always flagged."""
+        kl = np.array([0.1, np.inf, 0.2, 0.15, np.inf])
+        flags = flag_extreme_kl(kl, z_thresh=3.0, min_len=1)
+        np.testing.assert_array_equal(flags, [False, True, False, False, True])
+
+    def test_all_infinite_kl_flagged(self) -> None:
+        flags = flag_extreme_kl(np.full(4, np.inf), min_len=1)
+        assert flags.all()
+
+    def test_nan_kl_not_flagged(self) -> None:
+        flags = flag_extreme_kl(np.array([np.nan, 0.1, 0.2]), min_len=1)
+        assert not flags.any()
+
     def test_normal_values_not_flagged(self) -> None:
         """Test that normal KL values are not flagged."""
         rng = np.random.default_rng(42)
