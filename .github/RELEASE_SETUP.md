@@ -41,8 +41,9 @@ The test job uploads coverage from Python 3.12 on Linux using the
 
 ### Zenodo
 
-With the repository enabled at <https://zenodo.org/account/settings/github/>,
-Zenodo archives every GitHub release and mints a DOI for it.
+Not yet enabled. Once the repository is enabled at
+<https://zenodo.org/account/settings/github/>, Zenodo will archive each GitHub
+release and mint a DOI for it.
 
 ## How to release
 

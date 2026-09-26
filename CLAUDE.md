@@ -4,37 +4,23 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-`statespacecheck` is a Python package for goodness-of-fit diagnostics in state space models, particularly for neuroscience applications. The package provides methods to assess model-data agreement in Bayesian state space models by analyzing the relationship between posterior distributions, likelihood distributions, and prediction distributions.
+`statespacecheck` implements the local goodness-of-fit diagnostics of the paper *Local goodness-of-fit measures for neural decoding* (Zeng, Comrie, Frank, Eden and Denovellis; analysis code in the sibling repository `statespacecheck-paper`). For each observation, down to individual spikes, it compares a state space model's **one-step predictive distribution** with the observation's **likelihood** over the same state grid, to find when and where a decoder disagrees with the data.
 
-### Scientific Context
-
-State space models are used to relate neural activity to latent dynamic brain states. They consist of:
-
-- **State transition model**: How latent states evolve over time
-- **Observation model**: How observed neural activity relates to current latent state
-
-The package addresses a critical gap: evaluating goodness-of-fit for latent variable models where ground truth cannot be observed directly. Traditional global metrics often fail to detect local misfits or diagnose whether errors arise from the state or observation model.
+Use the paper's terminology: one-step predictive distribution, single-event likelihood, HPD overlap (highest probability-density region), KL divergence D(predictive || likelihood), rank-based predictive p-value. The diagnostics measure *consistency* (overlapping high-probability regions), not similarity. HPD overlap and the predictive p-value are the primary diagnostics; KL divergence is a reference.
 
 ## Architecture
 
-The codebase implements three complementary model checking methods designed to:
+### Modules
 
-1. Identify time periods of poor model-data agreement (local evaluation)
-2. Distinguish errors from state vs observation components
-3. Provide intuitive visualizations
+- **`events.py`**: the paper's method. `event_likelihood`, `predictive_mark_probabilities`, `mark_predictive_pvalue` (exact p-value over units), `event_diagnostics` (all three diagnostics per spike, batched), `baseline_threshold`, `flag_events` (the paper's flag rule: HPD <= t, KL >= t, p <= 0.05).
+- **`state_consistency.py`**: `hpd_overlap` and `kl_divergence` row by row; used per spike by `event_diagnostics`, or per time bin (an extension).
+- **`highest_density.py`**: `highest_density_region`, the regions HPD overlap compares.
+- **`predictive_checks.py`** (extension): whole-bin predictive densities and a Monte Carlo `predictive_pvalue` with a user sampler.
+- **`periods.py`** (extension): run-based flagging of time series (`min_len`), robust-z KL flags, majority vote, `aggregate_over_period`.
+- **`viz.py`** (extension): `plot_diagnostics`; imports matplotlib.pyplot only when called.
+- **`_validation.py`**: input validation, the `DistributionArray` output type, and `row_chunks`, which bounds memory in the time-bin functions.
 
-### Core Modules
-
-**[src/statespacecheck/state_consistency.py](src/statespacecheck/state_consistency.py)**
-
-- Primary diagnostic functions for assessing posterior-likelihood consistency
-- `kl_divergence()`: Measures information divergence using KL divergence to detect issues with prior specification
-- `hpd_overlap()`: Computes spatial overlap between highest posterior density (HPD) regions to assess consistency between likelihood and prior contributions
-
-**[src/statespacecheck/highest_density.py](src/statespacecheck/highest_density.py)**
-
-- Highest density region computation utilities
-- `highest_density_region()`: Returns boolean mask indicating highest density region membership. Computes threshold values inline for specified coverage, handling multimodal distributions correctly
+Per-event outputs must stay bit-identical across refactors: the paper's reported numbers depend on them.
 
 ### Data Structures
 
@@ -84,7 +70,7 @@ expects a warning uses `pytest.warns`.
 
 ## Key Design Principles
 
-- **Time-resolved diagnostics**: All metrics return time series (shape `(n_time,)`) to identify when/where models fail
+- **Local diagnostics**: every metric returns one value per event (`(n_events,)`) or per time bin (`(n_time,)`), to identify when and where models fail
 - **Normalized metrics**: HPD overlap is normalized by minimum region size to handle varying region sizes
 - **Robust to edge cases**: Functions handle NaN values and avoid division by zero
 - **Type hints**: All functions use type annotations for clarity
@@ -102,4 +88,4 @@ This project follows scientific Python best practices:
   - **IMPORTANT**: Never use `# type: ignore` comments. If mypy complains, fix the underlying issue by refactoring code, improving type annotations, or adjusting mypy configuration
 - **Docstrings**: All public functions must have numpy-style docstrings with shape specifications in the format `Shape (n_time, n_position)` on a separate line after the parameter description
 - **Testing**: Tests use pytest with coverage reporting
-- **Version support**: Follows scientific Python SPEC 0 (supports Python 3.10+, recent numpy/scipy/matplotlib versions)
+- **Version support**: Python 3.10+, NumPy 1.26+, SciPy 1.11.1+, matplotlib 3.8+ (checked by the CI floors job). This is a wider window than SPEC 0 recommends, kept so the paper repository (Python 3.11) can use current releases.
