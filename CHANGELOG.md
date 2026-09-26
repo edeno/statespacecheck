@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The predictive-checks tutorial showed p-values computed before the 0.1.1 fix to `predictive_pvalue()`, so misfit periods appeared as p ≈ 1 instead of p ≈ 0; its outputs are regenerated.
 - `predictive_mark_probabilities()`, `mark_predictive_pvalue()` and `event_diagnostics()` no longer emit a spurious "divide by zero encountered in matmul" `RuntimeWarning` on macOS with NumPy < 2.3; results are unchanged.
 - Docstring examples in `periods.py`, `predictive_pvalue()` and `plot_diagnostics()` now run and show their actual output; they run as doctests.
 
