@@ -1,5 +1,11 @@
 # statespacecheck
 
+[![PyPI version](https://img.shields.io/pypi/v/statespacecheck.svg)](https://pypi.org/project/statespacecheck/)
+[![Python versions](https://img.shields.io/pypi/pyversions/statespacecheck.svg)](https://pypi.org/project/statespacecheck/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![CI](https://github.com/edeno/statespacecheck/actions/workflows/ci.yml/badge.svg)](https://github.com/edeno/statespacecheck/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/edeno/statespacecheck/branch/main/graph/badge.svg)](https://codecov.io/gh/edeno/statespacecheck)
+
 **Goodness-of-fit diagnostics for state space models in neuroscience**
 
 `statespacecheck` provides tools to assess how well Bayesian state space models fit neural data by examining the consistency between posterior distributions and their component likelihood distributions. These diagnostics help identify issues with prior specification and model assumptions, enabling iterative model refinement.
