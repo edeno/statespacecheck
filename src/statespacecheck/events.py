@@ -76,6 +76,16 @@ def _flatten_mark_intensities(
             f"mark_intensities must have shape {(*spatial_shape, 'n_marks')} to match the "
             f"state distribution's spatial axes; got {mark_intensities.shape}"
         )
+        if mark_intensities.ndim >= 2 and mark_intensities.shape[1:] == spatial_shape:
+            fix = (
+                "mark_intensities.T"
+                if mark_intensities.ndim == 2
+                else "np.moveaxis(mark_intensities, 0, -1)"
+            )
+            msg += (
+                f". It looks like (n_marks, ...), e.g. place fields stored one unit "
+                f"per row; pass {fix}"
+            )
         raise ValueError(msg)
     if mark_intensities.shape[-1] == 0:
         msg = "mark_intensities must contain at least one mark"
@@ -106,13 +116,82 @@ def _validate_state_distribution(
 def _validate_marks(marks: NDArray[np.integer], n_marks: int, name: str) -> NDArray[np.intp]:
     """Check that ``marks`` is a 1-D integer array of valid mark indices."""
     marks = np.asarray(marks)
+    if marks.ndim == 1 and marks.size == 0:
+        return np.empty(0, dtype=np.intp)
     if marks.ndim != 1 or not np.issubdtype(marks.dtype, np.integer):
-        msg = f"{name} must be a 1-D integer array"
+        msg = (
+            f"{name} must be a 1-D integer array; got shape {marks.shape}, dtype {marks.dtype}"
+        )
+        if name == "event_time_ind" and np.issubdtype(marks.dtype, np.floating):
+            msg += (
+                ". It holds time-bin indices, not times: convert event times with, "
+                "e.g., np.digitize(event_times, time_bin_edges) - 1"
+            )
         raise ValueError(msg)
     if marks.size and (marks.min() < 0 or marks.max() >= n_marks):
         msg = f"{name} must lie in [0, {n_marks}); got values outside that range"
         raise ValueError(msg)
     return marks.astype(np.intp, copy=False)
+
+
+def _first(indices: NDArray[np.intp]) -> list[int]:
+    """Return the first ten indices, for error messages."""
+    return [int(i) for i in indices[:10]]
+
+
+def _check_event_inputs(
+    predictive_flat: DistributionArray,
+    rates: NDArray[np.floating],
+    time_ind: NDArray[np.intp],
+    marks: NDArray[np.intp],
+) -> None:
+    """Check the time bins and marks the events use, reporting absolute indices.
+
+    ``predictive_flat`` is ``(n_time, n_bins)`` and ``rates`` is
+    ``(n_bins, n_marks)``. Only rows and marks referenced by an event are
+    checked, as only those enter the diagnostics.
+    """
+    n_time = predictive_flat.shape[0]
+    used_time = np.zeros(n_time, dtype=bool)
+    used_time[time_ind] = True
+
+    invalid_row = ~np.isfinite(predictive_flat).all(axis=1) | (predictive_flat < 0.0).any(
+        axis=1
+    )
+    bad_time = np.flatnonzero(invalid_row & used_time)
+    if bad_time.size:
+        events = np.flatnonzero(np.isin(time_ind, bad_time))
+        msg = (
+            "predictive must contain only finite nonnegative values; "
+            f"time bins {_first(bad_time)} do not (used by events {_first(events)})"
+        )
+        raise ValueError(msg)
+
+    silent_mark = ~(rates > 0.0).any(axis=0)
+    bad_marks = np.flatnonzero(silent_mark)
+    if bad_marks.size:
+        events = np.flatnonzero(np.isin(marks, bad_marks))
+        if events.size:
+            msg = (
+                "mark_intensities is zero everywhere for marks "
+                f"{_first(np.intersect1d(bad_marks, marks))}, so their events have no "
+                f"likelihood; used by events {_first(events)}"
+            )
+            raise ValueError(msg)
+
+    # Expected total event intensity per time bin under the prediction.
+    with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+        total = predictive_flat @ rates.sum(axis=1)
+    no_events = used_time & ~(np.isfinite(total) & (total > 0.0))
+    bad_time = np.flatnonzero(no_events)
+    if bad_time.size:
+        events = np.flatnonzero(np.isin(time_ind, bad_time))
+        msg = (
+            f"At time bins {_first(bad_time)} the predictive distribution puts no "
+            "probability where any mark has intensity (or the total overflows), so "
+            f"the mark distribution is undefined; used by events {_first(events)}"
+        )
+        raise ValueError(msg)
 
 
 def event_likelihood(event_intensities: NDArray[np.floating]) -> DistributionArray:
@@ -423,6 +502,7 @@ def event_diagnostics(
         )
         raise ValueError(msg)
     predictive_flat = predictive.reshape(n_time, -1)
+    _check_event_inputs(predictive_flat, rates, time_ind, marks)
 
     n_events = time_ind.shape[0]
     event_hpd: NDArray[np.floating] = np.empty(n_events)

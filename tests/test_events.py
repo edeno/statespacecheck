@@ -394,3 +394,49 @@ class TestFlagEvents:
         assert flags.hpd_overlap is not None
         assert flags.hpd_overlap.shape == diagnostics.hpd_overlap.shape
         assert flags.hpd_overlap.dtype == bool
+
+
+class TestEventDiagnosticsErrors:
+    """Errors name the user's argument and point to absolute indices."""
+
+    @pytest.fixture
+    def model(self) -> tuple[np.ndarray, np.ndarray]:
+        rng = np.random.default_rng(3)
+        predictive = rng.dirichlet(np.ones(6), size=10)  # (n_time=10, n_bins=6)
+        fields = rng.gamma(2.0, size=(6, 4))  # (n_bins=6, n_marks=4)
+        return predictive, fields
+
+    def test_nan_predictive_names_the_argument_and_bin(self, model):
+        predictive, fields = model
+        predictive[7, 2] = np.nan
+        with pytest.raises(ValueError, match=r"predictive .*time bins \[7\]"):
+            event_diagnostics(predictive, fields, np.array([0, 7]), np.array([0, 1]))
+
+    def test_zero_mass_time_bin_reported_by_absolute_indices(self, model):
+        predictive, fields = model
+        predictive[5] = 0.0
+        time_ind = np.arange(10)
+        with pytest.raises(ValueError, match=r"time bins \[5\].*events \[5\]"):
+            event_diagnostics(predictive, fields, time_ind, np.zeros(10, int), batch_size=4)
+
+    def test_mark_with_no_intensity_reported_by_absolute_indices(self, model):
+        predictive, fields = model
+        fields[:, 3] = 0.0
+        marks = np.array([0, 1, 2, 0, 1, 2, 3])
+        with pytest.raises(ValueError, match=r"zero everywhere.*marks \[3\].*events \[6\]"):
+            event_diagnostics(predictive, fields, np.arange(7), marks, batch_size=2)
+
+    def test_transposed_mark_intensities_suggests_transpose(self, model):
+        predictive, fields = model
+        with pytest.raises(ValueError, match=r"mark_intensities\.T"):
+            event_diagnostics(predictive, fields.T, np.array([0]), np.array([0]))
+
+    def test_float_time_indices_suggest_binning(self, model):
+        predictive, fields = model
+        with pytest.raises(ValueError, match="time-bin indices"):
+            event_diagnostics(predictive, fields, np.array([0.3, 1.7]), np.array([0, 1]))
+
+    def test_empty_lists_are_accepted(self, model):
+        predictive, fields = model
+        result = event_diagnostics(predictive, fields, [], [])
+        assert result.hpd_overlap.shape == (0,)
