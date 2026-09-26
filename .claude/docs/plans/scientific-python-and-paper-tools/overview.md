@@ -52,7 +52,7 @@ Measured cost of the stricter settings on the current code:
 - `src/statespacecheck/events.py:176-244` (`predictive_mark_probabilities`) and `:319-427` (`event_diagnostics`): numerical output unchanged. The new functions sit beside them, and `event_diagnostics` output must stay bit-identical for the paper. Phase 4b task 1 hardens their error messages and validation without changing any output.
 - `src/statespacecheck/predictive_checks.py:409-411`: the dead `callable` check is removed in phase 1.
 - `src/statespacecheck/periods.py:25-30,100-106`: docstrings cite "the paper's weighted average equations", which `main.tex` no longer contains. Fixed in phase 3; behaviour unchanged. You chose to keep `periods.py`, `viz.py` and the generic predictive-check functions as general tools.
-- `docs/tutorials/*.ipynb` and `examples/*.ipynb` are byte-identical copies. Phase 3 makes `examples/` the only source.
+- `docs/tutorials/0*.ipynb` are git symlinks (mode 120000) to `examples/0*.ipynb`, so the tutorials already have one source; phase 3 keeps them.
 
 **Paper (`statespacecheck-paper`)**
 
@@ -167,7 +167,7 @@ Raised in the review of the paper's move to 0.2.0; not in any phase of this plan
 | --- | --- | --- |
 | 1 | ~250 LOC | mostly config and the EM rewrites |
 | 2 | ~350 LOC YAML | |
-| 3 | ~150 LOC | plus deleting 4 duplicate notebooks |
+| 3 | ~100 LOC | |
 | 4a | ~350 LOC | source ~150, tests ~200 |
 | 4b | ~550 LOC | source ~150, tests ~200, tutorial ~200 (includes task 1's error and validation hardening) |
 | 5 | ~150 LOC changed | plus regenerated artifacts |

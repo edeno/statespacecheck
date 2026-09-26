@@ -11,7 +11,7 @@
   - `gen-files` running `docs/gen_ref_pages.py`
   - the tutorial nav at the end of the file, pointing at `tutorials/0*.ipynb`
 - [docs/gen_ref_pages.py](../../../../docs/gen_ref_pages.py): the existing gen-files script, the pattern to extend.
-- The duplicated tutorials. `docs/tutorials/0{1..4}_*.ipynb` and `examples/0{1..4}_*.ipynb` are **byte-identical** (checked with `cmp` on 2026-09-25). `examples/*.py` are their jupytext `py:percent` pairs, and they import `examples/utils.py`.
+- The tutorials. `docs/tutorials/0{1..4}_*.ipynb` are git symlinks to `examples/0{1..4}_*.ipynb` (`git ls-files -s docs/tutorials` shows mode 120000). `examples/*.py` are their jupytext `py:percent` pairs, and they import `examples/utils.py`.
 - [.github/workflows/docs.yml](../../../../.github/workflows/docs.yml) (67 lines): unpinned actions, `workflow_dispatch` missing, broad top-level `pages: write` / `id-token: write`.
 - [src/statespacecheck/periods.py:25-30](../../../../src/statespacecheck/periods.py) and [:98-106](../../../../src/statespacecheck/periods.py): docstrings claiming "the approach from the paper" and "the paper's weighted average equations". The manuscript (`statespacecheck-paper/manuscript/main.tex`) has no such equations.
 - [README.md:304-320](../../../../README.md): the Citation block. It has `version={0.1.0}` and a placeholder DOI `10.5281/zenodo.XXXXXXX`.
@@ -22,30 +22,9 @@
 
 ## Tasks
 
-1. **One source for tutorials.** `examples/` is canonical: the `.py` jupytext file plus the paired `.ipynb`, which keeps its outputs.
-   - `git rm docs/tutorials/0*.ipynb`.
-   - Add `docs/gen_tutorials.py`, a gen-files script that copies each `examples/0*.ipynb` into the virtual `tutorials/` directory:
-
-     ```python
-     """Copy the example notebooks into the docs as tutorials."""
-
-     from pathlib import Path
-
-     import mkdocs_gen_files
-
-     examples = Path(__file__).parent.parent / "examples"
-     for notebook in sorted(examples.glob("[0-9][0-9]_*.ipynb")):
-         with mkdocs_gen_files.open(f"tutorials/{notebook.name}", "wb") as fd:
-             fd.write(notebook.read_bytes())
-     ```
-
-   - Register it in `mkdocs.yml` under `gen-files: scripts:`, **before** `docs/gen_ref_pages.py`. The nav entries stay as they are.
-   - **Verify** with `uv run --extra docs mkdocs build --strict` that the four tutorial pages render with their outputs. If `mkdocs-jupyter` does not pick up gen-files notebooks, use this fallback instead:
-     - a copy step in `docs.yml` before the build: `cp examples/0*.ipynb docs/tutorials/`
-     - `docs/tutorials/0*.ipynb` added to `.gitignore`
-     - a one-line note in CONTRIBUTING on running the copy before `mkdocs serve`
-
-     This is spectral_connectivity's approach (its `docs/conf.py` copies `examples/`).
+1. **Keep the tutorial symlinks.** `docs/tutorials/0*.ipynb` are git symlinks (mode 120000) to `examples/0*.ipynb`, so `examples/` is already the only source; nothing is deleted.
+   - Verify with `uv run --extra docs mkdocs build --strict` that the four tutorial pages render with their outputs through the symlinks.
+   - Add one line to CONTRIBUTING's docs section: edit notebooks in `examples/`; `docs/tutorials/` only links to them.
 
 2. **Execute the notebooks in CI.** In `ci.yml`'s `test` job, on ubuntu/3.12 only (as ripple_detection does), add a step:
 
@@ -98,7 +77,7 @@
 | --- | --- |
 | `uv run --extra docs mkdocs build --strict` | Builds with no warnings; `site/tutorials/01_introduction/index.html` exists and contains rendered output cells |
 | CI notebook step | All four notebooks execute without error; `.py`/`.ipynb` pairs in sync |
-| `git ls-files docs/tutorials` | Only `index.md` remains |
+| `git ls-files -s docs/tutorials` | The four notebooks are still mode-120000 symlinks into `examples/` |
 | `uvx zizmor .github/workflows/` | Clean |
 | `uvx --from "sp-repo-review[cli]" repo-review .` | Still exactly PY007, PC140, PC170, PC180 failing |
 | `uv run pytest` | Unchanged pass count (docstring edits only) |

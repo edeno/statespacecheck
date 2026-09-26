@@ -178,7 +178,7 @@ Each bullet is one commit. After every commit, run `uv run pytest`, `uv run mypy
 
 - `.pre-commit-config.yaml` changes. Phase 2 does these, including `ruff-check` and `--show-fixes`. The existing hooks keep working meanwhile.
 - The CI workflow rewrite (phase 2). The only CI edit here is the quality job's Python version (task 7).
-- Tutorial deduplication and notebook execution (phase 3).
+- Notebook execution in CI (phase 3).
 - Any change to numerical behaviour or public signatures.
 
 ## Validation slice

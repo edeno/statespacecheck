@@ -101,7 +101,7 @@
      ```
 
      - Use scipy 1.11.1 because 1.11.0 is yanked (spectral_connectivity notes this; confirm with `pip index versions scipy`). Raise `pyproject.toml`'s floor to `scipy>=1.11.1` to match, and add a CHANGELOG "Changed" line.
-     - Disable warnings in this job only, with spectral_connectivity's explanatory comment. Old floors emit their own deprecations.
+     - Disable warnings in this job only, with spectral_connectivity's explanatory comment. Old floors emit their own deprecations: at these floors, importing matplotlib 3.8.0 with pyparsing 3.3 raises `PyparsingDeprecationWarning`, which `filterwarnings = ["error"]` would turn into a collection error. Checked on 2026-09-25: with numpy 1.26.0, scipy 1.11.1, matplotlib 3.8.0 and pyparsing 3.3.3 on Python 3.10, the suite fails under warnings-as-errors and passes (303) with `-p no:warnings`.
    - **build:**
      - needs quality, lockfile, test and test-minimum-pins
      - `pip install build twine`, `python -m build`, `twine check dist/*`
@@ -147,7 +147,7 @@
 
 ## Deliberately not in this phase
 
-- `docs.yml` hardening, notebook execution, tutorial deduplication (phase 3). zizmor will flag `docs.yml`. If the quality job's zizmor step scans every workflow and fails on `docs.yml`, apply the minimal pin and permissions fixes to `docs.yml` here and leave the rest to phase 3.
+- `docs.yml` hardening and notebook execution (phase 3). zizmor will flag `docs.yml`. If the quality job's zizmor step scans every workflow and fails on `docs.yml`, apply the minimal pin and permissions fixes to `docs.yml` here and leave the rest to phase 3.
 - A nox/tox file (by design).
 - Any package source change.
 
