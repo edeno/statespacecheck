@@ -235,7 +235,6 @@ plt.show()
 
 # %%
 revised_predictive = decode(fields_after)
-revised_predictive[:remap_time] = predictive[:remap_time]
 revised = ssc.event_diagnostics(
     revised_predictive, fields_after, spike_time_ind[after], spike_unit[after]
 )
@@ -251,8 +250,8 @@ print(
 print(f"newly flagged by the revised model: {newly_flagged.sum()}")
 
 # %% [markdown]
-# (The revised decoder here starts from the original one's predictions at the
-# remapping; in practice one would refit the whole model.)
+# (For simplicity the revised decoder uses the re-estimated place fields for the whole
+# session; only the spikes after the remapping are compared.)
 #
 # ## A note on KL divergence
 #
