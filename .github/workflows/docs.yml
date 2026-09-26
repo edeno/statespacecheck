@@ -11,7 +11,11 @@ on:
       - 'docs/**'
       - 'mkdocs.yml'
       - 'examples/**'
+      - 'src/**'  # the API reference is built from the docstrings
+      - 'CONTRIBUTING.md'  # included in the docs
+      - 'pyproject.toml'  # the docs extra
       - '.github/workflows/docs.yml'
+  workflow_dispatch:
 
 # Read-only by default; the deploy job elevates only what Pages needs.
 permissions:
