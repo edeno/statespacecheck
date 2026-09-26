@@ -333,6 +333,22 @@ class TestFlagLowOverlap:
         # NaN should not be flagged, breaks run
         assert not flags[2]
 
+    def test_value_at_threshold_flagged(self) -> None:
+        """The rule is 'at or below' the threshold, as in the paper."""
+        overlap = np.array([0.5, 0.4, 0.40001, 0.0])
+        flags = flag_low_overlap(overlap, threshold=0.4, min_len=1)
+        np.testing.assert_array_equal(flags, [False, True, False, True])
+
+    def test_zero_threshold_flags_zero_overlap(self) -> None:
+        """A baseline threshold of 0 (common for overlap) still flags overlap of 0."""
+        overlap = np.array([0.0, 0.2, 0.0])
+        flags = flag_low_overlap(overlap, threshold=0.0, min_len=1)
+        np.testing.assert_array_equal(flags, [True, False, True])
+
+    def test_intervals_include_values_at_threshold(self) -> None:
+        overlap = np.array([0.8, 0.3, 0.3, 0.3, 0.8])
+        assert find_low_overlap_intervals(overlap, threshold=0.3, min_len=3) == [(1, 4)]
+
     def test_different_threshold(self) -> None:
         """Test with different threshold values."""
         overlap = np.array([0.5, 0.5, 0.5, 0.5, 0.5])

@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Breaking:** `flag_extreme_pvalues()` is one-sided and flags `p <= alpha`, as in the paper. It used to flag `p < alpha/2 or p > 1 - alpha/2`, which marked the best-fitting observations (p near 1) as misfit. `alpha` and `min_len` are keyword-only.
 - **Breaking:** `plot_diagnostics()` draws a single p-value line at the cutoff, and its threshold arguments are renamed and keyword-only: `tau` → `overlap_threshold`, `z_thresh` → `kl_z_threshold`, `alpha` → `pvalue_threshold`. It checks that the metrics match `time` in length, and shades single flagged samples visibly.
+- **Breaking:** `flag_low_overlap()` and `find_low_overlap_intervals()` flag overlap *at or below* the threshold (was strictly below), as in the paper; with a threshold of 0 from `baseline_threshold()`, zero overlap is now flagged. `threshold` and `min_len` are keyword-only.
 - `import statespacecheck` no longer imports `matplotlib.pyplot`; `plot_diagnostics()` imports it when called.
 - Development tooling follows the [Scientific Python development guide](https://learn.scientific-python.org/development/): strict pytest (warnings are errors, docstring examples run as doctests), strict mypy, a ruff rule set based on the guide's at line length 95, a `dev` dependency group with a committed `uv.lock`, and codespell.
 - The package ships `py.typed`, so type checkers use its annotations (`__version__` is in `__all__` so strict checkers accept it), and a `CITATION.cff`.

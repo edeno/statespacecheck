@@ -280,10 +280,11 @@ def _robust_zscore(values: NDArray[np.floating]) -> NDArray[np.floating]:
 
 def flag_low_overlap(
     overlap: NDArray[np.floating],
+    *,
     threshold: float = 0.4,
     min_len: int = 5,
 ) -> NDArray[np.bool_]:
-    """Flag times where HPD overlap is below threshold.
+    """Flag times where HPD overlap is at or below a threshold.
 
     This is the boolean array version of find_low_overlap_intervals().
     Use this when combining multiple diagnostics with combine_flags().
@@ -294,9 +295,10 @@ def flag_low_overlap(
     overlap : np.ndarray, shape (n_time,)
         HPD overlap values.
     threshold : float, optional
-        Threshold below which overlap is considered problematic. Default is 0.4.
-        A value of 0.4 identifies periods where less than 40% of HPD regions
-        overlap, indicating substantial spatial disagreement.
+        Overlap at or below this value is flagged. Default is 0.4, a
+        convenience value with no statistical basis; the paper sets the
+        threshold from a baseline period with
+        :func:`~statespacecheck.baseline_threshold` (its 1st percentile).
     min_len : int, optional
         Minimum length for flagged runs. Default is 5.
         Filters out transient single-timepoint artifacts. Adjust based on
@@ -322,16 +324,17 @@ def flag_low_overlap(
     combine_flags : Combine multiple diagnostic flag arrays
     """
     overlap_arr = np.asarray(overlap, dtype=float)
-    flags = (overlap_arr < threshold) & np.isfinite(overlap_arr)
+    flags = (overlap_arr <= threshold) & np.isfinite(overlap_arr)
     return _enforce_min_len(flags, min_len)
 
 
 def find_low_overlap_intervals(
     overlap: NDArray[np.floating],
+    *,
     threshold: float = 0.4,
     min_len: int = 5,
 ) -> list[tuple[int, int]]:
-    """Identify contiguous intervals where HPD overlap < threshold and length >= min_len.
+    """Find runs of at least ``min_len`` time points with HPD overlap at or below a threshold.
 
     Returns interval boundaries rather than boolean flags. Use flag_low_overlap()
     if you need a boolean array compatible with combine_flags().
@@ -341,7 +344,8 @@ def find_low_overlap_intervals(
     overlap : np.ndarray, shape (n_time,)
         HPD overlap values.
     threshold : float, optional
-        Threshold below which overlap is considered problematic. Default is 0.4.
+        Overlap at or below this value is flagged. Default is 0.4 (see
+        :func:`flag_low_overlap`).
     min_len : int, optional
         Minimum length for intervals to be reported. Default is 5.
 
@@ -370,7 +374,7 @@ def find_low_overlap_intervals(
     flag_low_overlap : Returns boolean mask instead of interval boundaries
     """
     overlap_arr = np.asarray(overlap, dtype=float)
-    bad = (overlap_arr < threshold) & np.isfinite(overlap_arr)
+    bad = (overlap_arr <= threshold) & np.isfinite(overlap_arr)
     bad = _enforce_min_len(bad, min_len)
     return _contiguous_runs(bad)
 
