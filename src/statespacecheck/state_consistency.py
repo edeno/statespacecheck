@@ -7,7 +7,7 @@ and model assumptions.
 """
 
 import numpy as np
-from scipy.stats import entropy
+from scipy.special import rel_entr
 
 from ._validation import (
     DistributionArray,
@@ -17,6 +17,20 @@ from ._validation import (
     validate_paired_distributions,
 )
 from .highest_density import DEFAULT_COVERAGE, highest_density_region
+
+
+def _relative_entropy(
+    p: DistributionArray, q: DistributionArray
+) -> DistributionArray:
+    """Row-wise D(p || q) of nonnegative ``(n_rows, n_bins)`` arrays.
+
+    The same operations as ``scipy.stats.entropy(p, q, axis=1)`` (normalize
+    each row, ``rel_entr``, sum), without importing ``scipy.stats``.
+    """
+    p = 1.0 * p / p.sum(axis=1, keepdims=True)
+    q = 1.0 * q / q.sum(axis=1, keepdims=True)
+    divergence: DistributionArray = rel_entr(p, q).sum(axis=1)
+    return divergence
 
 
 def _exclude_bins_invalid_in_either(
@@ -164,7 +178,7 @@ def kl_divergence(
 
     Notes
     -----
-    The KL divergence is computed using scipy.stats.entropy with the formula:
+    The KL divergence is computed as
     D_KL(P || Q) = sum(P * log(P / Q))
     where P is the state distribution and Q is the likelihood.
 
@@ -199,10 +213,10 @@ def kl_divergence(
     # Compute entropy for valid time slices
     # NaN already converted to 0 by validation
     if np.any(valid):
-        kl_div[valid] = entropy(state_flat[valid], like_flat[valid], axis=1)
+        kl_div[valid] = _relative_entropy(state_flat[valid], like_flat[valid])
 
     # Clip to non-negative values to handle floating point precision errors
-    # scipy.stats.entropy can return tiny negative values (~1e-113) with subnormal numbers
+    # The sum can return tiny negative values (~1e-113) with subnormal numbers
     # KL divergence is mathematically always non-negative, so clip spurious negatives to 0
     return np.maximum(kl_div, 0.0)
 
