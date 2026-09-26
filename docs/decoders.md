@@ -187,6 +187,8 @@ def clusterless_kde_model(encoding_model):
                     np.divide(kernel, ground, out=np.zeros_like(kernel), where=ground > 0),
                     axis=0,
                 ).T,  # (n_bins, n_encoding)
+                # the last encoding spike with weight at each bin
+                "last_spike": len(kernel) - 1 - np.argmax(kernel[::-1] > 0, axis=0),
             }
         )
     electrode_ground = np.stack(
@@ -202,9 +204,22 @@ def clusterless_kde_model(encoding_model):
         ),
         axis=1,
     )
+    # The last electrode with spikes at each bin; a draw that rounds past it is put there
+    last_electrode = len(electrodes) - 1 - np.argmax(electrode_ground[:, ::-1] > 0, axis=1)
 
     def log_mark_intensity(marks):
-        marks = np.asarray(marks)
+        marks = np.asarray(marks, dtype=float)
+        electrode_ids = marks[:, 0] if marks.ndim == 2 else None
+        if (
+            marks.ndim != 2
+            or marks.shape[1] != 1 + n_features
+            or not np.all(np.isin(electrode_ids, np.arange(len(electrodes))))
+        ):
+            msg = (
+                f"marks must have shape (n, {1 + n_features}): an electrode index in "
+                f"0..{len(electrodes) - 1} (the encoding model's order), then the features"
+            )
+            raise ValueError(msg)
         out = np.full((len(marks), len(bins)), -np.inf)
         for index, electrode in enumerate(electrodes):
             rows = marks[:, 0] == index
@@ -224,14 +239,15 @@ def clusterless_kde_model(encoding_model):
     def sample_marks(state_bins, rng):
         marks = np.empty((len(state_bins), 1 + n_features))
         which = (electrode_cdf[state_bins] <= rng.random(len(state_bins))[:, None]).sum(1)
-        marks[:, 0] = np.minimum(which, len(electrodes) - 1)
+        marks[:, 0] = np.minimum(which, last_electrode[state_bins])
         for index, electrode in enumerate(electrodes):
             rows = np.flatnonzero(marks[:, 0] == index)
             if electrode is None or not len(rows):
                 continue
             cdf = electrode["spike_cdf"][state_bins[rows]]
             spike = np.minimum(
-                (cdf <= rng.random(len(rows))[:, None]).sum(1), cdf.shape[1] - 1
+                (cdf <= rng.random(len(rows))[:, None]).sum(1),
+                electrode["last_spike"][state_bins[rows]],
             )
             marks[rows, 1:] = rng.normal(
                 electrode["features"][spike], electrode["waveform_std"]
@@ -247,7 +263,13 @@ Applied to a fitted model and its predictive distribution:
 ```python
 mark_model = clusterless_kde_model(model.encoding_model_[("", 0)])
 # predictive: (n_time, n_bins) on the interior bins, as in the example above.
-# Marks of the spikes in [time[0], time[-1]], with the electrode as the first column:
+# The spikes the decoder used, those in [time[0], time[-1]], electrode by electrode in
+# the encoding model's order; the time bins and marks are built in the same order
+in_bounds = [(t >= time[0]) & (t <= time[-1]) for t in spike_times]
+decoded_times = [t[keep] for t, keep in zip(spike_times, in_bounds)]
+decoded_features = [f[keep] for f, keep in zip(spike_waveform_features, in_bounds)]
+event_time_ind = np.concatenate([np.digitize(t, time[1:-1]) for t in decoded_times])
+# Marks: the electrode index, then the waveform features
 observed_marks = np.concatenate(
     [np.column_stack([np.full(len(f), e), f]) for e, f in enumerate(decoded_features)]
 )
