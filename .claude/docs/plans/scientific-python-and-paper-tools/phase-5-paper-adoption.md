@@ -65,7 +65,7 @@ If any precondition fails, stop and tell the user.
    ```python
    check = ssc.monte_carlo_mark_pvalue(
        predictive[np.newaxis, :],
-       lambda y: norm.pdf(position_bins[np.newaxis, :], loc=y[:, :1], scale=like_std),
+       lambda y: norm.logpdf(position_bins[np.newaxis, :], loc=y[:, :1], scale=like_std),
        np.array([[like_mean]]),
        ground_intensity=np.ones(n_bins),
        sample_marks=lambda bins, g: g.normal(position_bins[bins], like_std)[:, np.newaxis],
@@ -80,6 +80,7 @@ If any precondition fails, stop and tell the user.
 
    - **Keep** `cumsum` (`figure02_panels.py:179-180`); the showcase quantiles at :222-223 still use it. It must remain computed from `predictive`.
    - **Delete** the sampling loop and the vectorized density block, along with their comments about preserving the old RNG stream. Those comments no longer apply.
+   - **The random stream changes.** The package draws every state first and then every mark (the old loop interleaved them), so the simulated values, the histogram and the showcase samples drawn from `rng` afterwards all change, and the p-value moves within Monte Carlo error (in the phase 4a review, seed 0 with 1,000 samples gave 0.096 with the old code and 0.080 with the package, against about 0.083 by numerical integration). Regenerate the figure and its site data; do not try to preserve the old draws.
    - `Λ(x) = 1` is correct here: `N(y; x, σ)` integrates to 1 over `y`. Say so in a one-line comment, because the schematic's text (`main.tex:217`) relies on constant total intensity.
    - **Unit check:** the package's `f_pred` is `Σ_x λ(x,y) P(x) / Σ_x Λ P`. With `Λ=1` and `P` normalized, that equals the old `np.sum(predictive * observed_conditional_density)`. The new `observed_log_pred` must equal the old one to rtol 1e-12; assert this once while developing.
 

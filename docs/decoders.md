@@ -91,6 +91,191 @@ handles more cases (several environments, state-specific track masks); see
 [`figure04_place_fields.py`](https://github.com/edeno/statespacecheck-paper/blob/main/src/statespacecheck_paper/figure04_place_fields.py)
 in the paper repository.
 
+## Clusterless decoders (non_local_detector KDE)
+
+A clusterless spike's mark is its waveform features, so the predictive p-value comes from
+`monte_carlo_mark_pvalue`, which needs the model as three pieces: the log joint mark
+intensity, a sampler of marks, and the ground intensity (the total spike rate at each
+position). For `non_local_detector`'s clusterless KDE model, all three follow from the
+fitted encoding model:
+
+- The electrode is part of the mark, `[electrode, feature_1, ..., feature_d]`: the
+  intensity of a spike depends on which electrode recorded it.
+- The intensity at electrode `e` is `rate_e * sum_j w_j K(x, p_j) K(y, f_j) / sum_j w_j /
+  occupancy(x)` over its encoding spikes `j` (positions `p_j`, features `f_j`, weights
+  `w_j`). Integrating over `y` gives the electrode's ground intensity, so a mark can be
+  sampled exactly: an electrode in proportion to its ground intensity at the position,
+  then an encoding spike in proportion to `w_j K(x, p_j)`, then features around it.
+- It is computed in log space, from the fitted parameters. `non_local_detector`'s own
+  log-intensity helpers floor small values (at `log(1e-15)`), which turns distinct
+  tail densities into ties, and exponentiating in float32 underflows with many
+  features.
+
+<!-- not-executed -->
+```python
+import numpy as np
+from scipy.stats import norm
+
+
+def clusterless_kde_model(encoding_model):
+    """The log mark intensity, mark sampler and ground intensity of a fitted
+    non_local_detector clusterless KDE encoding model, over its interior bins.
+
+    A mark is ``[electrode, feature_1, ..., feature_d]``: the electrode is part of the
+    mark. An electrode without (weighted) training spikes never fires under the model,
+    so its marks have zero intensity. The other electrodes must have the same number of
+    features: densities over different numbers of features are in different units, so
+    ranking them against each other would depend on the features' units.
+    """
+    environment = encoding_model["environment"]
+    bins = np.asarray(environment.place_bin_centers_)[environment.is_track_interior_.ravel()]
+    occupancy = np.asarray(encoding_model["occupancy"])
+    position_std = np.asarray(encoding_model["position_std"])
+    active_feature_counts = {
+        np.shape(features)[1]
+        for features, weights, rate in zip(
+            encoding_model["encoding_spike_waveform_features"],
+            encoding_model["encoding_weights"],
+            encoding_model["mean_rates"],
+            strict=True,
+        )
+        if float(rate) > 0.0 and np.sum(weights) > 0.0
+    }
+    if len(active_feature_counts) != 1:
+        msg = (
+            "The electrodes with spikes must all have the same number of waveform "
+            f"features; got {sorted(active_feature_counts)}. Check groups of electrodes "
+            "with the same number of features separately."
+        )
+        raise ValueError(msg)
+    (n_features,) = active_feature_counts
+    electrodes = []  # None for an electrode that never fires
+    for features, positions, weights, rate in zip(
+        encoding_model["encoding_spike_waveform_features"],
+        encoding_model["encoding_positions"],
+        encoding_model["encoding_weights"],
+        encoding_model["mean_rates"],
+        strict=True,
+    ):
+        features, positions, weights = map(np.asarray, (features, positions, weights))
+        if float(rate) == 0.0 or weights.sum() == 0.0:
+            electrodes.append(None)
+            continue
+        # rate * w_j K(x, p_j) / sum_j w_j / occupancy(x): spike j's share of the
+        # intensity at each bin, (n_encoding, n_bins); zero where occupancy is zero
+        scale = np.divide(
+            float(rate) / weights.sum(),
+            occupancy,
+            out=np.zeros_like(occupancy),
+            where=occupancy > 0,
+        )
+        kernel = (
+            weights[:, None]
+            * np.exp(norm.logpdf(bins[None], positions[:, None], position_std).sum(-1))
+            * scale
+        )
+        ground = kernel.sum(axis=0)  # the waveform kernel integrates to 1
+        electrodes.append(
+            {
+                "features": features,
+                "waveform_std": np.broadcast_to(encoding_model["waveform_std"], n_features),
+                "kernel": kernel,
+                "ground": ground,
+                "spike_cdf": np.cumsum(
+                    np.divide(kernel, ground, out=np.zeros_like(kernel), where=ground > 0),
+                    axis=0,
+                ).T,  # (n_bins, n_encoding)
+            }
+        )
+    electrode_ground = np.stack(
+        [np.zeros(len(bins)) if e is None else e["ground"] for e in electrodes], axis=1
+    )
+    ground = electrode_ground.sum(axis=1)
+    electrode_cdf = np.cumsum(
+        np.divide(
+            electrode_ground,
+            ground[:, None],
+            out=np.zeros_like(electrode_ground),
+            where=ground[:, None] > 0,
+        ),
+        axis=1,
+    )
+
+    def log_mark_intensity(marks):
+        marks = np.asarray(marks)
+        out = np.full((len(marks), len(bins)), -np.inf)
+        for index, electrode in enumerate(electrodes):
+            rows = marks[:, 0] == index
+            if electrode is None or not rows.any():
+                continue
+            # log K_wf(y, f_j), (n, n_encoding); factor out each mark's largest term
+            log_waveform = norm.logpdf(
+                marks[rows, None, 1:], electrode["features"], electrode["waveform_std"]
+            ).sum(-1)
+            largest = log_waveform.max(axis=1, keepdims=True)
+            with np.errstate(divide="ignore"):
+                out[rows] = largest + np.log(
+                    np.exp(log_waveform - largest) @ electrode["kernel"]
+                )
+        return out
+
+    def sample_marks(state_bins, rng):
+        marks = np.empty((len(state_bins), 1 + n_features))
+        which = (electrode_cdf[state_bins] <= rng.random(len(state_bins))[:, None]).sum(1)
+        marks[:, 0] = np.minimum(which, len(electrodes) - 1)
+        for index, electrode in enumerate(electrodes):
+            rows = np.flatnonzero(marks[:, 0] == index)
+            if electrode is None or not len(rows):
+                continue
+            cdf = electrode["spike_cdf"][state_bins[rows]]
+            spike = np.minimum(
+                (cdf <= rng.random(len(rows))[:, None]).sum(1), cdf.shape[1] - 1
+            )
+            marks[rows, 1:] = rng.normal(
+                electrode["features"][spike], electrode["waveform_std"]
+            )
+        return marks
+
+    return log_mark_intensity, sample_marks, ground
+```
+
+Applied to a fitted model and its predictive distribution:
+
+<!-- not-executed -->
+```python
+log_mark_intensity, sample_marks, ground_intensity = clusterless_kde_model(
+    model.encoding_model_[("", 0)]
+)
+# predictive: (n_time, n_bins) on the interior bins, as in the example above.
+# Marks of the spikes in [time[0], time[-1]], with the electrode as the first column:
+observed_marks = np.concatenate(
+    [np.column_stack([np.full(len(f), e), f]) for e, f in enumerate(decoded_features)]
+)
+check = ssc.monte_carlo_mark_pvalue(
+    predictive[event_time_ind],
+    log_mark_intensity,
+    observed_marks,
+    ground_intensity=ground_intensity,
+    sample_marks=sample_marks,
+    rng=0,
+)
+```
+
+On a fitted two-electrode model, these p-values agreed with numerical integration over the
+marks to within Monte Carlo error, and the log intensity agreed with
+`non_local_detector`'s to float32 precision. Two cases need more than this adapter:
+
+- **The clusterless GMM backend** fits its ground intensity and its joint position and
+  waveform model separately, so the saved ground intensity need not be the integral of
+  the joint model's intensity, and a mismatch biases the p-values. Derive the ground
+  intensity from the joint model's position marginal before using it here.
+- **Detectors with more than one observation model**: local states (whose intensity
+  depends on the animal's actual position), several encoding groups or environments, or
+  a no-spike state. Summing the predictive distribution over such states and applying one
+  mark model is not correct; each state's predictive mass needs its own model, with the
+  predictive rows, valid bins and intensities kept aligned. Decoders whose states share
+  one encoding model, such as continuous and fragmented dynamics, fit this interface.
+
 ## A Gaussian (Kalman filter) prediction
 
 The diagnostics compare distributions on a grid. For a decoder whose prediction is

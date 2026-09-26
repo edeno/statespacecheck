@@ -6,12 +6,19 @@ state space models.
 """
 
 from statespacecheck._validation import DistributionArray
+from statespacecheck.continuous_marks import (
+    LogMarkIntensity,
+    MarkPredictiveCheck,
+    MarkSampler,
+    monte_carlo_mark_pvalue,
+)
 from statespacecheck.events import (
     EventDiagnostics,
     EventFlags,
     baseline_threshold,
     event_diagnostics,
     event_likelihood,
+    event_weighted_predictive,
     flag_events,
     mark_predictive_pvalue,
     predictive_mark_probabilities,
@@ -41,12 +48,16 @@ __all__ = [
     "DistributionArray",
     "EventDiagnostics",
     "EventFlags",
+    "LogMarkIntensity",
+    "MarkPredictiveCheck",
+    "MarkSampler",
     "__version__",
     "aggregate_over_period",
     "baseline_threshold",
     "combine_flags",
     "event_diagnostics",
     "event_likelihood",
+    "event_weighted_predictive",
     "find_low_overlap_intervals",
     "flag_events",
     "flag_extreme_kl",
@@ -57,6 +68,7 @@ __all__ = [
     "kl_divergence",
     "log_predictive_density",
     "mark_predictive_pvalue",
+    "monte_carlo_mark_pvalue",
     "plot_diagnostics",
     "predictive_density",
     "predictive_mark_probabilities",

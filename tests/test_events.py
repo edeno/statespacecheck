@@ -10,6 +10,7 @@ from statespacecheck import (
     baseline_threshold,
     event_diagnostics,
     event_likelihood,
+    event_weighted_predictive,
     flag_events,
     hpd_overlap,
     kl_divergence,
@@ -139,6 +140,74 @@ class TestPredictiveMarkProbabilities:
     def test_spatial_shape_mismatch_raises(self):
         with pytest.raises(ValueError, match="mark_intensities must have shape"):
             predictive_mark_probabilities(np.array([[0.5, 0.5]]), np.ones((3, 2)))
+
+
+class TestEventWeightedPredictive:
+    def test_constant_ground_intensity_normalizes_state(self):
+        rng = np.random.default_rng(0)
+        state = rng.random((5, 7))
+        weighted = event_weighted_predictive(state, np.full(7, 3.5))
+        assert_allclose(weighted, state / state.sum(axis=1, keepdims=True), rtol=1e-12)
+
+    def test_matches_weighting_by_ground_intensity_on_2d_grid(self):
+        rng = np.random.default_rng(1)
+        state = rng.random((6, 4, 3))
+        ground = rng.random((4, 3)) * 5
+        weighted = event_weighted_predictive(state, ground)
+        expected = state * ground
+        expected /= expected.sum(axis=(1, 2), keepdims=True)
+        assert weighted.shape == state.shape
+        assert_allclose(weighted, expected, rtol=1e-12)
+
+    def test_sorted_marks_ground_intensity_gives_predictive_mark_probabilities(self):
+        """P_event summed against each mark's share of the intensity is q."""
+        rng = np.random.default_rng(2)
+        state = rng.dirichlet(np.ones(9), size=4)
+        rates = rng.gamma(2.0, size=(9, 5))
+        ground = rates.sum(axis=-1)
+        weighted = event_weighted_predictive(state, ground)
+        assert_allclose(
+            weighted @ (rates / ground[:, None]),
+            predictive_mark_probabilities(state, rates),
+            rtol=1e-12,
+        )
+
+    @pytest.mark.parametrize(
+        ("state", "ground", "match"),
+        [
+            (np.ones((2, 3)), np.ones(4), "ground_intensity must have shape"),
+            (np.ones((2, 3)), -np.ones(3), "ground_intensity must contain only finite"),
+            (np.ones((2, 3)), np.array([1.0, np.inf, 1.0]), "ground_intensity must contain"),
+            (-np.ones((2, 3)), np.ones(3), "state_dist must contain only finite"),
+            (np.ones(3), np.ones(3), "state_dist must have shape"),
+        ],
+    )
+    def test_invalid_input_raises(self, state, ground, match):
+        with pytest.raises(ValueError, match=match):
+            event_weighted_predictive(state, ground)
+
+    @pytest.mark.parametrize(
+        ("state", "expected"),
+        [
+            (np.array([[1e308, 1e308]]), [[0.5, 0.5]]),  # state * ground overflows
+            (np.array([[1e-310, 3e-310]]), [[0.25, 0.75]]),  # subnormal state
+        ],
+    )
+    def test_extreme_state_scale(self, state, expected):
+        assert_allclose(event_weighted_predictive(state, np.array([2.0, 2.0])), expected)
+
+    def test_tiny_state_with_large_intensity_keeps_its_weight(self):
+        """A state entry far below the row's largest can carry most of the event
+        mass when the intensity there is large: 1e-100 * 3e100 = 3 vs 1e300 * 1e-300 = 1."""
+        weighted = event_weighted_predictive(
+            np.array([[1e300, 1e-100]]), np.array([1e-300, 3e100])
+        )
+        assert_allclose(weighted, [[0.25, 0.75]], rtol=1e-12)
+
+    def test_zero_total_rows_are_listed(self):
+        state = np.array([[1.0, 0.0], [0.5, 0.5], [1.0, 0.0]])
+        with pytest.raises(ValueError, match=r"row indices: \[0, 2\]"):
+            event_weighted_predictive(state, np.array([0.0, 1.0]))
 
 
 class TestMarkPredictivePvalue:
