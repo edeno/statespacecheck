@@ -397,3 +397,65 @@ def test_no_events_calls_nothing():
     assert check.observed_log_density.shape == (0,)
     assert check.simulated_log_density is not None
     assert check.simulated_log_density.shape == (0, 5)
+
+
+class TestSilentFailures:
+    """Inputs that used to give wrong p-values without an error."""
+
+    def test_masked_log_intensity_raises(self):
+        """np.ma.log stores 0 (intensity 1) under masked zero-intensity entries."""
+        rates = np.array([[1.0, 1.0], [1.0, 1.0], [0.0, 1.0]])
+        model = MarkModel(
+            lambda m: np.ma.log(rates[:, np.asarray(m)].T),
+            lambda bins, _rng: np.zeros(len(bins), dtype=int),
+            rates.sum(axis=1),
+        )
+        with pytest.raises(ValueError, match="masked array"):
+            monte_carlo_mark_pvalue(np.array([[0.05, 0.05, 0.9]]), model, np.array([0]))
+
+    def test_intensity_where_ground_intensity_is_zero_raises(self):
+        """Lambda(x) = 0 means no events at x, so lambda(x, y) must be 0 there too."""
+        rates = np.array([[4.0, 1.0], [1.0, 1.0], [1.0, 4.0]])
+        ground = rates.sum(axis=1)
+        ground[2] = 0.0
+        model = MarkModel(
+            _log_intensity_of(rates), lambda bins, _rng: np.zeros(len(bins), int), ground
+        )
+        with pytest.raises(ValueError, match="ground_intensity is zero"):
+            monte_carlo_mark_pvalue(np.array([[0.1, 0.1, 0.8]]), model, np.array([1]))
+
+    def test_replicated_marks_of_another_shape_raise(self):
+        """Observed marks with one feature, a sampler returning two."""
+        means = np.array([[0.0, 0.0], [3.0, 3.0]])
+        model = MarkModel(
+            lambda m: norm.logpdf(np.asarray(m)[:, None, :], means, 0.5).sum(-1),
+            lambda bins, rng: rng.normal(means[bins], 0.5),
+            np.ones(2),
+        )
+        with pytest.raises(ValueError, match=r"model\.sample must return marks of shape"):
+            monte_carlo_mark_pvalue(
+                np.full((2, 2), 0.5), model, np.array([[0.0], [3.0]]), n_samples=10, rng=0
+            )
+
+    def test_nan_observed_mark_raises(self):
+        model = _uniform_model(lambda m: np.zeros((len(m), 3)))
+        with pytest.raises(ValueError, match=r"observed_marks .* events \[1\]"):
+            monte_carlo_mark_pvalue(np.full((2, 3), 1 / 3), model, np.array([[0.5], [np.nan]]))
+
+    def test_float32_log_intensity_raises(self):
+        """float32 rounding (about 1e-7) splits marks of equal density: p = 0.49, not 1."""
+        rates = np.array([[0.2, 1.0], [1.8, 1.0]])
+        model = MarkModel(
+            lambda m: np.log(rates[:, np.asarray(m)].T).astype(np.float32),
+            lambda bins, _rng: np.zeros(len(bins), dtype=int),
+            rates.sum(axis=1),
+        )
+        with pytest.raises(ValueError, match="float64"):
+            monte_carlo_mark_pvalue(np.full((2, 2), 0.5), model, np.array([0, 1]))
+
+    def test_errors_name_the_event_not_its_position_in_the_batch(self):
+        state = np.full((20, 3), 1 / 3)
+        state[13] = [0.0, 0.0, 1.0]
+        model = _uniform_model(ground_intensity=np.array([1.0, 1.0, 0.0]))
+        with pytest.raises(ValueError, match=r"row indices: \[13\]"):
+            monte_carlo_mark_pvalue(state, model, np.zeros(20, dtype=int), batch_size=8)

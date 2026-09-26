@@ -127,7 +127,22 @@ def _evaluate_log_intensity(
     spatial_shape: tuple[int, ...],
 ) -> DistributionArray:
     """Evaluate ``log_intensity`` at ``n`` marks, checked, as a new ``(n, n_bins)`` array."""
-    values = np.array(log_intensity(marks), dtype=np.float64)
+    returned = log_intensity(marks)
+    if isinstance(returned, np.ma.MaskedArray):
+        msg = (
+            "model.log_intensity returned a masked array, whose masked entries would be "
+            "read as the values stored under them; return an ndarray with -inf where the "
+            "intensity is zero"
+        )
+        raise ValueError(msg)
+    dtype = np.asarray(returned).dtype
+    if np.issubdtype(dtype, np.floating) and dtype.itemsize < 8:
+        msg = (
+            f"model.log_intensity must return float64 values; it returned {dtype}, whose "
+            "rounding (about 1e-7 for float32) splits marks of equal predictive density"
+        )
+        raise ValueError(msg)
+    values = np.array(returned, dtype=np.float64)
     if values.shape != (n, *spatial_shape):
         msg = (
             f"model.log_intensity must return shape {(n, *spatial_shape)}, the log "
@@ -176,6 +191,7 @@ def _sample_state_bins(
 
 def _monte_carlo_batch(
     state: DistributionArray,
+    event_weighted: DistributionArray,
     ground: DistributionArray,
     observed_marks: NDArray[Any],
     log_intensity: LogMarkIntensity,
@@ -183,6 +199,7 @@ def _monte_carlo_batch(
     spatial_shape: tuple[int, ...],
     n_samples: int,
     rng: np.random.Generator,
+    first_event: int,
 ) -> tuple[DistributionArray, DistributionArray, DistributionArray]:
     """Monte Carlo predictive check of one batch of events.
 
@@ -190,6 +207,8 @@ def _monte_carlo_batch(
     ----------
     state : np.ndarray, shape (n_batch, n_bins)
         Flattened predictive state distributions.
+    event_weighted : np.ndarray, shape (n_batch, n_bins)
+        Their event-weighted distributions, from which states are drawn.
     ground : np.ndarray, shape (n_bins,)
         Flattened ground intensity.
     observed_marks : np.ndarray, shape (n_batch, *mark_shape)
@@ -201,6 +220,8 @@ def _monte_carlo_batch(
         Replicated marks per event.
     rng : np.random.Generator
         Used for the state draws, then by ``sample``.
+    first_event : int
+        Index of the batch's first event, for error messages.
 
     Returns
     -------
@@ -208,8 +229,10 @@ def _monte_carlo_batch(
         Shapes ``(n_batch,)``, ``(n_batch,)`` and ``(n_batch, n_samples)``.
     """
     n_batch, n_bins = state.shape
-    # Raises for rows with no event intensity
-    event_weighted = event_weighted_predictive(state, ground)
+    # Lambda(x) = 0 means no events at x, so lambda(x, y) must be zero there too;
+    # where the state has mass, a finite log intensity would count toward the
+    # density but not toward its normalizer
+    no_events = (ground == 0.0) & (state > 0.0)
     # The state's normalization cancels in the density ratio, so it is left out:
     # summing the row could overflow
     log_state = _safe_log(state)
@@ -217,19 +240,31 @@ def _monte_carlo_batch(
     norm_terms = log_state + _safe_log(ground)
     log_norm = logsumexp(norm_terms, axis=1)
 
-    observed_terms = log_state + _evaluate_log_intensity(
+    observed_log_intensity = _evaluate_log_intensity(
         log_intensity, observed_marks, n_batch, spatial_shape
     )
+    _check_zero_ground(np.isfinite(observed_log_intensity) & no_events, first_event)
+    observed_terms = log_state + observed_log_intensity
     observed_sum = logsumexp(observed_terms, axis=1)
 
     state_bins = _sample_state_bins(event_weighted, n_samples, rng)
     replicated_marks = sample(state_bins.ravel(), rng)
     _check_leading_axis(replicated_marks, n_batch * n_samples, "model.sample")
+    if np.shape(replicated_marks)[1:] != observed_marks.shape[1:]:
+        msg = (
+            f"model.sample must return marks of shape (n, *{observed_marks.shape[1:]}), "
+            f"like observed_marks; got {np.shape(replicated_marks)}"
+        )
+        raise ValueError(msg)
     # The (n_batch, n_samples, n_bins) arrays dominate memory; the evaluated log
     # intensities are a new array, so the state term is added in place
     log_joint = _evaluate_log_intensity(
         log_intensity, np.asarray(replicated_marks), n_batch * n_samples, spatial_shape
     ).reshape(n_batch, n_samples, n_bins)
+    if no_events.any():
+        _check_zero_ground(
+            (np.isfinite(log_joint) & no_events[:, np.newaxis, :]).any(axis=1), first_event
+        )
     log_joint += log_state[:, np.newaxis, :]
     simulated_sum = logsumexp(log_joint, axis=2)
     # A replicate drawn at a state has positive intensity there, so its density
@@ -237,12 +272,14 @@ def _monte_carlo_batch(
     # the intensity function says are impossible
     impossible = np.isneginf(simulated_sum)
     if impossible.any():
+        events = first_event + np.flatnonzero(impossible.any(axis=1))
         msg = (
             f"{int(impossible.sum())} of {impossible.size} marks drawn by model.sample have "
             "zero intensity (model.log_intensity -inf) at every state with predictive "
-            "mass, including the state they were drawn at. model.sample must draw from "
-            "the model model.log_intensity describes, and model.log_intensity must be "
-            "computed in log space"
+            "mass, including the state they were drawn at (events "
+            f"{events[:10].tolist()}). model.sample must draw from the model "
+            "model.log_intensity describes, and model.log_intensity must be computed in "
+            "log space"
         )
         raise ValueError(msg)
 
@@ -261,6 +298,21 @@ def _monte_carlo_batch(
     tolerance = 16 * np.finfo(np.float64).eps * (n_bins + magnitude)
     pvalue = np.mean(simulated_log <= observed_log[:, np.newaxis] + tolerance, axis=1)
     return pvalue, observed_log, simulated_log
+
+
+def _check_zero_ground(finite_at_zero_ground: NDArray[np.bool_], first_event: int) -> None:
+    """Raise if a log intensity is finite at a state with mass but no ground intensity.
+
+    ``finite_at_zero_ground`` has shape ``(n_batch, n_bins)``.
+    """
+    events = np.flatnonzero(finite_at_zero_ground.any(axis=1))
+    if events.size:
+        msg = (
+            "model.log_intensity is finite at state bins where model.ground_intensity is "
+            f"zero (events {(first_event + events)[:10].tolist()}); the ground intensity "
+            "must be the integral of the intensity over marks"
+        )
+        raise ValueError(msg)
 
 
 # A term more than this far below a log sum changes it by less than exp(-40), about
@@ -438,6 +490,15 @@ def monte_carlo_mark_pvalue(
             f"got shape {marks.shape}"
         )
         raise ValueError(msg)
+    if np.issubdtype(marks.dtype, np.number):
+        per_event = marks.reshape(n_events, int(np.prod(marks.shape[1:])))
+        not_finite = np.flatnonzero(~np.isfinite(per_event).all(axis=1))
+        if not_finite.size:
+            msg = f"observed_marks must be finite; events {not_finite[:10].tolist()} are not"
+            raise ValueError(msg)
+    # For every event at once, so errors name the event (raises for events with no
+    # event intensity)
+    event_weighted = event_weighted_predictive(state, ground)
 
     generator = np.random.default_rng(rng)
     pvalue: DistributionArray = np.empty(n_events)
@@ -447,6 +508,7 @@ def monte_carlo_mark_pvalue(
         stop = min(start + batch_size, n_events)
         batch_pvalue, batch_observed, batch_simulated = _monte_carlo_batch(
             state[start:stop],
+            event_weighted[start:stop],
             ground,
             marks[start:stop],
             model.log_intensity,
@@ -454,6 +516,7 @@ def monte_carlo_mark_pvalue(
             spatial_shape,
             n_samples,
             generator,
+            start,
         )
         pvalue[start:stop] = batch_pvalue
         observed_log[start:stop] = batch_observed
