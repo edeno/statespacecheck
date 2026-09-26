@@ -29,7 +29,7 @@ Functions expect probability distributions as numpy arrays with shapes:
 - `(n_time, n_position_bins)` for 1D spatial distributions
 - `(n_time, n_x_bins, n_y_bins)` for 2D spatial distributions
 
-All distributions must be properly normalized. The time dimension is always first, and methods operate along time to provide time-resolved diagnostics.
+The functions normalize state distributions and likelihoods themselves (the observation likelihood of the predictive-density functions must not be normalized over states). The time (or event) dimension is always first.
 
 ## Development Commands
 

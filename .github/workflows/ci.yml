@@ -26,7 +26,9 @@ permissions:
 # A newer push to the same branch or PR supersedes a running workflow; tags
 # each get their own group, so a release run is never cancelled.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  # The weekly scheduled run has its own group, so it neither cancels nor is
+  # cancelled by a push to main.
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name == 'schedule' }}
   cancel-in-progress: true
 
 defaults:

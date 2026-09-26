@@ -34,8 +34,11 @@ keywords:
   - neural-decoding
   - goodness-of-fit
   - model-checking
+  - predictive-checks
   - point-process
   - spike-trains
+  - bayesian
+  - diagnostics
 references:
   - type: article
     title: Local goodness-of-fit measures for neural decoding

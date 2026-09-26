@@ -1,6 +1,7 @@
 """Generate the API reference: an overview page and one page per module."""
 
 import inspect
+import re
 from pathlib import Path
 
 import mkdocs_gen_files
@@ -87,7 +88,8 @@ for module, title, description in MODULES:
     overview.append(f"## [{title}]({page})\n\n{description}\n\n")
     for name in names:
         doc = inspect.getdoc(getattr(statespacecheck, name)) or ""
-        summary = doc.split("\n", 1)[0]
+        # Docstrings use reST roles (:func:`name`); show them as code here
+        summary = re.sub(r":\w+:`~?([^`]+)`", r"`\1`", doc.split("\n", 1)[0])
         overview.append(f"- [`{name}`]({page}#{ident}.{name}): {summary}\n")
     overview.append("\n")
 

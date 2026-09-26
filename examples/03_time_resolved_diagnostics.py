@@ -560,7 +560,7 @@ print(
 # - Validate model assumptions across different behavioral states
 #
 # **Next steps:**
-# - **Next notebook**: [04_predictive_checks](../04_predictive_checks/) - Advanced posterior predictive checks
+# - **Next notebook**: [04_predictive_checks](../04_predictive_checks/) - Monte Carlo predictive checks of time bins
 # - **Apply to your data**: Use these tools on real state space model outputs!
 
 # %% [markdown]

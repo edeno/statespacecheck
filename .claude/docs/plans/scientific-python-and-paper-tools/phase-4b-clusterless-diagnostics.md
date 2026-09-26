@@ -85,6 +85,8 @@
       - replaces the README bibtex placeholder DOI (`README.md` Citation section)
       - adds a Zenodo badge
 
+**After the release:** remove the "Until version 0.3 is on PyPI" install note from the README's Installation section (added in phase 3b).
+
 ## Deliberately not in this phase
 
 - A JavaScript port of the continuous-mark diagnostics for the paper's website (overview Non-Goals).

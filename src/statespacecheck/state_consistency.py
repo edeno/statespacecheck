@@ -177,8 +177,8 @@ def kl_divergence(state_dist: ArrayLike, likelihood: ArrayLike) -> DistributionA
 
     Distributions are automatically normalized over valid (non-NaN) bins.
     NaN values mark invalid spatial bins (e.g., inaccessible locations); a bin
-    that is NaN in either input is excluded from both, for normalization and
-    for the divergence.
+    that is NaN (or infinite) in either input is excluded from both, for
+    normalization and for the divergence.
 
     Time slices where distributions have no valid mass return inf for the divergence.
 
@@ -271,7 +271,7 @@ def hpd_overlap(
 
     Distributions are automatically normalized over valid (non-NaN) bins.
     NaN values mark invalid spatial bins (e.g., inaccessible locations); a bin
-    that is NaN in either input is excluded from both HPD regions.
+    that is NaN (or infinite) in either input is excluded from both HPD regions.
 
     """
     validate_coverage(coverage)

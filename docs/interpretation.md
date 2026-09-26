@@ -81,8 +81,9 @@ The diagnostics are local, so flags can be traced to their cause:
   for example place fields that have changed.
 - **Which model**: evaluating two models on the same spikes and counting the spikes
   flagged under one but not the other shows which observations a revision explains.
-  In the paper, adding a fragmented state to a continuous decoder removed most HPD
-  overlap flags during a candidate replay event.
+  In the paper, adding a fragmented state to a continuous decoder removed the HPD
+  overlap flag from most of the spikes flagged under the continuous model, across the
+  session.
 
 The [per-spike tutorial](tutorials/05_per_event_diagnostics.ipynb) shows each step.
 

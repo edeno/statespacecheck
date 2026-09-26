@@ -44,7 +44,7 @@
 # - statespacecheck package installed: `pip install -e /path/to/statespacecheck`
 # - Dependencies: numpy, scipy, matplotlib
 #
-# **Note:** If you're new to Bayesian state space models, see the [README](../README.md) for background reading.
+# **Note:** If you're new to these diagnostics, start with the [documentation home](../../) and [Interpreting the diagnostics](../../interpretation/).
 
 # %% [markdown]
 # ## Setup

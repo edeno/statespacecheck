@@ -31,6 +31,9 @@ interactive website are at
 pip install statespacecheck
 ```
 
+Until version 0.3 is on PyPI, the quick start below needs the development version:
+`pip install git+https://github.com/edeno/statespacecheck`.
+
 ## Quick start
 
 <!-- --8<-- [start:quickstart] -->
