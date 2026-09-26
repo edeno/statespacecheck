@@ -45,15 +45,22 @@ for example `np.digitize(spike_times, time_bin_edges) - 1`.
 
 ## non_local_detector
 
+The examples in this section need `non_local_detector` from its `main` branch (commit
+`84259d4` of 2026-09-22 or later): the released version 0.6.9 cannot return the
+predictive distribution (`predict` has no `return_outputs`), and its clusterless KDE model
+stores no encoding weights. Install it with
+`pip install git+https://github.com/LorenFrankLab/non_local_detector`.
+
 For a fitted sorted-spikes model from
 [non_local_detector](https://github.com/LorenFrankLab/non_local_detector), the
 predictive distribution is `results.predictive_posterior` from
 `model.predict(..., return_outputs="predictive_posterior")`, and
 the place fields are stored one unit per row, over all position bins. Keep only the
 bins on the track, and transpose the place fields. Assign spikes to time bins as the
-decoder does, with the `time` passed to `predict`. (A coming `non_local_detector`
-release takes the decoding bin edges `time_edges` instead, and `results.time` then holds
-the bins' centers; use the same code with `time_edges` in place of `time`.)
+decoder does, with the `time` passed to `predict`. (A change in development makes
+`predict` take the decoding bin edges `time_edges` instead, with `results.time` then
+holding the bins' centers; with it, use the same code with `time_edges` in place of
+`time`.)
 
 <!-- not-executed -->
 ```python
@@ -96,7 +103,8 @@ in the paper repository.
 
 ## Clusterless decoders (non_local_detector KDE)
 
-A clusterless spike's mark is its waveform features, so the predictive p-value comes from
+This needs the same `non_local_detector` version as the section above. A clusterless
+spike's mark is its waveform features, so the predictive p-value comes from
 `monte_carlo_mark_pvalue`, which needs the model as a `MarkModel` of three pieces: the log
 joint mark intensity, a sampler of marks, and the ground intensity (the total spike rate
 at each position). For `non_local_detector`'s clusterless KDE model, all three follow from the
