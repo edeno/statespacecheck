@@ -313,9 +313,24 @@ class TestBaselineThreshold:
         with pytest.raises(ValueError, match="no finite values"):
             baseline_threshold(np.full(4, np.nan), 0.5)
 
-    def test_infinity_raises(self):
-        with pytest.raises(ValueError, match="infinity"):
-            baseline_threshold(np.array([1.0, np.inf]), 0.5)
+    def test_positive_infinity_can_be_the_threshold(self):
+        """KL is +inf for disjoint supports; a high quantile can land on it."""
+        assert baseline_threshold(np.array([1.0, 2.0, np.inf]), 0.99) == np.inf
+        assert baseline_threshold(np.array([1.0, np.inf, np.inf]), 0.5) == np.inf
+
+    def test_positive_infinity_above_the_quantile_is_ignored(self):
+        """Below the infinite values, the threshold equals the usual quantile."""
+        values = np.r_[np.arange(100.0), np.inf]
+        assert baseline_threshold(values, 0.5) == np.quantile(np.arange(101.0), 0.5)
+        assert baseline_threshold(values, 0.0) == 0.0
+
+    def test_negative_infinity_raises(self):
+        with pytest.raises(ValueError, match="-inf"):
+            baseline_threshold(np.array([1.0, -np.inf]), 0.5)
+
+    def test_all_infinite_raises(self):
+        with pytest.raises(ValueError, match="no finite values"):
+            baseline_threshold(np.array([np.inf, np.inf]), 0.5)
 
     @pytest.mark.parametrize("quantile", [-0.1, 1.1])
     def test_invalid_quantile_raises(self, quantile):

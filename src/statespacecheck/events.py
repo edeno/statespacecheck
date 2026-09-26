@@ -459,7 +459,13 @@ def baseline_threshold(baseline_values: NDArray[np.floating], quantile: float) -
     where the model is believed to be well specified. Use a low quantile for
     diagnostics where small values indicate misfit (HPD overlap, e.g. 0.01)
     and a high quantile where large values do (KL divergence, e.g. 0.99), then
-    flag events at or beyond the threshold. NaN values are ignored.
+    flag events at or beyond the threshold (:func:`flag_events`). This is the
+    paper's rule. NaN values are ignored.
+
+    KL divergence is ``+inf`` when the prediction and the likelihood have
+    disjoint support. Such values are allowed: when the requested quantile
+    falls among them the threshold is ``+inf``, and then only infinite values
+    are at or above it.
 
     Parameters
     ----------
@@ -471,13 +477,13 @@ def baseline_threshold(baseline_values: NDArray[np.floating], quantile: float) -
     Returns
     -------
     threshold : float
-        The requested quantile of the finite baseline values.
+        The requested quantile (linear interpolation) of the baseline values.
 
     Raises
     ------
     ValueError
-        If ``quantile`` is outside ``[0, 1]``, or the baseline contains
-        infinity or no finite values (no finite threshold can be estimated).
+        If ``quantile`` is outside ``[0, 1]``, the baseline contains ``-inf``,
+        or it has no finite values.
 
     Examples
     --------
@@ -490,10 +496,17 @@ def baseline_threshold(baseline_values: NDArray[np.floating], quantile: float) -
         msg = f"quantile must lie in [0, 1]; got {quantile}"
         raise ValueError(msg)
     values = np.asarray(baseline_values, dtype=float).ravel()
-    if np.any(np.isinf(values)):
-        msg = "baseline_values contains infinity; a finite threshold cannot be estimated"
+    if np.any(np.isneginf(values)):
+        msg = "baseline_values contains -inf; a threshold cannot be estimated"
         raise ValueError(msg)
+    values = values[~np.isnan(values)]
     if not np.any(np.isfinite(values)):
-        msg = "baseline_values contains no finite values; the threshold would be NaN"
+        msg = "baseline_values contains no finite values; the threshold would be undefined"
         raise ValueError(msg)
-    return float(np.nanquantile(values, quantile))
+    # Linear interpolation between order statistics, as np.quantile does; if
+    # the upper one is +inf the quantile is +inf (interpolating with inf would
+    # give nan).
+    upper_rank = int(np.ceil(quantile * (values.size - 1)))
+    if np.isinf(np.partition(values, upper_rank)[upper_rank]):
+        return float(np.inf)
+    return float(np.quantile(values, quantile))
