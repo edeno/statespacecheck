@@ -24,6 +24,29 @@ def row_chunks(shape: tuple[int, ...]) -> Iterator[slice]:
         yield slice(start, min(start + step, n_rows))
 
 
+def check_threshold_not_nan(value: float, name: str) -> None:
+    """Raise if a flag threshold is NaN, which would silently flag nothing.
+
+    Parameters
+    ----------
+    value : float
+        The threshold.
+    name : str
+        The argument's name, for the error message.
+
+    Raises
+    ------
+    ValueError
+        If ``value`` is NaN.
+    """
+    if np.isnan(value):
+        msg = (
+            f"{name} is NaN, which would flag nothing; a quantile of values that "
+            "include +inf is NaN, so compute baseline thresholds with baseline_threshold"
+        )
+        raise ValueError(msg)
+
+
 def rescale_subnormal_rows(
     flat: DistributionArray, row_sums: DistributionArray
 ) -> tuple[DistributionArray, DistributionArray]:

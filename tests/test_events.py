@@ -422,9 +422,22 @@ class TestFlagEvents:
                 diagnostics.kl_divergence[baseline], 0.99
             ),
         )
+        # The baseline's lowest overlap and highest divergence lie beyond its own
+        # 1st and 99th percentiles, so they are flagged
         assert flags.hpd_overlap is not None
-        assert flags.hpd_overlap.shape == diagnostics.hpd_overlap.shape
-        assert flags.hpd_overlap.dtype == bool
+        assert flags.kl_divergence is not None
+        assert flags.hpd_overlap[np.argmin(diagnostics.hpd_overlap[baseline])]
+        assert flags.kl_divergence[np.argmax(diagnostics.kl_divergence[baseline])]
+
+    @pytest.mark.parametrize(
+        "threshold",
+        ["hpd_overlap_threshold", "kl_divergence_threshold", "pvalue_threshold"],
+    )
+    def test_nan_threshold_raises(self, small_diagnostics, threshold):
+        """A NaN threshold (for example np.quantile of values including +inf) would
+        silently flag nothing."""
+        with pytest.raises(ValueError, match=f"{threshold} is NaN"):
+            flag_events(small_diagnostics, **{threshold: np.nan})
 
 
 class TestEventDiagnosticsErrors:

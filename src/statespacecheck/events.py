@@ -31,7 +31,7 @@ import numpy as np
 from numpy.typing import ArrayLike, NDArray
 from scipy.special import logsumexp
 
-from ._validation import DistributionArray, validate_coverage
+from ._validation import DistributionArray, check_threshold_not_nan, validate_coverage
 from .highest_density import DEFAULT_COVERAGE
 from .state_consistency import hpd_overlap, kl_divergence
 
@@ -661,6 +661,11 @@ def flag_events(
     EventFlags
         Boolean flags for each diagnostic that has a threshold, else None.
 
+    Raises
+    ------
+    ValueError
+        If a threshold is NaN.
+
     Examples
     --------
     Thresholds from a baseline period, as in the paper's simulation:
@@ -688,6 +693,13 @@ def flag_events(
     baseline_threshold : Threshold from a baseline period
     event_diagnostics : Compute the per-event diagnostics
     """
+    for name, threshold in (
+        ("hpd_overlap_threshold", hpd_overlap_threshold),
+        ("kl_divergence_threshold", kl_divergence_threshold),
+        ("pvalue_threshold", pvalue_threshold),
+    ):
+        if threshold is not None:
+            check_threshold_not_nan(threshold, name)
     hpd = np.asarray(diagnostics.hpd_overlap, dtype=float)
     kl = np.asarray(diagnostics.kl_divergence, dtype=float)
     pvalue = np.asarray(diagnostics.predictive_pvalue, dtype=float)

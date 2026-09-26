@@ -21,7 +21,7 @@ import numpy as np
 from numpy.typing import ArrayLike, NDArray
 from scipy.stats import median_abs_deviation
 
-from ._validation import DistributionArray
+from ._validation import DistributionArray, check_threshold_not_nan
 
 
 def aggregate_over_period(
@@ -335,6 +335,11 @@ def flag_low_overlap(
     flags : np.ndarray, shape (n_time,)
         Boolean array indicating flagged time points.
 
+    Raises
+    ------
+    ValueError
+        If ``overlap`` is not 1-D, or ``threshold`` is NaN.
+
     Examples
     --------
     >>> import numpy as np
@@ -350,6 +355,7 @@ def flag_low_overlap(
     combine_flags : Combine multiple diagnostic flag arrays
     """
     overlap_arr = _as_series(overlap, "overlap")
+    check_threshold_not_nan(threshold, "threshold")
     flags = (overlap_arr <= threshold) & np.isfinite(overlap_arr)
     return _enforce_min_len(flags, min_len)
 
@@ -382,6 +388,11 @@ def find_low_overlap_intervals(
         Uses Python slice notation: interval includes start but excludes stop,
         so to extract values use array[start:stop] not array[start:stop+1].
 
+    Raises
+    ------
+    ValueError
+        If ``overlap`` is not 1-D, or ``threshold`` is NaN.
+
     Examples
     --------
     >>> import numpy as np
@@ -400,6 +411,7 @@ def find_low_overlap_intervals(
     flag_low_overlap : Returns boolean mask instead of interval boundaries
     """
     overlap_arr = _as_series(overlap, "overlap")
+    check_threshold_not_nan(threshold, "threshold")
     bad = (overlap_arr <= threshold) & np.isfinite(overlap_arr)
     bad = _enforce_min_len(bad, min_len)
     return _contiguous_runs(bad)
@@ -456,6 +468,11 @@ def flag_extreme_kl(
     - Expected duration of real model failures (persistent vs transient)
     - Tolerance for false alarms (strict → larger min_len)
 
+    Raises
+    ------
+    ValueError
+        If ``kl`` is not 1-D, or ``z_thresh`` is NaN.
+
     Examples
     --------
     >>> import numpy as np
@@ -475,6 +492,7 @@ def flag_extreme_kl(
     """
     kl_arr = _as_series(kl, "kl")
     zscores = _robust_zscore(kl_arr)
+    check_threshold_not_nan(z_thresh, "z_thresh")
     flags = (np.isfinite(zscores) & (zscores > z_thresh)) | np.isposinf(kl_arr)
     return _enforce_min_len(flags, min_len)
 
@@ -509,6 +527,11 @@ def flag_extreme_pvalues(
         Boolean array indicating flagged time points. NaN p-values are never
         flagged.
 
+    Raises
+    ------
+    ValueError
+        If ``pvalues`` is not 1-D, or ``alpha`` is NaN.
+
     Examples
     --------
     >>> import numpy as np
@@ -527,6 +550,7 @@ def flag_extreme_pvalues(
     combine_flags : Combine multiple diagnostic methods
     """
     pvalues_arr = _as_series(pvalues, "pvalues")
+    check_threshold_not_nan(alpha, "alpha")
     flags = np.isfinite(pvalues_arr) & (pvalues_arr <= alpha)
     return _enforce_min_len(flags, min_len)
 

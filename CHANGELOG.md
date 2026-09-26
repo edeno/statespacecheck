@@ -37,6 +37,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `flag_events()`, `flag_low_overlap()`, `find_low_overlap_intervals()`, `flag_extreme_kl()` and `flag_extreme_pvalues()` raise `ValueError` for a NaN threshold, which silently flagged nothing. `np.quantile` of KL divergences that include `+inf` is NaN; `baseline_threshold()` handles them.
 - `mark_predictive_pvalue()` and `event_diagnostics()` scale the tie tolerance by each event's own largest predictive mark probability. It used the largest in the call, so a near-tied event's p-value could depend on `batch_size` or on which other events were passed with it.
 - `kl_divergence()`, `predictive_density()` and `log_predictive_density()` no longer warn "overflow encountered in divide" with NumPy 1.26 when a row's total mass is subnormal; results are unchanged.
 - The predictive-checks tutorial described the p-value with `>=` and treated p near 1 as misfit; it now uses `<=`, one-sided flags, and the paper's terminology. Links between tutorials work on the documentation site.

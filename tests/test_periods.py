@@ -613,3 +613,18 @@ class TestInputErrorsNameTheArgument:
     def test_two_dimensional_series_raises(self, func, name) -> None:
         with pytest.raises(ValueError, match=rf"{name} must be 1-D"):
             func(np.ones((3, 4)))
+
+
+@pytest.mark.parametrize(
+    ("flag", "argument"),
+    [
+        (flag_low_overlap, "threshold"),
+        (find_low_overlap_intervals, "threshold"),
+        (flag_extreme_kl, "z_thresh"),
+        (flag_extreme_pvalues, "alpha"),
+    ],
+)
+def test_nan_threshold_raises(flag, argument):
+    """A NaN threshold would silently flag nothing."""
+    with pytest.raises(ValueError, match=f"{argument} is NaN"):
+        flag(np.full(10, 0.5), **{argument: np.nan})
