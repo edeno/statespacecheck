@@ -547,6 +547,32 @@ class TestEventDiagnosticsErrors:
         fields = rng.gamma(2.0, size=(6, 4))  # (n_bins=6, n_marks=4)
         return predictive, fields
 
+    @pytest.mark.parametrize(
+        ("argument", "value", "match"),
+        [
+            ("mark_intensities", np.nan, "mark_intensities must contain only"),
+            ("mark_intensities", -1.0, "mark_intensities must contain only"),
+            ("mark_intensities", np.inf, "mark_intensities must contain only"),
+            ("predictive", -0.1, r"predictive .*time bins \[1\]"),
+            ("predictive", np.inf, r"predictive .*time bins \[1\]"),
+        ],
+    )
+    def test_invalid_values_raise(self, model, argument, value, match):
+        predictive, fields = model
+        (fields if argument == "mark_intensities" else predictive)[1, 3] = value
+        with pytest.raises(ValueError, match=match):
+            event_diagnostics(predictive, fields, np.array([0, 1]), np.array([0, 1]))
+
+    def test_no_marks_raises(self, model):
+        predictive, _ = model
+        with pytest.raises(ValueError, match="at least one mark"):
+            event_diagnostics(predictive, np.ones((6, 0)), [], [])
+
+    def test_mismatched_mark_intensities_shape_raises(self, model):
+        predictive, fields = model
+        with pytest.raises(ValueError, match=r"shape \(6, 'n_marks'\).*got \(5, 4\)$"):
+            event_diagnostics(predictive, fields[:5], np.array([0]), np.array([0]))
+
     def test_nan_predictive_names_the_argument_and_bin(self, model):
         predictive, fields = model
         predictive[7, 2] = np.nan
