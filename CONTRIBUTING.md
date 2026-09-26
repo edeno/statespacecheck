@@ -121,11 +121,14 @@ uvx pre-commit autoupdate
 **What it checks:**
 - Code formatting with ruff
 - Linting with ruff (auto-fixes when possible)
-- Type checking with mypy
-- All tests with pytest
+- Spelling with codespell
+- Type checking with mypy, in the uv environment
+- File hygiene: large files, merge conflicts, TOML/YAML syntax, trailing
+  whitespace, line endings
 
-CI runs the same tools, but the hook versions can lag behind the ones in
-`uv.lock`; CI is the final word.
+The hooks do not run the tests; run `uv run pytest` yourself, and CI runs them
+on every pull request. [pre-commit.ci](https://pre-commit.ci) runs the hooks on
+pull requests and updates their versions monthly.
 
 ## Continuous Integration
 
