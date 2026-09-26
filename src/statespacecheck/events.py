@@ -27,6 +27,7 @@ axes, and mark intensity tables are ``(..., n_marks)`` over the same spatial
 axes.
 """
 
+from collections.abc import Callable
 from typing import NamedTuple
 
 import numpy as np
@@ -269,17 +270,32 @@ def event_likelihood(event_intensities: ArrayLike) -> DistributionArray:
     flat = flatten_time_spatial(event_intensities)
     with np.errstate(divide="ignore"):
         log_intensity = np.log(flat)
-    log_norm = logsumexp(log_intensity, axis=-1, keepdims=True)
+    likelihood = _normalize_log(
+        log_intensity,
+        lambda rows: (
+            "Cannot compute an event likelihood for rows that are zero everywhere; "
+            f"row indices: {_first(rows)}"
+        ),
+    )
+    return likelihood.reshape(event_intensities.shape)
+
+
+def _normalize_log(
+    log_values: DistributionArray, zero_rows_message: Callable[[NDArray[np.intp]], str]
+) -> DistributionArray:
+    """Normalize each row of ``exp(log_values)`` to sum to 1, working in log space.
+
+    ``log_values`` has shape ``(n_rows, n_bins)``, with ``-inf`` for zeros. Raises
+    ``ValueError(zero_rows_message(rows))`` for rows that are ``-inf`` everywhere.
+    Reductions sum in an order that depends on the memory layout, so callers that
+    must agree bit for bit pass arrays of the same layout.
+    """
+    log_norm = logsumexp(log_values, axis=-1, keepdims=True)
     degenerate = np.isneginf(log_norm[:, 0])
     if np.any(degenerate):
-        bad = np.flatnonzero(degenerate)
-        msg = (
-            "Cannot compute an event likelihood for rows that are zero everywhere; "
-            f"row indices: {_first(bad)}"
-        )
-        raise ValueError(msg)
-    likelihood: DistributionArray = np.exp(log_intensity - log_norm)
-    return likelihood.reshape(event_intensities.shape)
+        raise ValueError(zero_rows_message(np.flatnonzero(degenerate)))
+    normalized: DistributionArray = np.exp(log_values - log_norm)
+    return normalized
 
 
 def predictive_mark_probabilities(
