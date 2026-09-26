@@ -12,7 +12,8 @@ Use the paper's terminology: one-step predictive distribution, single-event like
 
 ### Modules
 
-- **`events.py`**: the paper's method. `event_likelihood`, `predictive_mark_probabilities`, `mark_predictive_pvalue` (exact p-value over units), `event_diagnostics` (all three diagnostics per spike, batched), `baseline_threshold`, `flag_events` (the paper's flag rule: HPD <= t, KL >= t, p <= 0.05).
+- **`events.py`**: the paper's method. `event_likelihood`, `predictive_mark_probabilities`, `event_weighted_predictive`, `mark_predictive_pvalue` (exact p-value over units), `event_diagnostics` (all three diagnostics per spike, batched), `baseline_threshold`, `flag_events` (the paper's flag rule: HPD <= t, KL >= t, p <= 0.05).
+- **`continuous_marks.py`**: the predictive p-value by Monte Carlo for marks that cannot be enumerated (clusterless waveform features): `monte_carlo_mark_pvalue`, its `MarkPredictiveCheck` result, and the `MarkIntensity`/`MarkSampler` callable types. States are drawn from `event_weighted_predictive` (in `events.py`).
 - **`state_consistency.py`**: `hpd_overlap` and `kl_divergence` row by row; used per spike by `event_diagnostics`, or per time bin (an extension).
 - **`highest_density.py`**: `highest_density_region`, the regions HPD overlap compares.
 - **`predictive_checks.py`** (extension): whole-bin predictive densities and a Monte Carlo `predictive_pvalue` with a user sampler.

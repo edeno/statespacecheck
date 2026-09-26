@@ -140,7 +140,9 @@ much broader. See [Interpreting the diagnostics](https://edeno.github.io/statesp
 | HPD overlap (Szymkiewicz–Simpson overlap of 95% HPD regions) | `hpd_overlap`, `highest_density_region` |
 | KL divergence D(predictive ‖ likelihood) | `kl_divergence` |
 | Predictive distribution over units | `predictive_mark_probabilities` |
+| Event-weighted predictive distribution | `event_weighted_predictive` |
 | Rank-based predictive p-value (exact sum over units) | `mark_predictive_pvalue` |
+| Rank-based predictive p-value by Monte Carlo (continuous marks) | `monte_carlo_mark_pvalue` |
 | All three diagnostics for every spike | `event_diagnostics` |
 | Thresholds from a baseline period; flagging | `baseline_threshold`, `flag_events` |
 
@@ -148,6 +150,55 @@ The package also has tools the paper does not use: time-bin versions of the diag
 for a whole-bin likelihood, run-based flagging of time series (`statespacecheck.periods`),
 a generic Monte Carlo predictive check (`predictive_pvalue`), and `plot_diagnostics`. The
 [API reference](https://edeno.github.io/statespacecheck/reference/) marks which is which.
+
+## Continuous marks
+
+With clusterless decoding, each spike's mark is a vector of waveform features rather
+than a unit, so the predictive p-value cannot be summed over marks.
+`monte_carlo_mark_pvalue` estimates it by simulation, as the paper describes: it draws a
+state from the event-weighted predictive distribution, draws a mark for a spike at that
+state, and ranks the observed mark's predictive density among the replicates'. It needs
+the model's joint mark intensity, a sampler of marks, and the total event rate at each
+state. The paper's Figure 2 example, with a 1-D mark:
+
+```python
+import numpy as np
+from scipy.stats import norm
+
+import statespacecheck as ssc
+
+position = np.linspace(0, 100, 200)  # state grid (cm)
+predictive = norm.pdf(position, 35, 8)[np.newaxis]  # one spike's prediction, (1, n_bins)
+sigma = 12.0  # spread of a spike's 1-D mark around the position
+
+
+def mark_intensity(marks):  # lambda(x, y) of marks (n, 1) at every position: (n, n_bins)
+    return norm.pdf(marks, position, sigma)
+
+
+def sample_marks(bins, rng):  # one mark for a spike at each position bin
+    return rng.normal(position[bins], sigma)[:, np.newaxis]
+
+
+check = ssc.monte_carlo_mark_pvalue(
+    predictive,
+    mark_intensity,
+    np.array([[60.0]]),  # the observed mark
+    ground_intensity=np.ones_like(position),  # the same total rate everywhere
+    sample_marks=sample_marks,
+    n_samples=5000,
+    rng=0,
+)
+print(check.pvalue.round(2))
+```
+
+```text
+[0.08]
+```
+
+The observed mark lies in the tail of the predictive mark distribution: the Monte Carlo
+p-value is about 0.08 (numerical integration gives 0.083), above the paper's 0.05 cutoff.
+Results are reproducible for a fixed seed and `batch_size`.
 
 ## Documentation
 
