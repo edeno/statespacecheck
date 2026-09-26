@@ -168,15 +168,25 @@ reports something like `0.2.1.dev3+g1a2b3c4`, and a tagged commit reports
 ### Test Structure
 
 ```
+conftest.py                          # Root: matplotlib backend, closes figures after each test
 tests/
 ├── conftest.py                      # Shared fixtures
 ├── helpers.py                       # Shared test data generators
-├── test_highest_density.py          # HPD region tests
-├── test_state_consistency.py        # KL divergence, HPD overlap tests
-├── test_predictive_density.py       # Predictive checks tests
-├── test_validation.py               # Input validation tests
-├── test_edge_cases.py              # Edge case handling
-└── test_properties.py              # Property-based tests (Hypothesis)
+├── test_events.py                   # Per-spike diagnostics and flagging (the paper's method)
+├── test_state_consistency.py        # KL divergence, HPD overlap
+├── test_highest_density.py          # HPD regions
+├── test_predictive_density.py       # Predictive densities
+├── test_predictive_pvalue.py        # Monte Carlo predictive p-values
+├── test_predictive_consistency.py   # Predictive checks on simulated models
+├── test_periods.py                  # Time-series flagging and aggregation
+├── test_viz.py                      # plot_diagnostics
+├── test_chunking.py                 # Results do not depend on the chunk size
+├── test_docs_examples.py            # README and docs code blocks run as shown
+├── test_validation.py               # Input validation
+├── test_edge_cases.py               # Edge cases
+├── test_kl_subnormal.py             # KL divergence with subnormal numbers
+├── test_properties.py               # Property-based tests (Hypothesis)
+└── test_version.py                  # __version__
 ```
 
 ### Running Tests

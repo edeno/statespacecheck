@@ -1,6 +1,6 @@
 # Scientific Python Compliance and Paper Tools Implementation Plan
 
-**Status:** Phases 1–3 merged to `main`; phase 3b in progress on branch `paper-first-ux`; phases 4a–5 not started.
+**Status:** Phases 1–3 merged to `main`; phase 3b implemented on branch `paper-first-ux` (repository settings, task 27, after merge); phases 4a–5 not started.
 
 Bring `statespacecheck` in line with the [Scientific Python development guide](https://learn.scientific-python.org/development/) using the same layout, tooling and CI as `ripple_detection` and `spectral_connectivity`. Then add the diagnostics the manuscript in `statespacecheck-paper` describes but the package does not yet provide:
 
