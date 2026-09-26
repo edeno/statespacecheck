@@ -7,6 +7,7 @@ and model assumptions.
 """
 
 import numpy as np
+from numpy.typing import ArrayLike
 from scipy.stats import entropy
 
 from ._validation import (
@@ -110,9 +111,7 @@ def _validate_and_normalize_distributions(
     return state_norm, like_norm
 
 
-def kl_divergence(
-    state_dist: DistributionArray, likelihood: DistributionArray
-) -> DistributionArray:
+def kl_divergence(state_dist: ArrayLike, likelihood: ArrayLike) -> DistributionArray:
     """Compute Kullback-Leibler divergence between state distribution and likelihood.
 
     Measures the information divergence between the state distribution and likelihood
@@ -185,8 +184,8 @@ def kl_divergence(
 
 
 def hpd_overlap(
-    state_dist: DistributionArray,
-    likelihood: DistributionArray,
+    state_dist: ArrayLike,
+    likelihood: ArrayLike,
     *,
     coverage: float = DEFAULT_COVERAGE,
 ) -> DistributionArray:
@@ -275,7 +274,7 @@ def hpd_overlap(
 
 
 def _as_paired_arrays(
-    state_dist: DistributionArray, likelihood: DistributionArray
+    state_dist: ArrayLike, likelihood: ArrayLike
 ) -> tuple[DistributionArray, DistributionArray]:
     """Return both inputs as float arrays, raising if their shapes cannot pair."""
     state = np.asarray(state_dist, dtype=float)

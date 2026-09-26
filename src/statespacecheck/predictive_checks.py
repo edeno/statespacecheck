@@ -8,6 +8,7 @@ import warnings
 from collections.abc import Callable
 
 import numpy as np
+from numpy.typing import ArrayLike
 from scipy.special import logsumexp
 
 from ._validation import (
@@ -22,8 +23,8 @@ from ._validation import (
 
 
 def predictive_density(
-    state_dist: DistributionArray,
-    observation_likelihood: DistributionArray,
+    state_dist: ArrayLike,
+    observation_likelihood: ArrayLike,
 ) -> DistributionArray:
     """Compute predictive density by integrating state dist with obs likelihood.
 
@@ -115,10 +116,10 @@ def predictive_density(
 
 
 def log_predictive_density(
-    state_dist: DistributionArray,
-    observation_likelihood: DistributionArray | None = None,
+    state_dist: ArrayLike,
+    observation_likelihood: ArrayLike | None = None,
     *,
-    log_observation_likelihood: DistributionArray | None = None,
+    log_observation_likelihood: ArrayLike | None = None,
 ) -> DistributionArray:
     """Compute log predictive density directly in log-space using logsumexp.
 
@@ -252,8 +253,8 @@ def log_predictive_density(
 
 
 def predictive_pvalue(
-    observed_log_pred: DistributionArray,
-    sample_log_pred: Callable[[int], DistributionArray],
+    observed_log_pred: ArrayLike,
+    sample_log_pred: Callable[[int], ArrayLike],
     *,
     n_samples: int = 1000,
 ) -> DistributionArray:

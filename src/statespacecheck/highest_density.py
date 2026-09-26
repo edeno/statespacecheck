@@ -1,7 +1,7 @@
 """Functions for computing highest density regions."""
 
 import numpy as np
-from numpy.typing import NDArray
+from numpy.typing import ArrayLike, NDArray
 
 from ._validation import (
     DistributionArray,
@@ -16,7 +16,7 @@ DEFAULT_COVERAGE = 0.95
 
 
 def highest_density_region(
-    distribution: DistributionArray, *, coverage: float = DEFAULT_COVERAGE
+    distribution: ArrayLike, *, coverage: float = DEFAULT_COVERAGE
 ) -> NDArray[np.bool_]:
     """Compute boolean mask indicating highest density region membership.
 

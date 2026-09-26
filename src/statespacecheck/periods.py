@@ -9,18 +9,21 @@ This module provides functions to:
 from __future__ import annotations
 
 import warnings
+from typing import Literal
 
 import numpy as np
-from numpy.typing import NDArray
+from numpy.typing import ArrayLike, NDArray
 from scipy.stats import median_abs_deviation
+
+from ._validation import DistributionArray
 
 
 def aggregate_over_period(
-    metric_values: NDArray[np.floating],
-    time_mask: NDArray[np.bool_],
+    metric_values: ArrayLike,
+    time_mask: ArrayLike,
     *,
-    reduction: str = "mean",
-    weights: NDArray[np.floating] | None = None,
+    reduction: Literal["mean", "sum"] = "mean",
+    weights: ArrayLike | None = None,
 ) -> float:
     """Aggregate metric values over specified time period.
 
@@ -248,7 +251,7 @@ def _enforce_min_len(mask: NDArray[np.bool_], min_len: int) -> NDArray[np.bool_]
     return out
 
 
-def _robust_zscore(values: NDArray[np.floating]) -> NDArray[np.floating]:
+def _robust_zscore(values: ArrayLike) -> DistributionArray:
     """Median/MAD-based z-score; returns NaN where values is NaN/Inf.
 
     Uses scipy's median_abs_deviation with Gaussian scaling factor.
@@ -285,7 +288,7 @@ def _robust_zscore(values: NDArray[np.floating]) -> NDArray[np.floating]:
 # ---------- Public API for period detection ----------
 
 
-def _as_series(values: NDArray[np.floating], name: str) -> NDArray[np.floating]:
+def _as_series(values: ArrayLike, name: str) -> DistributionArray:
     """Return ``values`` as a 1-D float array, or raise naming the argument."""
     series = np.asarray(values, dtype=float)
     if series.ndim != 1:
@@ -295,7 +298,7 @@ def _as_series(values: NDArray[np.floating], name: str) -> NDArray[np.floating]:
 
 
 def flag_low_overlap(
-    overlap: NDArray[np.floating],
+    overlap: ArrayLike,
     *,
     threshold: float = 0.4,
     min_len: int = 5,
@@ -345,7 +348,7 @@ def flag_low_overlap(
 
 
 def find_low_overlap_intervals(
-    overlap: NDArray[np.floating],
+    overlap: ArrayLike,
     *,
     threshold: float = 0.4,
     min_len: int = 5,
@@ -396,7 +399,7 @@ def find_low_overlap_intervals(
 
 
 def flag_extreme_kl(
-    kl: NDArray[np.floating],
+    kl: ArrayLike,
     *,
     z_thresh: float = 3.0,
     min_len: int = 5,
@@ -470,7 +473,7 @@ def flag_extreme_kl(
 
 
 def flag_extreme_pvalues(
-    pvalues: NDArray[np.floating],
+    pvalues: ArrayLike,
     *,
     alpha: float = 0.05,
     min_len: int = 5,
@@ -522,7 +525,7 @@ def flag_extreme_pvalues(
 
 
 def combine_flags(
-    *flags: NDArray[np.bool_],
+    *flags: ArrayLike,
     min_votes: int = 2,
     min_len: int = 5,
 ) -> NDArray[np.bool_]:

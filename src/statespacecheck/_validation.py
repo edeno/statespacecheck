@@ -1,12 +1,13 @@
 """Validation utilities for distributions and parameters."""
 
 from collections.abc import Iterator
+from typing import Any
 
 import numpy as np
-from numpy.typing import NDArray
+from numpy.typing import ArrayLike, NDArray
 
-# Type aliases for distribution arrays
-DistributionArray = NDArray[np.floating]
+# Arrays of float64 values the package returns (inputs may be any array-like)
+DistributionArray = NDArray[np.float64]
 
 # The time-bin functions process this many array elements at a time, which
 # bounds their temporary arrays (about 32 MB of float64 each) however long the
@@ -47,7 +48,7 @@ def validate_coverage(coverage: float) -> None:
 
 
 def validate_distribution(
-    distribution: DistributionArray,
+    distribution: ArrayLike,
     name: str = "distribution",
     min_ndim: int = 1,
     allow_nan: bool = True,
@@ -145,8 +146,8 @@ def flatten_time_spatial(arr: DistributionArray) -> DistributionArray:
 
 
 def validate_paired_distributions(
-    dist1: DistributionArray,
-    dist2: DistributionArray,
+    dist1: ArrayLike,
+    dist2: ArrayLike,
     name1: str = "state_dist",
     name2: str = "likelihood",
     min_ndim: int = 2,
@@ -194,7 +195,7 @@ def validate_paired_distributions(
     return clean1, clean2
 
 
-def get_spatial_axes(arr: DistributionArray) -> tuple[int, ...]:
+def get_spatial_axes(arr: NDArray[Any]) -> tuple[int, ...]:
     """Get tuple of spatial dimension axes (all except time axis 0).
 
     Parameters

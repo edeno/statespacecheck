@@ -28,7 +28,7 @@ axes.
 from typing import NamedTuple
 
 import numpy as np
-from numpy.typing import NDArray
+from numpy.typing import ArrayLike, NDArray
 from scipy.special import logsumexp
 
 from ._validation import DistributionArray, validate_coverage
@@ -60,26 +60,26 @@ class EventDiagnostics(NamedTuple):
         ``None`` unless ``return_likelihood=True``.
     """
 
-    hpd_overlap: NDArray[np.floating]
-    kl_divergence: NDArray[np.floating]
-    predictive_pvalue: NDArray[np.floating]
-    likelihood: NDArray[np.floating] | None
+    hpd_overlap: NDArray[np.float64]
+    kl_divergence: NDArray[np.float64]
+    predictive_pvalue: NDArray[np.float64]
+    likelihood: NDArray[np.float64] | None
 
 
 def _flatten_mark_intensities(
-    mark_intensities: NDArray[np.floating], spatial_shape: tuple[int, ...]
-) -> NDArray[np.floating]:
+    mark_intensities: ArrayLike, spatial_shape: tuple[int, ...]
+) -> DistributionArray:
     """Validate a ``(..., n_marks)`` table and flatten it to ``(n_bins, n_marks)``."""
-    mark_intensities = np.asarray(mark_intensities)
-    if mark_intensities.shape[:-1] != spatial_shape or mark_intensities.ndim < 2:
+    table = np.asarray(mark_intensities, dtype=np.float64)
+    if table.shape[:-1] != spatial_shape or table.ndim < 2:
         msg = (
             f"mark_intensities must have shape {(*spatial_shape, 'n_marks')} to match the "
-            f"state distribution's spatial axes; got {mark_intensities.shape}"
+            f"state distribution's spatial axes; got {table.shape}"
         )
-        if mark_intensities.ndim >= 2 and mark_intensities.shape[1:] == spatial_shape:
+        if table.ndim >= 2 and table.shape[1:] == spatial_shape:
             fix = (
                 "mark_intensities.T"
-                if mark_intensities.ndim == 2
+                if table.ndim == 2
                 else "np.moveaxis(mark_intensities, 0, -1)"
             )
             msg += (
@@ -87,20 +87,18 @@ def _flatten_mark_intensities(
                 f"per row; pass {fix}"
             )
         raise ValueError(msg)
-    if mark_intensities.shape[-1] == 0:
+    if table.shape[-1] == 0:
         msg = "mark_intensities must contain at least one mark"
         raise ValueError(msg)
-    if not np.all(np.isfinite(mark_intensities)) or np.any(mark_intensities < 0.0):
+    if not np.all(np.isfinite(table)) or np.any(table < 0.0):
         msg = "mark_intensities must contain only finite nonnegative values"
         raise ValueError(msg)
-    return mark_intensities.reshape(-1, mark_intensities.shape[-1])
+    return table.reshape(-1, table.shape[-1])
 
 
-def _validate_state_distribution(
-    state_dist: DistributionArray, name: str
-) -> DistributionArray:
+def _validate_state_distribution(state_dist: ArrayLike, name: str) -> DistributionArray:
     """Validate a ``(n_events, ...)`` distribution and flatten it to ``(n_events, n_bins)``."""
-    state_dist = np.asarray(state_dist)
+    state_dist = np.asarray(state_dist, dtype=float)
     if state_dist.ndim < 2:
         msg = (
             f"{name} must have shape (n_events, ...) with at least one spatial axis; "
@@ -113,7 +111,7 @@ def _validate_state_distribution(
     return state_dist.reshape(state_dist.shape[0], -1)
 
 
-def _validate_marks(marks: NDArray[np.integer], n_marks: int, name: str) -> NDArray[np.intp]:
+def _validate_marks(marks: ArrayLike, n_marks: int, name: str) -> NDArray[np.intp]:
     """Check that ``marks`` is a 1-D integer array of valid mark indices."""
     marks = np.asarray(marks)
     if marks.ndim == 1 and marks.size == 0:
@@ -194,7 +192,7 @@ def _check_event_inputs(
         raise ValueError(msg)
 
 
-def event_likelihood(event_intensities: NDArray[np.floating]) -> DistributionArray:
+def event_likelihood(event_intensities: ArrayLike) -> DistributionArray:
     """Normalize event intensities over the state space.
 
     For a marked point-process observation model, the likelihood contribution
@@ -266,8 +264,8 @@ def event_likelihood(event_intensities: NDArray[np.floating]) -> DistributionArr
 
 
 def predictive_mark_probabilities(
-    state_dist: DistributionArray, mark_intensities: NDArray[np.floating]
-) -> NDArray[np.floating]:
+    state_dist: ArrayLike, mark_intensities: ArrayLike
+) -> DistributionArray:
     """Compute the predictive probability of each mark for the next event.
 
     Mark intensities are averaged over the state distribution and then
@@ -335,15 +333,15 @@ def predictive_mark_probabilities(
             f"event intensity; row indices: {bad[:10].tolist()}"
         )
         raise ValueError(msg)
-    mark_probabilities: NDArray[np.floating] = expected_intensities / total_intensity
+    mark_probabilities: DistributionArray = expected_intensities / total_intensity
     return mark_probabilities
 
 
 def mark_predictive_pvalue(
-    state_dist: DistributionArray,
-    mark_intensities: NDArray[np.floating],
-    observed_marks: NDArray[np.integer],
-) -> NDArray[np.floating]:
+    state_dist: ArrayLike,
+    mark_intensities: ArrayLike,
+    observed_marks: ArrayLike,
+) -> DistributionArray:
     """Exact predictive p-value of each event's observed mark.
 
     With a finite set of marks, the predictive check can be evaluated exactly
@@ -407,17 +405,17 @@ def mark_predictive_pvalue(
         else 0.0
     )
     no_more_probable = mark_probabilities <= observed[:, None] + atol
-    pvalue: NDArray[np.floating] = (mark_probabilities * no_more_probable).sum(axis=1)
+    pvalue: DistributionArray = (mark_probabilities * no_more_probable).sum(axis=1)
     # The sum can exceed one by a few ulps; clip only that representational error.
     np.minimum(pvalue, 1.0, out=pvalue)
     return pvalue
 
 
 def event_diagnostics(
-    predictive: DistributionArray,
-    mark_intensities: NDArray[np.floating],
-    event_time_ind: NDArray[np.integer],
-    event_marks: NDArray[np.integer],
+    predictive: ArrayLike,
+    mark_intensities: ArrayLike,
+    event_time_ind: ArrayLike,
+    event_marks: ArrayLike,
     *,
     coverage: float = DEFAULT_COVERAGE,
     return_likelihood: bool = False,
@@ -505,10 +503,10 @@ def event_diagnostics(
     _check_event_inputs(predictive_flat, rates, time_ind, marks)
 
     n_events = time_ind.shape[0]
-    event_hpd: NDArray[np.floating] = np.empty(n_events)
-    event_kl: NDArray[np.floating] = np.empty(n_events)
-    event_pvalue: NDArray[np.floating] = np.empty(n_events)
-    likelihood: NDArray[np.floating] | None = (
+    event_hpd: DistributionArray = np.empty(n_events)
+    event_kl: DistributionArray = np.empty(n_events)
+    event_pvalue: DistributionArray = np.empty(n_events)
+    likelihood: DistributionArray | None = (
         np.empty((n_events, rates.shape[0])) if return_likelihood else None
     )
 
@@ -536,7 +534,7 @@ def event_diagnostics(
     )
 
 
-def baseline_threshold(baseline_values: NDArray[np.floating], quantile: float) -> float:
+def baseline_threshold(baseline_values: ArrayLike, quantile: float) -> float:
     """Estimate a flagging threshold from baseline per-event diagnostic values.
 
     Returns the ``quantile`` of values pooled from a period (or simulation)
