@@ -228,6 +228,8 @@ def _contiguous_runs(mask: NDArray[np.bool_]) -> list[tuple[int, int]]:
 def _enforce_min_len(mask: NDArray[np.bool_], min_len: int) -> NDArray[np.bool_]:
     """Remove True-runs shorter than min_len.
 
+    Raises ``ValueError`` if ``min_len`` is less than 1.
+
     Parameters
     ----------
     mask : np.ndarray, shape (n_time,)
@@ -240,6 +242,9 @@ def _enforce_min_len(mask: NDArray[np.bool_], min_len: int) -> NDArray[np.bool_]
     filtered_mask : np.ndarray, shape (n_time,)
         Boolean mask with short runs removed.
     """
+    if min_len < 1:
+        msg = f"min_len must be at least 1; got {min_len}"
+        raise ValueError(msg)
     runs = _contiguous_runs(mask)
     if not runs:
         return np.zeros_like(mask, dtype=bool)
@@ -248,7 +253,7 @@ def _enforce_min_len(mask: NDArray[np.bool_], min_len: int) -> NDArray[np.bool_]
     starts = np.array([start for start, _ in runs], dtype=int)
     stops = np.array([stop for _, stop in runs], dtype=int)
     lengths = stops - starts
-    keep = lengths >= max(1, int(min_len))
+    keep = lengths >= min_len
 
     # Build output by setting kept runs to True
     out = np.zeros_like(mask, dtype=bool)
@@ -292,6 +297,22 @@ def _robust_zscore(values: ArrayLike) -> DistributionArray:
 
 
 # ---------- Public API for period detection ----------
+
+
+def _as_flags(values: ArrayLike, name: str) -> NDArray[np.bool_]:
+    """Return ``values`` as a boolean array, or raise naming the argument.
+
+    Casting other values to bool would flag every nonzero (and NaN) value.
+    """
+    flags = np.asarray(values)
+    if flags.dtype != np.bool_:
+        msg = (
+            f"{name} must be a boolean array (True where flagged); got dtype "
+            f"{flags.dtype}. Pass the output of a flag function, or a comparison such "
+            "as overlap <= threshold"
+        )
+        raise ValueError(msg)
+    return flags
 
 
 def _as_series(values: ArrayLike, name: str) -> DistributionArray:
@@ -338,7 +359,8 @@ def flag_low_overlap(
     Raises
     ------
     ValueError
-        If ``overlap`` is not 1-D, or ``threshold`` is NaN.
+        If ``overlap`` is not 1-D, ``threshold`` is NaN, or ``min_len`` is
+        less than 1.
 
     Examples
     --------
@@ -391,7 +413,8 @@ def find_low_overlap_intervals(
     Raises
     ------
     ValueError
-        If ``overlap`` is not 1-D, or ``threshold`` is NaN.
+        If ``overlap`` is not 1-D, ``threshold`` is NaN, or ``min_len`` is
+        less than 1.
 
     Examples
     --------
@@ -472,7 +495,8 @@ def flag_extreme_kl(
     Raises
     ------
     ValueError
-        If ``kl`` is not 1-D, or ``z_thresh`` is NaN.
+        If ``kl`` is not 1-D, ``z_thresh`` is NaN, or ``min_len`` is less
+        than 1.
 
     Examples
     --------
@@ -531,7 +555,8 @@ def flag_extreme_pvalues(
     Raises
     ------
     ValueError
-        If ``pvalues`` is not 1-D, or ``alpha`` is NaN.
+        If ``pvalues`` is not 1-D, ``alpha`` is NaN, or ``min_len`` is less
+        than 1.
 
     Examples
     --------
@@ -583,7 +608,9 @@ def combine_flags(
     Raises
     ------
     ValueError
-        If no flag arrays provided or if arrays have mismatched lengths.
+        If no flag arrays are provided, if a flag array is not boolean, if
+        arrays have mismatched lengths, if ``min_votes`` is not between 1 and
+        the number of flag arrays, or if ``min_len`` is less than 1.
 
     Examples
     --------
@@ -616,7 +643,12 @@ def combine_flags(
             "    combined = combine_flags(kl_flags, overlap_flags, min_votes=2)"
         )
         raise ValueError(msg)
-    flag_arrays = [np.asarray(flag_arr, dtype=bool) for flag_arr in flags]
+    flag_arrays = [
+        _as_flags(flag_arr, f"flags[{index}]") for index, flag_arr in enumerate(flags)
+    ]
+    if not 1 <= min_votes <= len(flag_arrays):
+        msg = f"min_votes must be between 1 and {len(flag_arrays)} (the number of flag arrays); got {min_votes}"
+        raise ValueError(msg)
     n_time = flag_arrays[0].shape[0]
     if any(flag_arr.shape != (n_time,) for flag_arr in flag_arrays):
         shapes = [flag_arr.shape for flag_arr in flag_arrays]
@@ -632,5 +664,5 @@ def combine_flags(
         )
         raise ValueError(msg)
     votes = np.sum(np.stack(flag_arrays, axis=0), axis=0)
-    combined = votes >= int(min_votes)
+    combined = votes >= min_votes
     return _enforce_min_len(combined, min_len)

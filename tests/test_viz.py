@@ -89,6 +89,12 @@ class TestPlotDiagnostics:
         with pytest.raises(ValueError, match="same length as time"):
             plot_diagnostics(np.arange(10), np.ones(10), np.ones(9), np.ones(10))
 
+    def test_non_boolean_flags_raise(self) -> None:
+        """Metric values passed as flags would shade every nonzero point."""
+        overlap = np.full(10, 0.9)
+        with pytest.raises(ValueError, match="flags must be a boolean array"):
+            plot_diagnostics(np.arange(10), overlap, overlap, overlap, flags=overlap)
+
     def test_single_flagged_point_is_visible(self) -> None:
         """A run of one flagged sample is shaded with nonzero width."""
         time = np.arange(20.0)

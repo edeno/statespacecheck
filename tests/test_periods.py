@@ -628,3 +628,33 @@ def test_nan_threshold_raises(flag, argument):
     """A NaN threshold would silently flag nothing."""
     with pytest.raises(ValueError, match=f"{argument} is NaN"):
         flag(np.full(10, 0.5), **{argument: np.nan})
+
+
+class TestFlagArgumentChecks:
+    """Arguments that would silently flag everything or nothing raise instead."""
+
+    def test_combine_flags_rejects_non_boolean_flags(self):
+        overlap = np.array([0.9, 0.9, 0.9])
+        with pytest.raises(ValueError, match=r"flags\[1\] must be a boolean array"):
+            combine_flags(np.ones(3, dtype=bool), overlap, min_len=1)
+
+    @pytest.mark.parametrize("min_votes", [0, 3])
+    def test_combine_flags_rejects_impossible_min_votes(self, min_votes):
+        flags = np.ones(5, dtype=bool)
+        with pytest.raises(ValueError, match=r"min_votes must be between 1 and 2"):
+            combine_flags(flags, flags, min_votes=min_votes)
+
+    @pytest.mark.parametrize(
+        "flag",
+        [
+            lambda x, n: flag_low_overlap(x, min_len=n),
+            lambda x, n: find_low_overlap_intervals(x, min_len=n),
+            lambda x, n: flag_extreme_kl(x, min_len=n),
+            lambda x, n: flag_extreme_pvalues(x, min_len=n),
+            lambda x, n: combine_flags(x > 0.5, x > 0.5, min_len=n),
+        ],
+        ids=["low_overlap", "intervals", "extreme_kl", "extreme_pvalues", "combine"],
+    )
+    def test_min_len_below_one_raises(self, flag):
+        with pytest.raises(ValueError, match="min_len must be at least 1; got 0"):
+            flag(np.full(10, 0.5), 0)

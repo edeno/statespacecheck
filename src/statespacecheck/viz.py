@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 from numpy.typing import ArrayLike
 
-from .periods import _contiguous_runs, _robust_zscore
+from .periods import _as_flags, _contiguous_runs, _robust_zscore
 
 if TYPE_CHECKING:
     from matplotlib.figure import Figure
@@ -74,7 +74,8 @@ def plot_diagnostics(
     Raises
     ------
     ValueError
-        If a metric or ``flags`` has a different length from ``time``.
+        If a metric or ``flags`` has a different length from ``time``, or if
+        ``flags`` is not boolean.
 
     Examples
     --------
@@ -108,7 +109,7 @@ def plot_diagnostics(
 
     flags_arr = None
     if flags is not None:
-        flags_arr = np.asarray(flags, dtype=bool)
+        flags_arr = _as_flags(flags, "flags")
         if flags_arr.shape != time_arr.shape:
             msg = (
                 f"flags must have the same length as time ({time_arr.shape}); "
