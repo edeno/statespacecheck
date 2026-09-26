@@ -178,13 +178,15 @@ def _sample_state_bins(
     cdf /= cdf[:, -1:]
     # Shifting each row's CDF by its row index makes all rows one increasing
     # sequence, so a single searchsorted draws from every row. side="right"
-    # never selects a zero-probability bin, which adds no width to the CDF.
+    # skips zero-probability bins, which add no width to the CDF.
     offsets = np.arange(n_rows)[:, np.newaxis]
     uniform = rng.random((n_rows, n_samples))
     flat = np.searchsorted((cdf + offsets).ravel(), (uniform + offsets).ravel(), side="right")
     bins = flat.reshape(n_rows, n_samples) - offsets * n_bins
-    # Rounding in cdf + offset can land one past a row's last bin.
-    np.clip(bins, 0, n_bins - 1, out=bins)
+    # Rounding in uniform + offset can carry a draw just below 1 past a row's last
+    # bin with probability; take that bin instead
+    last_with_probability = n_bins - 1 - np.argmax(probabilities[:, ::-1] > 0.0, axis=1)
+    np.minimum(bins, last_with_probability[:, np.newaxis], out=bins)
     state_bins: NDArray[np.intp] = bins.astype(np.intp, copy=False)
     return state_bins
 

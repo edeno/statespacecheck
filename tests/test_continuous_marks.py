@@ -459,3 +459,16 @@ class TestSilentFailures:
         model = _uniform_model(ground_intensity=np.array([1.0, 1.0, 0.0]))
         with pytest.raises(ValueError, match=r"row indices: \[13\]"):
             monte_carlo_mark_pvalue(state, model, np.zeros(20, dtype=int), batch_size=8)
+
+
+def test_sampler_never_draws_a_trailing_zero_probability_bin():
+    """A uniform draw just below 1 can round past a row's last bin; it must fall back
+    to the row's last bin with probability, not to a bin with none."""
+
+    class AlmostOne:
+        def random(self, shape):
+            return np.full(shape, 1.0 - 2.0**-53)
+
+    probabilities = np.array([[0.5, 0.5, 0.0]] * 3)
+    bins = _sample_state_bins(probabilities, 2, AlmostOne())
+    assert_array_equal(bins, 1)
