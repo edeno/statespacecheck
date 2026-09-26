@@ -1,4 +1,4 @@
-"""Functions for computing highest density regions."""
+"""Highest probability-density (HPD) regions of distributions over a grid."""
 
 import numpy as np
 from numpy.typing import ArrayLike, NDArray

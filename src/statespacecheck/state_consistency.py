@@ -1,9 +1,14 @@
-"""State consistency tests for state space model goodness of fit.
+"""Compare a state distribution with a likelihood: HPD overlap and KL divergence.
 
-This module provides functions to assess the consistency between state
-distributions and their component likelihood distributions in Bayesian
-state space models. These tests help identify issues with prior specification
-and model assumptions.
+Each row (a time bin, or an event) pairs a state distribution, such as the
+one-step predictive distribution, with a likelihood over the same states.
+:func:`hpd_overlap` asks whether the two are consistent (their high-probability
+regions overlap); :func:`kl_divergence` measures how different they are.
+
+The paper applies both to each spike, with the spike's single-event likelihood;
+:func:`~statespacecheck.event_diagnostics` does this. Applying them to whole time
+bins with a whole-bin likelihood, which also includes the Poisson exposure term
+and silent units, is an extension beyond the paper.
 """
 
 import numpy as np
@@ -114,9 +119,11 @@ def _validate_and_normalize_distributions(
 def kl_divergence(state_dist: ArrayLike, likelihood: ArrayLike) -> DistributionArray:
     """Compute Kullback-Leibler divergence between state distribution and likelihood.
 
-    Measures the information divergence between the state distribution and likelihood
-    distributions at each time point. Large divergences may indicate issues
-    with the prior specification or model assumptions.
+    Measures how different the likelihood is from the state distribution at each
+    time point, D(state_dist || likelihood). The divergence is large when the two
+    put their mass in different places, but also when the state distribution is
+    broad relative to a consistent likelihood, so the paper uses it as a reference
+    alongside :func:`hpd_overlap` and the predictive p-value.
 
     Parameters
     ----------
@@ -191,9 +198,11 @@ def hpd_overlap(
 ) -> DistributionArray:
     """Compute overlap between HPD regions of state distribution and likelihood.
 
-    Measures the spatial overlap between the highest posterior density regions
-    of the state distribution and likelihood distributions. High overlap suggests
-    consistency between the likelihood and prior contributions to the state estimate.
+    Measures the overlap between the highest probability-density (HPD) regions of
+    the state distribution and the likelihood, as a fraction of the smaller region
+    (the Szymkiewicz-Simpson overlap coefficient). It is 1 when one region lies
+    inside the other, so a broad prediction and a precise, consistent likelihood
+    score 1, and 0 when the regions are disjoint.
 
     Parameters
     ----------

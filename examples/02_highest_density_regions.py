@@ -17,7 +17,7 @@
 # %% [markdown]
 # # Highest Density Regions (HDR)
 #
-# This notebook provides a deep dive into **highest posterior density (HPD) regions**, also called highest density regions (HDR). Understanding HDR is crucial for interpreting the `hpd_overlap()` metric and for visualizing probability distributions.
+# This notebook provides a deep dive into **highest probability-density (HPD) regions**, also called highest density regions (HDR). Understanding HDR is crucial for interpreting the `hpd_overlap()` metric and for visualizing probability distributions.
 #
 # **Learning objectives:**
 # - Understand what highest density regions represent
@@ -26,7 +26,7 @@
 # - Visualize HDR for different distribution types
 # - Understand edge cases and limitations
 #
-# **Previous:** [01_introduction.ipynb](01_introduction.ipynb) | **Next:** [03_time_resolved_diagnostics.ipynb](03_time_resolved_diagnostics.ipynb)
+# **Previous:** [01_introduction](../01_introduction/) | **Next:** [03_time_resolved_diagnostics](../03_time_resolved_diagnostics/)
 
 # %% [markdown]
 # ## Setup
@@ -374,10 +374,9 @@ print(f"Interpretation: {overlap * 100:.1f}% of the smaller HDR overlaps with th
 # - Value of 0.0 means no spatial overlap
 # - Intermediate values show partial agreement
 #
-# **Interpretation guide:**
-# - **> 0.7**: High spatial agreement
-# - **0.3 - 0.7**: Moderate agreement
-# - **< 0.3**: Low agreement (distributions in different regions)
+# **Interpretation:** there is no universal cutoff between these extremes. The paper
+# flags overlap at or below the 1st percentile of values from a period where the model
+# fits (`baseline_threshold`), or at or below a fixed 0.05 in its real data.
 
 # %% [markdown]
 # ## Varying Overlap: A Spectrum
@@ -447,10 +446,8 @@ plt.show()
 # - Reaches zero when distributions don't overlap at all
 # - Smooth transition between perfect and no overlap
 #
-# **Practical thresholds:**
-# - **> 0.7**: Distributions concentrate mass in similar locations
-# - **0.3-0.7**: Partial overlap, some spatial disagreement
-# - **< 0.3**: Distributions are in substantially different regions
+# **Thresholds** depend on the data and the model; set them from a baseline period
+# (see [Interpreting the diagnostics](../../interpretation/)).
 
 # %% [markdown]
 # ## Edge Cases and Robustness
@@ -584,13 +581,12 @@ print("HDR computed only over valid bins")
 #
 # **Practical guidelines:**
 # - Use 95% coverage for consistency with standard practice
-# - Interpret overlap > 0.7 as good spatial agreement
-# - Interpret overlap < 0.3 as poor spatial agreement
+# - Overlap is 1 when one region contains the other (consistent) and 0 when they are disjoint; set flagging thresholds from a baseline period
 # - Visualize HDR to understand distribution structure
 #
 # **Next steps:**
-# - **Next notebook**: [03_time_resolved_diagnostics.ipynb](03_time_resolved_diagnostics.ipynb) - Apply these concepts to time series
-# - **Jump ahead**: [04_predictive_checks.ipynb](04_predictive_checks.ipynb) - Advanced diagnostics
+# - **Next notebook**: [03_time_resolved_diagnostics](../03_time_resolved_diagnostics/) - Apply these concepts to time series
+# - **Jump ahead**: [04_predictive_checks](../04_predictive_checks/) - Advanced diagnostics
 
 # %% [markdown]
 # ## Exercises (Optional)

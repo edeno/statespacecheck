@@ -10,9 +10,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - `flag_events()` and `EventFlags`: the paper's per-event flagging rule. HPD overlap at or below its threshold, KL divergence at or above its threshold, and the predictive p-value at or below its cutoff (default 0.05), each flagged separately.
+- A tutorial of the paper's per-spike workflow (`examples/05_per_event_diagnostics`), and documentation pages on interpreting the diagnostics and on getting the inputs from a decoder (a grid filter, `non_local_detector`, a Kalman filter). The API reference opens with an overview grouped by task that marks the extensions beyond the paper.
 
 ### Changed
 
+- The README and documentation lead with the paper's per-spike workflow: `pip install statespacecheck`, a runnable quick start that flags a simulated misfit, what a decoder must provide, and how to read the results. Fixed cutoff tables (KL < 0.1, HPD overlap > 0.7) that contradicted the paper are removed, the terminology follows the paper (one-step predictive distribution, highest probability-density region), and the extensions beyond the paper are labeled as such. The README and docs examples run in the test suite.
 - **Breaking:** `flag_extreme_pvalues()` is one-sided and flags `p <= alpha`, as in the paper. It used to flag `p < alpha/2 or p > 1 - alpha/2`, which marked the best-fitting observations (p near 1) as misfit. `alpha` and `min_len` are keyword-only.
 - **Breaking:** `plot_diagnostics()` draws a single p-value line at the cutoff, and its threshold arguments are renamed and keyword-only: `tau` → `overlap_threshold`, `z_thresh` → `kl_z_threshold`, `alpha` → `pvalue_threshold`. It checks that the metrics match `time` in length, and shades single flagged samples visibly.
 - **Breaking:** `flag_low_overlap()` and `find_low_overlap_intervals()` flag overlap *at or below* the threshold (was strictly below), as in the paper; with a threshold of 0 from `baseline_threshold()`, zero overlap is now flagged. `threshold` and `min_len` are keyword-only.
@@ -35,6 +37,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The predictive-checks tutorial described the p-value with `>=` and treated p near 1 as misfit; it now uses `<=`, one-sided flags, and the paper's terminology. Links between tutorials work on the documentation site.
 - The predictive-checks tutorial showed p-values computed before the 0.1.1 fix to `predictive_pvalue()`, so misfit periods appeared as p ≈ 1 instead of p ≈ 0; its outputs are regenerated.
 - `predictive_mark_probabilities()`, `mark_predictive_pvalue()` and `event_diagnostics()` no longer emit a spurious "divide by zero encountered in matmul" `RuntimeWarning` on macOS with NumPy < 2.3; results are unchanged.
 - Docstring examples in `periods.py`, `predictive_pvalue()` and `plot_diagnostics()` now run and show their actual output; they run as doctests.

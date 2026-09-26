@@ -1,4 +1,10 @@
-"""Period-level aggregation and detection utilities for time-series metrics.
+"""Flag and aggregate diagnostics that form a time series of time bins.
+
+These are extensions beyond the paper. They treat their input as a regular time
+series: flags can be required to persist for ``min_len`` consecutive time points,
+KL divergence is flagged relative to the rest of the recording, and methods can be
+combined by majority vote. For per-spike values, use
+:func:`~statespacecheck.flag_events`, the paper's rule, instead.
 
 This module provides functions to:
 1. Aggregate time-series goodness-of-fit metrics over specified time periods

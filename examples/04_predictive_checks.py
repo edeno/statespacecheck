@@ -11,18 +11,18 @@
 # ---
 
 # %% [markdown]
-# # Posterior Predictive Checks for State Space Models
+# # One-Step Predictive Checks of Time Bins
 #
-# This notebook introduces **posterior predictive checks**, an advanced diagnostic that asks: "If the model were true, how likely is the observed data?" This provides a complementary view to the state-likelihood consistency checks.
+# This notebook introduces **predictive checks**, which ask: "Given the model's one-step prediction, how likely is the observed data?" Here the check is applied to whole time bins with a Monte Carlo sampler (`predictive_pvalue`), an extension beyond the paper. The paper's rank-based predictive p-value evaluates each spike exactly (`mark_predictive_pvalue`, `event_diagnostics`); see the [per-spike tutorial](../05_per_event_diagnostics/).
 #
 # **Learning objectives:**
 # - Understand predictive density and its computation
 # - Learn when to use log-space for numerical stability
-# - Compute posterior predictive p-values
+# - Compute Monte Carlo predictive p-values
 # - Interpret p-value patterns for model diagnostics
 # - Combine multiple diagnostic approaches
 #
-# **Previous:** [03_time_resolved_diagnostics.ipynb](03_time_resolved_diagnostics.ipynb)
+# **Previous:** [03_time_resolved_diagnostics](../03_time_resolved_diagnostics/)
 
 # %% [markdown]
 # ## Setup
@@ -230,19 +230,20 @@ print("\nLog space is more numerically stable for small probabilities!")
 # - Can directly use log-likelihoods without exp/log round-trip
 
 # %% [markdown]
-# ## Posterior Predictive P-Values
+# ## Predictive P-Values
 #
-# A single predictive density value is hard to interpret ("Is 0.0023 good or bad?"). **Posterior predictive p-values** provide context by comparing to simulated data:
+# A single predictive density value is hard to interpret ("Is 0.0023 good or bad?"). **Predictive p-values** provide context by comparing to simulated data:
 #
 # **Process:**
 # 1. Compute predictive density for observed data
 # 2. Generate many datasets from the model
 # 3. Compute predictive density for each simulated dataset
-# 4. P-value = proportion of simulated densities ≥ observed density
+# 4. P-value = proportion of simulated densities ≤ observed density
 #
 # **Interpretation:**
-# - **p ≈ 0.5**: Observed data is typical for this model
-# - **p ≈ 0 or 1**: Observed data is extreme (model may be misspecified)
+# - **p near 0**: the observed data were less probable than nearly all simulated data: unexpected under the model
+# - **p near 1**: the observed data were among the most probable outcomes: good fit, not misfit
+# - Flag small values, for example p ≤ 0.05
 # - **Systematic patterns**: Indicate model problems
 
 # %% [markdown]
@@ -339,7 +340,7 @@ ax1.axhline(0.5, color="green", linestyle="--", alpha=0.5, linewidth=2, label="E
 ax1.fill_between(np.arange(n_time), 0.05, 0.95, alpha=0.2, color="green", label="90% range")
 ax1.set_xlabel("Time")
 ax1.set_ylabel("P-value")
-ax1.set_title("Posterior Predictive P-values Over Time")
+ax1.set_title("Predictive P-values Over Time")
 ax1.legend(frameon=True, loc="upper right")
 ax1.grid(True, alpha=0.3)
 
@@ -366,7 +367,7 @@ plt.show()
 #
 # **What this tells us:**
 # - Observed data is consistent with model predictions
-# - No systematic deviations (no clustering near 0 or 1)
+# - No systematic deviations (no clustering near 0)
 # - Model appears well-calibrated
 
 # %% [markdown]
@@ -421,10 +422,7 @@ ax1.plot(
     color="#1f77b4",
 )
 ax1.axhline(0.5, color="green", linestyle="--", alpha=0.5, linewidth=2, label="Expected mean")
-ax1.axhline(
-    0.05, color="red", linestyle="--", alpha=0.5, linewidth=2, label="Extreme thresholds"
-)
-ax1.axhline(0.95, color="red", linestyle="--", alpha=0.5, linewidth=2)
+ax1.axhline(0.05, color="red", linestyle="--", alpha=0.5, linewidth=2, label="p = 0.05")
 ax1.axvspan(misfit_start, misfit_end, alpha=0.2, color="red", label="True misfit period")
 ax1.set_ylabel("P-value")
 ax1.set_title("P-values with Model Misspecification")
@@ -445,18 +443,16 @@ plt.show()
 
 # Print statistics
 print("P-value statistics by period:")
-print(f"\n{'Period':<15} {'Mean P-value':>12} {'% Extreme (<0.05 or >0.95)':>25}")
+print(f"\n{'Period':<15} {'Mean P-value':>12} {'% flagged (p <= 0.05)':>25}")
 print("-" * 55)
 good_pvals = p_values_misspec[
     np.concatenate([np.arange(misfit_start), np.arange(misfit_end, n_time)])
 ]
 bad_pvals = p_values_misspec[misfit_start:misfit_end]
 print(
-    f"{'Good fit':<15} {np.mean(good_pvals):>12.3f} {((good_pvals < 0.05) | (good_pvals > 0.95)).sum() / len(good_pvals) * 100:>24.1f}%"
+    f"{'Good fit':<15} {np.mean(good_pvals):>12.3f} {(good_pvals <= 0.05).mean() * 100:>24.1f}%"
 )
-print(
-    f"{'Misfit':<15} {np.mean(bad_pvals):>12.3f} {((bad_pvals < 0.05) | (bad_pvals > 0.95)).sum() / len(bad_pvals) * 100:>24.1f}%"
-)
+print(f"{'Misfit':<15} {np.mean(bad_pvals):>12.3f} {(bad_pvals <= 0.05).mean() * 100:>24.1f}%")
 
 # %% [markdown]
 # ### Interpretation
@@ -465,7 +461,7 @@ print(
 # - **P-values drop dramatically** during misfit period (many near 0)
 # - **Log predictive density decreases** during misfit (data is surprising)
 # - **Good periods** have p-values scattered around 0.5
-# - **Misfit periods** have extreme p-values (data very unlikely under model)
+# - **Misfit periods** have p-values near 0 (data very unlikely under the model)
 #
 # **Why p-values near 0?**
 # - Observed log predictive density is much lower than typical simulations
@@ -508,10 +504,7 @@ ax2.grid(True, alpha=0.3)
 
 # P-values
 ax3.plot(np.arange(n_time), p_values_misspec, linewidth=2.5, color="#2ca02c")
-ax3.axhline(
-    0.05, color="red", linestyle="--", alpha=0.5, linewidth=2, label="Extreme thresholds"
-)
-ax3.axhline(0.95, color="red", linestyle="--", alpha=0.5, linewidth=2)
+ax3.axhline(0.05, color="red", linestyle="--", alpha=0.5, linewidth=2, label="p = 0.05")
 ax3.axhline(0.5, color="green", linestyle="--", alpha=0.5, linewidth=2, label="Expected value")
 ax3.axvspan(misfit_start, misfit_end, alpha=0.2, color="red", label="Misfit period")
 ax3.set_xlabel("Time")
@@ -539,7 +532,7 @@ plt.show()
 #
 # **P-values:**
 # - Compares observed to expected under model
-# - Detects when data is surprising/extreme
+# - Detects when data is surprising (small p)
 # - Requires simulation but provides calibrated interpretation
 #
 # **All three agree:** The misfit period is clearly problematic!
@@ -564,7 +557,7 @@ plt.show()
 # ### 3. Flag Problematic Periods
 # ```python
 # from statespacecheck import flag_extreme_kl, flag_low_overlap
-# kl_flags = flag_extreme_kl(kl_div, threshold=1.0)
+# kl_flags = flag_extreme_kl(kl_div, z_thresh=3.0)
 # overlap_flags = flag_low_overlap(overlap, threshold=0.3)
 # ```
 #
@@ -578,7 +571,7 @@ plt.show()
 # ### 5. Interpret Results
 # - Multiple metrics agree → Strong evidence of problem
 # - Only one metric flags → Investigate further
-# - P-values systematically extreme → Model misspecification
+# - P-values systematically near 0 → Model misspecification
 # - All metrics good → Model fits well!
 
 # %% [markdown]
@@ -596,7 +589,7 @@ plt.show()
 #
 # **Practical insights:**
 # - Predictive checks complement distribution comparison metrics
-# - P-values near 0 or 1 indicate model problems
+# - P-values near 0 indicate model problems; near 1 is good fit
 # - Log-space is essential for realistic applications
 # - Multiple diagnostics provide robustness
 #

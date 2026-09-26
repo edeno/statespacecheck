@@ -1,7 +1,11 @@
-"""Predictive check functions for state space model goodness of fit.
+"""Predictive densities and Monte Carlo predictive checks of whole time bins.
 
-This module provides functions to compute predictive densities and
-perform predictive checks for Bayesian state space models.
+These are extensions beyond the paper. The paper's predictive check is the
+rank-based predictive p-value of each spike, computed exactly over the units by
+:func:`~statespacecheck.mark_predictive_pvalue` and
+:func:`~statespacecheck.event_diagnostics`. The functions here compute the
+predictive density of all observations in a time bin, and a Monte Carlo p-value
+from a user-supplied sampler.
 """
 
 import warnings

@@ -21,13 +21,13 @@
 #
 # **Learning objectives:**
 # - Understand what goodness-of-fit means for latent variable models
-# - Visualize the relationship between posterior and likelihood distributions
+# - Visualize the relationship between the predictive distribution and the likelihood
 # - Learn to use `kl_divergence()` and `hpd_overlap()` functions
 # - Interpret diagnostic metrics
 #
 # **⏱ Estimated time:** 20-25 minutes
 #
-# **Previous:** [README.md](../README.md) | **Next:** [02_highest_density_regions.ipynb](02_highest_density_regions.ipynb)
+# **Previous:** [Home](../../) | **Next:** [02_highest_density_regions](../02_highest_density_regions/)
 
 # %% [markdown]
 # ## Prerequisites
@@ -97,11 +97,11 @@ print("✓ Environment configured correctly!")
 # %% [markdown]
 # ## Key Concept: State Distribution vs Likelihood
 #
-# In Bayesian state space models, the posterior distribution combines two sources of information:
+# In Bayesian state space models, the estimate of the state at each time combines two sources of information:
 #
 # 1. **State distribution** (prior/predictive): What the model expects based on dynamics
 #    - One-step-ahead prediction: $p(x_t | y_{1:t-1})$
-#    - Smoothed distribution: $p(x_t | y_{1:T})$
+#    - Smoothed distribution: $p(x_t | y_{1:T})$ (an alternative; the paper uses the one-step prediction)
 #
 # 2. **Likelihood** (normalized): What the current data says
 #    - Normalized likelihood: $p(y_t | x_t) / \sum_x p(y_t | x_t)$
@@ -235,8 +235,8 @@ plt.show()
 # - **High divergence (> 1.0)**: Substantial mismatch, model problems likely
 #
 # **About these thresholds:** These are empirical guidelines based on experience with neuroscience data. In practice:
-# - KL < 0.1 indicates distributions differ by less than 10% in information content
-# - KL > 1.0 represents substantial information loss if using one distribution instead of the other
+# - KL divergence has no upper bound and no universal cutoff: whether a value is large depends on the data and the model, so compare it with values from a period where the model fits (see `baseline_threshold`)
+# - It measures how *different* the distributions are, not whether they are *consistent*: a broad prediction and a precise likelihood inside it have a large KL divergence but are consistent
 # - **Your data may differ**: Validate these thresholds on known-good and known-bad models in your domain
 #
 # Let's compute KL divergence for our examples:
@@ -267,7 +267,7 @@ print(f"  Poor fit:     {kl_poor:.4f} (high - distributions disagree)")
 # %% [markdown]
 # ## Quantifying Agreement: HPD Overlap
 #
-# Another way to assess agreement is **highest posterior density (HPD) region overlap**. This measures spatial overlap between high-probability regions.
+# Another way to assess agreement is **highest probability-density (HPD) region overlap**. This measures spatial overlap between high-probability regions.
 #
 # **Key idea:**
 # - Identify the 95% HPD region for each distribution
@@ -275,9 +275,9 @@ print(f"  Poor fit:     {kl_poor:.4f} (high - distributions disagree)")
 # - Normalize by the smaller region size
 #
 # **Interpretation:**
-# - **High overlap (> 0.7)**: Distributions concentrate mass in similar regions
-# - **Moderate overlap (0.3 - 0.7)**: Partial agreement
-# - **Low overlap (< 0.3)**: Distributions are spatially inconsistent
+# - **1**: one region lies entirely inside the other; the distributions are consistent, even if one is much broader
+# - **0**: the regions do not overlap; the distributions point to different states
+# - Values in between have no universal cutoff; the paper flags values at or below a low percentile of a period where the model fits
 
 # %%
 # Compute HPD overlap
@@ -359,7 +359,7 @@ plt.show()
 #
 # **HPD Overlap (right panel):**
 # - Decreases as distributions separate
-# - Stays high (> 0.7) when distributions are close
+# - Stays near 1 while the high-probability regions overlap
 # - Drops to zero when distributions don't overlap at all
 #
 # **Notice:** The two metrics provide complementary information. KL divergence is sensitive to the entire distribution shape, while HPD overlap focuses on where the high-probability mass is located.
@@ -429,13 +429,11 @@ plt.show()
 # 3. Agreement indicates good fit; disagreement indicates problems
 #
 # **Diagnostic metrics:**
-# 1. **KL Divergence**: Measures information divergence
-#    - Low (< 0.1): Good agreement
-#    - High (> 1.0): Poor agreement
+# 1. **KL Divergence**: Measures how different the distributions are (0 when identical, no upper bound). It also grows for consistent distributions of different widths, so the paper uses it as a reference.
 #
-# 2. **HPD Overlap**: Measures spatial overlap of high-probability regions
-#    - High (> 0.7): Good spatial agreement
-#    - Low (< 0.3): Poor spatial agreement
+# 2. **HPD Overlap**: Measures whether the high-probability regions overlap (1 when one contains the other, 0 when disjoint). The paper uses it, with a predictive p-value, as a primary diagnostic.
+#
+# Thresholds for either depend on the data and model; see [Interpreting the diagnostics](../../interpretation/).
 #
 # **Key insights:**
 # - Visual inspection builds intuition
@@ -444,8 +442,8 @@ plt.show()
 # - Uncertainty affects interpretation
 #
 # **Next steps:**
-# - **Next notebook**: [02_highest_density_regions.ipynb](02_highest_density_regions.ipynb) - Deep dive into HPD regions
-# - **Jump ahead**: [03_time_resolved_diagnostics.ipynb](03_time_resolved_diagnostics.ipynb) - Apply to real time series data
+# - **Next notebook**: [02_highest_density_regions](../02_highest_density_regions/) - Deep dive into HPD regions
+# - **Jump ahead**: [03_time_resolved_diagnostics](../03_time_resolved_diagnostics/) - Apply to real time series data
 
 # %% [markdown]
 # ## Exercises (Optional)
