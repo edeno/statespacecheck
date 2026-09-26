@@ -121,174 +121,50 @@ uvx pre-commit autoupdate
 **What it checks:**
 - Code formatting with ruff
 - Linting with ruff (auto-fixes when possible)
-- Type checking with mypy
-- All tests with pytest
+- Spelling with codespell
+- Type checking with mypy, in the uv environment
+- File hygiene: large files, merge conflicts, TOML/YAML syntax, trailing
+  whitespace, line endings
 
-CI runs the same tools, but the hook versions can lag behind the ones in
-`uv.lock`; CI is the final word.
+The hooks do not run the tests; run `uv run pytest` yourself, and CI runs them
+on every pull request. [pre-commit.ci](https://pre-commit.ci) runs the hooks on
+pull requests and updates their versions monthly.
 
 ## Continuous Integration
 
-### GitHub Actions Workflow
+`.github/workflows/ci.yml` runs on pull requests and pushes to `main`, on
+`v*` tags, and on demand (Actions → CI → Run workflow). Its jobs:
 
-The CI/CD pipeline runs automatically on:
-- **Pull requests** to `main` branch
-- **Pushes** to `main` branch
-- **Git tags** matching `v*` pattern
+1. **Code Quality** (`quality`): `ruff format --check`, `ruff check` and
+   `mypy` from the locked environment (`uv sync --frozen`), and
+   [zizmor](https://docs.zizmor.sh) on the workflows.
+2. **Lockfile** (`lockfile`): `uv lock --check`.
+3. **Tests** (`test`): Python 3.10–3.14 on Linux, macOS and Windows, with
+   warnings as errors; coverage goes to Codecov from Python 3.12 on Linux.
+4. **Dependency floors** (`test-minimum-pins`): the tests on Python 3.10 with
+   the lowest NumPy, SciPy and matplotlib that `pyproject.toml` allows.
+5. **Build** (`build`) and **install tests** (`test-package`): builds the wheel
+   and sdist, then installs each and runs a smoke test.
+6. **Publish** and **GitHub release**: on `v*` tags only; see below.
 
-### CI Jobs
-
-1. **Code Quality** (`quality`)
-   - Runs on Python 3.12
-   - Checks: `ruff format --check`, `ruff check`, `mypy src/`
-   - Fast feedback (~1-2 minutes)
-
-2. **Tests** (`test`)
-   - Matrix: Python 3.10, 3.11, 3.12, 3.13
-   - Runs: pytest with coverage
-   - Uploads coverage to Codecov (Python 3.12 only)
-
-3. **Build** (`build`)
-   - Requires: `quality` and `test` jobs to pass
-   - Builds: wheel and sdist
-   - Validates: `twine check dist/*`
-   - Uploads: distribution artifacts
-
-4. **Install Tests** (`test-install`)
-   - Matrix: wheel/sdist × Python 3.10/3.13
-   - Tests actual installation from built packages
-   - Verifies: imports, version, public API
-
-5. **Publish to TestPyPI** (`publish-testpypi`)
-   - Trigger: git tags matching `v*`
-   - Tests publishing to TestPyPI first (safety check)
-
-6. **Publish to PyPI** (`publish-pypi`)
-   - Trigger: after TestPyPI succeeds
-   - Publishes to production PyPI
-
-7. **Create GitHub Release** (`create-release`)
-   - Trigger: after PyPI publish succeeds
-   - Creates GitHub release with notes
-   - Attaches distribution files
-
-### Viewing CI Results
-
-- **In Pull Requests**: Check the "Checks" tab
-- **In Commits**: Look for ✓ or ✗ next to commit hash
-- **In Actions**: Go to the "Actions" tab in GitHub
+Every action is pinned to a commit SHA; Dependabot proposes updates monthly.
 
 ## Release Process
 
-### Version Management
+Releases publish from CI when a `vX.Y.Z` tag is pushed. The one-time setup
+(PyPI trusted publishing, the protected `pypi` environment) and the step-by-step
+release are in [.github/RELEASE_SETUP.md](https://github.com/edeno/statespacecheck/blob/main/.github/RELEASE_SETUP.md).
 
-This project uses **VCS-based versioning** with `hatch-vcs`:
-- Version is derived from **git tags**
-- Development versions: `0.1.dev19+gf37b8a4e4.d20251105`
-- Release versions: `0.1.0` (from tag `v0.1.0`)
-
-**Do not** edit version numbers manually in code!
-
-### Creating a Release
-
-1. **Ensure main branch is ready**
-   ```bash
-   git checkout main
-   git pull origin main
-   ```
-
-2. **Verify tests pass locally**
-   ```bash
-   pytest
-   ruff format --check .
-   ruff check .
-   mypy src/
-   ```
-
-3. **Create and push a version tag**
-   ```bash
-   # For version 0.1.0
-   git tag v0.1.0
-   git push origin v0.1.0
-   ```
-
-4. **Monitor the CI/CD pipeline**
-   - Go to GitHub Actions tab
-   - Watch the workflow progress through:
-     - ✓ Code quality and tests
-     - ✓ Build distributions
-     - ✓ Test installations
-     - ✓ Publish to TestPyPI
-     - ⏸️  **Requires approval** → Publish to PyPI
-     - ✓ Create GitHub release
-
-5. **Approve PyPI deployment** (if required)
-   - Go to Actions tab → Click on the workflow run
-   - Click "Review deployments" button
-   - Approve the `pypi` environment
-
-6. **Verify the release**
-   - Check [PyPI](https://pypi.org/project/statespacecheck/)
-   - Check [GitHub Releases](https://github.com/edeno/statespacecheck/releases)
-   - Test installation:
-     ```bash
-     pip install statespacecheck==0.1.0
-     python -c "import statespacecheck; print(statespacecheck.__version__)"
-     ```
+The version comes from the git tag through `hatch-vcs`: a development install
+reports something like `0.2.1.dev3+g1a2b3c4`, and a tagged commit reports
+`X.Y.Z`. **Do not** edit version numbers in the code.
 
 ### Release Checklist
 
-- [ ] All tests pass on main branch
-- [ ] CHANGELOG updated: the `[Unreleased]` section renamed to the version and date
-- [ ] `CITATION.cff` `version` and `date-released` updated
-- [ ] Documentation is up to date
-- [ ] Version tag follows semantic versioning
-- [ ] Tag pushed to GitHub
-- [ ] CI pipeline completes successfully
-- [ ] Package available on PyPI
-- [ ] GitHub release created
-
-## PyPI Trusted Publishing Setup
-
-### First-time Setup
-
-The CI/CD pipeline uses **Trusted Publishing** (no API tokens needed!). Set it up once:
-
-#### 1. PyPI Configuration
-
-1. Go to [pypi.org/manage/account/publishing/](https://pypi.org/manage/account/publishing/)
-2. Scroll to "Add a new pending publisher"
-3. Fill in:
-   - **PyPI Project Name**: `statespacecheck`
-   - **Owner**: `edeno` (your GitHub username)
-   - **Repository name**: `statespacecheck`
-   - **Workflow name**: `ci.yml`
-   - **Environment name**: `pypi`
-4. Click "Add"
-
-#### 2. TestPyPI Configuration (Optional but Recommended)
-
-1. Go to [test.pypi.org/manage/account/publishing/](https://test.pypi.org/manage/account/publishing/)
-2. Repeat the same steps with environment name: `testpypi`
-
-#### 3. GitHub Environments (Optional)
-
-Add approval gates for extra safety:
-
-1. Go to your repo → Settings → Environments
-2. Create `pypi` environment:
-   - Click "New environment"
-   - Name: `pypi`
-   - Add required reviewers (yourself or team members)
-   - Protection rules: Require approval before deployment
-3. Create `testpypi` environment (optional, can be auto-approved)
-
-### How Trusted Publishing Works
-
-1. GitHub Actions generates a short-lived OIDC token
-2. PyPI verifies the token matches the configured repository/workflow
-3. No long-lived API tokens needed!
-4. More secure than using PyPI API tokens
+- [ ] CI passes on `main`
+- [ ] CHANGELOG: the `[Unreleased]` section renamed to `## [X.Y.Z] - YYYY-MM-DD`
+- [ ] `CITATION.cff`: `version` and `date-released` updated
+- [ ] Tag `vX.Y.Z` pushed, following semantic versioning
 
 ## Testing
 
@@ -437,13 +313,10 @@ pip install -e .
 
 ### Version Shows Development String
 
-**Problem**: `__version__` is `0.1.dev19+g...` instead of `0.1.0`
+**Problem**: `__version__` is `X.Y.Z.devN+g...` instead of `X.Y.Z`
 
-**Solution**: This is expected in development! Version comes from git tags. To test release version:
-```bash
-git tag v0.1.0
-pip install -e .
-```
+**Solution**: This is expected in development: the version comes from the most
+recent git tag plus the commits since. Only a tagged commit reports `X.Y.Z`.
 
 ### Tests Failing Locally But Pass in CI
 
