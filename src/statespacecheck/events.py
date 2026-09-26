@@ -375,8 +375,8 @@ def event_weighted_predictive(
     predictive state distribution and ``Lambda`` the ground intensity, the
     total event intensity at each state. A randomly chosen event is more
     likely to come from states with a higher total event intensity, so the
-    state of an event is distributed as ``P`` weighted by ``Lambda``. The two
-    are equal when the ground intensity is constant.
+    state of an event is distributed as ``P`` weighted by ``Lambda``. With a
+    constant, positive ground intensity it is the normalized ``P``.
 
     Parameters
     ----------
@@ -414,8 +414,9 @@ def event_weighted_predictive(
     """
     state = _validate_state_distribution(state_dist, "state_dist")
     ground = _validate_ground_intensity(ground_intensity, np.shape(state_dist)[1:])
-    # In log space, the product and its normalization neither overflow nor
-    # underflow, whatever the scales of the state and the intensity
+    # In log space, the product and its normalization cannot overflow, and no
+    # entry is lost to underflow before normalizing, whatever the scales of the
+    # state and the intensity (entries far below the row's total still round to 0)
     with np.errstate(divide="ignore"):
         log_weighted = np.log(state) + np.log(ground)
     log_total = logsumexp(log_weighted, axis=1, keepdims=True)
