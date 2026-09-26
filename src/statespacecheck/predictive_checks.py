@@ -421,14 +421,13 @@ def predictive_pvalue(
         raise ValueError(msg)
     # A NaN sample compares False, which would silently pull the p-value toward 0
     # and read as misfit; it is a sampler error.
-    if np.isnan(simulated_arr).any():
-        bad = np.flatnonzero(np.isnan(simulated_arr).any(axis=0))
+    nan_times = np.isnan(simulated_arr).any(axis=0)
+    if nan_times.any():
+        bad = np.flatnonzero(nan_times)
         msg = f"sample_log_pred returned NaN at time indices: {bad[:10].tolist()}"
         raise ValueError(msg)
 
-    # Compute p-values: proportion of samples <= observed
-    # Broadcasting: observed_arr has shape (n_time,), simulated_arr has shape (n_samples, n_time)
-    # Comparison broadcasts to (n_samples, n_time), then mean over axis=0 gives (n_time,)
+    # Proportion of samples <= observed at each time: (n_samples, n_time) -> (n_time,).
     # A NaN observation gives a NaN p-value; +-inf follow the comparison
     # (-inf, impossible under the model, gives 0).
     mask = ~np.isnan(observed_arr)

@@ -155,27 +155,6 @@ def make_bimodal_gaussian_1d(
     return np.tile(dist, (n_time, 1))
 
 
-# Test assertion helpers
-
-
-def assert_shape_matches(
-    actual: np.ndarray, expected: np.ndarray, message: str = "Shape mismatch"
-) -> None:
-    """Assert that actual array has same shape as expected."""
-    assert actual.shape == expected.shape, (
-        f"{message}: expected shape {expected.shape}, got {actual.shape}"
-    )
-
-
-def assert_time_vector(
-    actual: np.ndarray, n_time: int, message: str = "Expected time vector"
-) -> None:
-    """Assert that array is 1D with length n_time."""
-    assert actual.shape == (n_time,), (
-        f"{message}: expected shape ({n_time},), got {actual.shape}"
-    )
-
-
 def sum_over_spatial(arr: np.ndarray) -> np.ndarray:
     """Sum over all spatial dimensions, keeping time dimension.
 
