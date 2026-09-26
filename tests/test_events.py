@@ -204,6 +204,14 @@ class TestEventWeightedPredictive:
         )
         assert_allclose(weighted, [[0.25, 0.75]], rtol=1e-12)
 
+    @pytest.mark.parametrize("masked", ["state", "ground"])
+    def test_masked_arrays_raise(self, masked):
+        """A mask would be dropped, and the values under it used."""
+        state = np.ma.masked_array([[0.5, 0.5]], mask=[[False, masked == "state"]])
+        ground = np.ma.masked_array([1.0, 1.0], mask=[False, masked == "ground"])
+        with pytest.raises(ValueError, match="masked array"):
+            event_weighted_predictive(state, ground)
+
     def test_zero_total_rows_are_listed(self):
         state = np.array([[1.0, 0.0], [0.5, 0.5], [1.0, 0.0]])
         with pytest.raises(ValueError, match=r"row indices: \[0, 2\]"):

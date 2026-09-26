@@ -103,8 +103,19 @@ def _flatten_mark_intensities(
     return table.reshape(-1, table.shape[-1])
 
 
+def _reject_masked(values: ArrayLike, name: str) -> None:
+    """Raise for a masked array, whose mask conversion to ndarray would drop."""
+    if isinstance(values, np.ma.MaskedArray):
+        msg = (
+            f"{name} is a masked array; converting it would drop the mask and use the "
+            "values under it. Pass an ndarray (zero where a state has no mass or intensity)"
+        )
+        raise ValueError(msg)
+
+
 def _validate_state_distribution(state_dist: ArrayLike, name: str) -> DistributionArray:
     """Validate a ``(n_events, ...)`` distribution and flatten it to ``(n_events, n_bins)``."""
+    _reject_masked(state_dist, name)
     state_dist = np.asarray(state_dist, dtype=float)
     if state_dist.ndim < 2:
         msg = (
@@ -341,6 +352,7 @@ def _validate_ground_intensity(
     ground_intensity: ArrayLike, spatial_shape: tuple[int, ...]
 ) -> DistributionArray:
     """Check the ground intensity against the state grid and flatten it to ``(n_bins,)``."""
+    _reject_masked(ground_intensity, "ground_intensity")
     ground = np.asarray(ground_intensity, dtype=np.float64)
     if ground.shape != spatial_shape:
         msg = (
