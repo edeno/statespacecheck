@@ -341,13 +341,14 @@ def predictive_pvalue(
     p_values : np.ndarray, shape (n_time,)
         P-value at each time point, computed as the proportion of simulated
         log predictive densities <= observed value.
-        Values range from 0 to 1.
+        Values range from 0 to 1; NaN where ``observed_log_pred`` is NaN.
 
     Raises
     ------
     ValueError
         If observed_log_pred is not 1-dimensional, if n_samples <= 0,
-        or if sample_log_pred returns array with wrong shape.
+        or if sample_log_pred returns an array with the wrong shape or
+        containing NaN.
     TypeError
         If sample_log_pred is not callable.
 
@@ -420,12 +421,19 @@ def predictive_pvalue(
             f"({n_samples}, {n_time}), got shape {simulated_arr.shape}"
         )
         raise ValueError(msg)
+    # A NaN sample compares False, which would silently pull the p-value toward 0
+    # and read as misfit; it is a sampler error.
+    if np.isnan(simulated_arr).any():
+        bad = np.flatnonzero(np.isnan(simulated_arr).any(axis=0))
+        msg = f"sample_log_pred returned NaN at time indices: {bad[:10].tolist()}"
+        raise ValueError(msg)
 
     # Compute p-values: proportion of samples <= observed
     # Broadcasting: observed_arr has shape (n_time,), simulated_arr has shape (n_samples, n_time)
     # Comparison broadcasts to (n_samples, n_time), then mean over axis=0 gives (n_time,)
-    # Handle NaN in observed: propagate NaN rather than returning 0.0
-    mask = np.isfinite(observed_arr)
+    # A NaN observation gives a NaN p-value; +-inf follow the comparison
+    # (-inf, impossible under the model, gives 0).
+    mask = ~np.isnan(observed_arr)
     p_values: DistributionArray = np.full(n_time, np.nan)
     if np.any(mask):
         p_values[mask] = np.mean(simulated_arr[:, mask] <= observed_arr[mask], axis=0)

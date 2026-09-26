@@ -225,3 +225,34 @@ class TestPredictivePValue:
         # Allow range [0.4, 0.6] with large n_samples
         assert np.all(p_values > 0.4)
         assert np.all(p_values < 0.6)
+
+    def test_nan_observed_propagates(self):
+        """A NaN observation gives a NaN p-value; the other time points are unaffected."""
+        observed = np.array([0.0, np.nan, 0.0])
+        p_vals = predictive_pvalue(observed, lambda n: np.zeros((n, 3)), n_samples=10)
+        assert np.isnan(p_vals[1])
+        np.testing.assert_array_equal(p_vals[[0, 2]], [1.0, 1.0])
+
+    def test_all_nan_observed_gives_all_nan(self):
+        """With every observation NaN, every p-value is NaN."""
+        observed = np.full(3, np.nan)
+        p_vals = predictive_pvalue(observed, lambda n: np.zeros((n, 3)), n_samples=10)
+        assert np.all(np.isnan(p_vals))
+
+    def test_infinite_observed_follows_the_comparison(self):
+        """-inf (impossible under the model) gives 0; +inf gives 1."""
+        observed = np.array([-np.inf, np.inf])
+        p_vals = predictive_pvalue(observed, lambda n: np.zeros((n, 2)), n_samples=10)
+        np.testing.assert_array_equal(p_vals, [0.0, 1.0])
+
+    def test_nan_in_samples_raises(self):
+        """NaN simulated values are a sampler error, not evidence of misfit."""
+        observed = np.zeros(2)
+
+        def sampler(n_samples):
+            simulated = np.zeros((n_samples, 2))
+            simulated[:, 1] = np.nan
+            return simulated
+
+        with pytest.raises(ValueError, match="sample_log_pred returned NaN"):
+            predictive_pvalue(observed, sampler, n_samples=10)

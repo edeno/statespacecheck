@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The package ships `py.typed`, so type checkers use its annotations, and a `CITATION.cff`.
 - The license is declared as the SPDX expression `MIT` (PEP 639); Python 3.14 is listed as supported.
 - `predictive_pvalue()` no longer checks that `sample_log_pred` is callable before calling it; a non-callable still raises `TypeError`, now with Python's own message.
+- `predictive_pvalue()` raises `ValueError` when the sampler returns NaN, which previously pulled p-values toward 0 and read as misfit. An observed log predictive density of `-inf` now gives a p-value of 0 and `+inf` gives 1, instead of NaN; only a NaN observation gives NaN.
 
 ### Fixed
 
