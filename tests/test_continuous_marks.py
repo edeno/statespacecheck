@@ -7,7 +7,6 @@ from scipy.stats import kstest, norm
 
 from statespacecheck import (
     MarkPredictiveCheck,
-    event_weighted_predictive,
     mark_predictive_pvalue,
     monte_carlo_mark_pvalue,
     predictive_mark_probabilities,
@@ -99,10 +98,11 @@ def test_calibrated_under_the_true_model(clusterless_1d_model):
     centers = rng.uniform(0.1, 0.9, n_events)
     state = norm.pdf(model.position, centers[:, None], 0.08)
     state /= state.sum(axis=1, keepdims=True)
-    # Draw each event's state from the event-weighted predictive, then its mark
-    state_bins = _sample_state_bins(
-        event_weighted_predictive(state, model.ground_intensity), 1, rng
-    )[:, 0]
+    # Each event's state is drawn from the predictive weighted by the total rate
+    # (computed here independently of the package), then its mark at that state
+    weights = state * model.ground_intensity
+    weights /= weights.sum(axis=1, keepdims=True)
+    state_bins = np.array([rng.choice(len(model.position), p=row) for row in weights])
     observed = model.sample_marks(state_bins, rng)
 
     check = monte_carlo_mark_pvalue(
