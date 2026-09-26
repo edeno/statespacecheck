@@ -38,6 +38,7 @@ __all__ = [
     "DEFAULT_COVERAGE",
     "DistributionArray",
     "EventDiagnostics",
+    "__version__",
     "aggregate_over_period",
     "baseline_threshold",
     "combine_flags",

@@ -16,6 +16,13 @@ def test_version_attribute_exists() -> None:
     assert len(statespacecheck.__version__) > 0
 
 
+def test_version_is_explicitly_exported() -> None:
+    """__version__ is in __all__, so strict type checkers accept it (py.typed)."""
+    import statespacecheck
+
+    assert "__version__" in statespacecheck.__all__
+
+
 def test_version_fallback_to_metadata() -> None:
     """Test that version fallback works when _version module is unavailable."""
     # Remove statespacecheck from sys.modules to force reimport
