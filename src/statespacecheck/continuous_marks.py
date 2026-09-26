@@ -204,6 +204,7 @@ def _monte_carlo_batch(
     log_joint = _evaluate_log_intensity(
         log_mark_intensity, np.asarray(replicated_marks), n_batch * n_samples, spatial_shape
     ).reshape(n_batch, n_samples, n_bins)
+    replicated_magnitude = _largest_finite_magnitude(log_joint)
     log_joint += log_state[:, np.newaxis, :]
     simulated_sum = logsumexp(log_joint, axis=2)
     # A replicate drawn at a state has positive intensity there, so its density
@@ -222,23 +223,32 @@ def _monte_carlo_batch(
 
     observed_log = observed_sum - log_norm
     simulated_log = simulated_sum - log_norm[:, np.newaxis]
-    # Marks of equal predictive density must tie. Each log density carries
-    # rounding of order eps times the magnitudes of its log sums (large when the
-    # intensities or the state are far from 1) plus eps per bin summed.
+    # Marks of equal predictive density must tie. Each log density sums terms
+    # log P(x) + log lambda(x, y) (and log P + log Lambda for the normalizer),
+    # each rounded to about eps times its magnitude before any cancellation, so
+    # the tolerance bounds the largest magnitudes of those terms, plus eps per
+    # bin summed.
+    state_magnitude = _largest_finite_magnitude(log_state)
+    ground_magnitude = _largest_finite_magnitude(_safe_log(ground))
     magnitude = (
-        np.abs(_finite_or_zero(observed_sum))[:, np.newaxis]
-        + np.abs(_finite_or_zero(simulated_sum))
-        + 2 * np.abs(_finite_or_zero(log_norm))[:, np.newaxis]
+        (4 * state_magnitude + _largest_finite_magnitude(observed_log_intensity))[
+            :, np.newaxis
+        ]
+        + replicated_magnitude
+        + 2 * ground_magnitude
     )
     tolerance = 16 * np.finfo(np.float64).eps * (n_bins + magnitude)
     pvalue = np.mean(simulated_log <= observed_log[:, np.newaxis] + tolerance, axis=1)
     return pvalue, observed_log, simulated_log
 
 
-def _finite_or_zero(values: DistributionArray) -> DistributionArray:
-    """``values`` with non-finite entries (log of zero) replaced by 0."""
-    finite: DistributionArray = np.where(np.isfinite(values), values, 0.0)
-    return finite
+def _largest_finite_magnitude(values: DistributionArray) -> DistributionArray:
+    """Largest ``|value|`` along the last axis, ignoring ``-inf`` (log of zero); 0 if none."""
+    finite = np.isfinite(values)
+    largest = np.max(values, axis=-1, where=finite, initial=0.0)
+    smallest = np.min(values, axis=-1, where=finite, initial=0.0)
+    magnitude: DistributionArray = np.maximum(np.abs(largest), np.abs(smallest))
+    return magnitude
 
 
 def _check_positive_integer(value: object, name: str) -> None:

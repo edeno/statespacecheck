@@ -254,6 +254,19 @@ class TestScale:
         check = _two_mark_check(np.full((2, 2), 0.5), rates, [0, 1])
         assert_array_equal(check.pvalue, [1.0, 1.0])
 
+    def test_large_opposite_log_terms_still_tie(self):
+        """log P and log lambda of about -230 and +230 cancel; both marks have
+        probability 0.5, so both p-values are 1."""
+        check = _two_mark_check(np.array([[1e-100, 1.0]] * 2), np.diag([1.1e100, 1.1]), [0, 1])
+        assert_array_equal(check.pvalue, [1.0, 1.0])
+
+    def test_state_and_intensity_far_apart_in_scale(self):
+        """Expected intensities 1e300 * 1e-300 = 1 and 1e-100 * 3e100 = 3: the
+        observed mark 0 has predictive probability 0.25, so p = 0.25."""
+        check = _two_mark_check(np.array([[1e300, 1e-100]]), np.diag([1e-300, 3e100]), [0])
+        assert abs(check.pvalue[0] - 0.25) <= 4 * np.sqrt(0.25 * 0.75 / 10_000)
+        assert_allclose(check.observed_log_density, np.log(0.25), rtol=1e-12)
+
     def test_state_whose_sum_overflows(self):
         """Rows of finite values whose sum overflows still define the prediction."""
         state = np.full((2, 2), 1e308)
