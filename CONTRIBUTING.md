@@ -278,7 +278,12 @@ notebooks; a new tutorial needs a symlink there, a line in that index, and a
 `nav` entry in `mkdocs.yml`. The docs workflow (`.github/workflows/docs.yml`)
 executes every notebook on every pull request, and fails if a committed text
 output differs from the fresh run, if the run warns, or if a pair's cells differ.
-Figures are not compared.
+Figures are not compared. To run the same checks locally:
+
+```bash
+uv run --extra docs jupyter nbconvert --to notebook --execute --output-dir /tmp/executed examples/[0-9][0-9]_*.ipynb
+uv run --extra docs python docs/check_tutorials.py /tmp/executed
+```
 
 ## Code Style Guidelines
 

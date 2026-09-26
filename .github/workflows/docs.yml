@@ -49,70 +49,9 @@ jobs:
           jupyter nbconvert --to notebook --execute --output-dir "$RUNNER_TEMP/executed"
           examples/[0-9][0-9]_*.ipynb
 
-      - name: Check the committed notebook outputs are current
-        # The site shows the committed outputs; their text must match a fresh run
-        # (figures are not compared), and a fresh run must not warn.
-        run: |
-          python - "$RUNNER_TEMP/executed" <<'EOF'
-          import sys
-          from pathlib import Path
-
-          import nbformat
-
-
-          def text_outputs(path):
-              cells = []
-              for cell in nbformat.read(path, as_version=4).cells:
-                  if cell.cell_type == "code":
-                      cells.append([
-                          (out.name, out.text) if out.output_type == "stream"
-                          else ("result", out.data["text/plain"])
-                          for out in cell.outputs
-                          if out.output_type == "stream"
-                          or ("text/plain" in out.get("data", {})
-                              and not any(k.startswith("image/") for k in out.data))
-                      ])
-              return cells
-
-
-          failures = []
-          for committed in sorted(Path("examples").glob("[0-9][0-9]_*.ipynb")):
-              executed = text_outputs(Path(sys.argv[1]) / committed.name)
-              for index, outputs in enumerate(executed):
-                  failures += [
-                      f"{committed.name}, code cell {index}, warns: {text[:300]}"
-                      for name, text in outputs if name == "stderr"
-                  ]
-              for index, (old, new) in enumerate(zip(text_outputs(committed), executed)):
-                  if old != new:
-                      failures.append(
-                          f"{committed.name}, code cell {index}: committed output differs "
-                          f"from a fresh run; re-execute the notebook\n{old}\n{new}"
-                      )
-          print("\n".join(failures) or "committed notebook outputs are current")
-          sys.exit(bool(failures))
-          EOF
-
-      - name: Check each tutorial's .py and .ipynb agree
-        run: |
-          python - <<'EOF'
-          from pathlib import Path
-
-          import jupytext
-
-          scripts = {p.stem for p in Path("examples").glob("[0-9][0-9]_*.py")}
-          notebooks = {p.stem for p in Path("examples").glob("[0-9][0-9]_*.ipynb")}
-          assert scripts and scripts == notebooks, f"unpaired tutorials: {scripts ^ notebooks}"
-          for stem in sorted(scripts):
-              script, notebook = Path(f"examples/{stem}.py"), Path(f"examples/{stem}.ipynb")
-              cells = [(c.cell_type, c.source) for c in jupytext.read(script).cells]
-              nb_cells = [(c.cell_type, c.source) for c in jupytext.read(notebook).cells]
-              assert cells == nb_cells, (
-                  f"{script} and {notebook} differ; run: "
-                  f"uv run --extra docs jupytext --sync {script}"
-              )
-          print("all tutorial pairs agree")
-          EOF
+      - name: Check the tutorials' pairs and committed outputs
+        # The site shows the committed outputs; see docs/check_tutorials.py
+        run: python docs/check_tutorials.py "$RUNNER_TEMP/executed"
 
       - name: Build docs
         run: mkdocs build --strict

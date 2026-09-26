@@ -121,6 +121,7 @@ extra_javascript:
 # The reference generator is a build script, not a page
 exclude_docs: |
   gen_ref_pages.py
+  check_tutorials.py
 
 nav:
   - Home: index.md
