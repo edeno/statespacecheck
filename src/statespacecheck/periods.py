@@ -444,8 +444,9 @@ def flag_extreme_kl(
         KL divergence values.
     z_thresh : float, optional
         Z-score threshold above which values are flagged. Default is 3.0.
-        A value of 3.0 corresponds to p < 0.003 for normal distributions,
-        providing a conservative threshold to avoid false positives.
+        For normally distributed values, 3.0 flags about 0.13% of time points
+        (the rule is one-sided), a conservative threshold against false
+        positives.
         Lower values (e.g., 2.0) are more sensitive but may flag more noise.
     min_len : int, optional
         Minimum length for flagged runs. Default is 5.

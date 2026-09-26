@@ -143,11 +143,12 @@ def plot_diagnostics(
     ax.grid(True, alpha=0.3)
 
     if flags_arr is not None and flags_arr.any():
-        # Shade each run over its samples' full width, half a step either side,
-        # so a run of one sample is visible too; the step is in the time axis's
-        # own units (numbers or datetime64), and other time types get no padding.
-        # Datetimes are padded in the axis's float date numbers (days), because
-        # halving a timedelta64 truncates to its unit (half of 1 s would be 0 s).
+        # Shade each run over its samples' full width, half the median step either
+        # side, so a run of one sample is visible too. Numbers are padded in their
+        # own units (by 0.5 for a single sample), datetime64 in the axis's float
+        # date numbers, because halving a timedelta64 truncates to its unit (half
+        # of 1 s would be 0 s); a single datetime and other time types get no
+        # padding.
         span_time = time_arr
         if np.issubdtype(time_arr.dtype, np.datetime64):
             span_time = np.asarray(axes[0].convert_xunits(time_arr), dtype=float)

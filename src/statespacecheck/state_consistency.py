@@ -230,7 +230,7 @@ def hpd_overlap(
     hpd_overlap : np.ndarray, shape (n_time,)
         Proportion of overlap between the HPD regions of state_dist and
         likelihood at each time point. Values range from 0 (no overlap)
-        to 1 (complete overlap).
+        to 1 (the smaller region lies entirely inside the larger).
 
     Raises
     ------

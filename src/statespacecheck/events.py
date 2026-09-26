@@ -460,7 +460,9 @@ def event_diagnostics(
     ------
     ValueError
         If shapes are inconsistent, indices are out of range, or inputs are
-        negative or non-finite.
+        negative or non-finite; if an event's mark has zero intensity at every
+        position; or if the predictive distribution of an event's time bin
+        puts no mass where any mark has intensity (or the total overflows).
 
     Examples
     --------
