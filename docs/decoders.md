@@ -122,13 +122,17 @@ def clusterless_kde_model(encoding_model):
     non_local_detector clusterless KDE encoding model, over its interior bins.
 
     A mark is ``[electrode, feature_1, ..., feature_d]``: the electrode is part of the
-    mark. Assumes every electrode has the same number of features.
+    mark. An electrode without (weighted) training spikes never fires under the model,
+    so its marks have zero intensity.
     """
     environment = encoding_model["environment"]
     bins = np.asarray(environment.place_bin_centers_)[environment.is_track_interior_.ravel()]
-    log_occupancy = np.log(np.asarray(encoding_model["occupancy"]))
+    occupancy = np.asarray(encoding_model["occupancy"])
     position_std = np.asarray(encoding_model["position_std"])
-    electrodes = []
+    n_features = max(
+        np.shape(f)[1] for f in encoding_model["encoding_spike_waveform_features"]
+    )
+    electrodes = []  # None for an electrode that never fires
     for features, positions, weights, rate in zip(
         encoding_model["encoding_spike_waveform_features"],
         encoding_model["encoding_positions"],
@@ -137,30 +141,47 @@ def clusterless_kde_model(encoding_model):
         strict=True,
     ):
         features, positions, weights = map(np.asarray, (features, positions, weights))
-        waveform_std = np.broadcast_to(
-            np.asarray(encoding_model["waveform_std"]), features.shape[1]
+        if float(rate) == 0.0 or weights.sum() == 0.0:
+            electrodes.append(None)
+            continue
+        # rate * w_j K(x, p_j) / sum_j w_j / occupancy(x): spike j's share of the
+        # intensity at each bin, (n_encoding, n_bins); zero where occupancy is zero
+        scale = np.divide(
+            float(rate) / weights.sum(),
+            occupancy,
+            out=np.zeros_like(occupancy),
+            where=occupancy > 0,
         )
-        # Weighted position kernel of each encoding spike at each bin, (n_encoding, n_bins)
-        kernel = weights[:, None] * np.exp(
-            norm.logpdf(bins[None, :, :], positions[:, None, :], position_std).sum(-1)
+        kernel = (
+            weights[:, None]
+            * np.exp(norm.logpdf(bins[None], positions[:, None], position_std).sum(-1))
+            * scale
         )
-        position_density = kernel.sum(axis=0)  # sum_j w_j K(x, p_j)
+        ground = kernel.sum(axis=0)  # the waveform kernel integrates to 1
         electrodes.append(
             {
                 "features": features,
-                "waveform_std": waveform_std,
+                "waveform_std": np.broadcast_to(encoding_model["waveform_std"], n_features),
                 "kernel": kernel,
-                "log_scale": np.log(float(rate)) - np.log(weights.sum()) - log_occupancy,
-                "ground": float(rate)
-                * position_density
-                / weights.sum()
-                / np.exp(log_occupancy),
-                "spike_cdf": np.cumsum(kernel / position_density, axis=0).T,  # (n_bins, n_enc)
+                "ground": ground,
+                "spike_cdf": np.cumsum(
+                    np.divide(kernel, ground, out=np.zeros_like(kernel), where=ground > 0),
+                    axis=0,
+                ).T,  # (n_bins, n_encoding)
             }
         )
-    ground = sum(electrode["ground"] for electrode in electrodes)
+    electrode_ground = np.stack(
+        [np.zeros(len(bins)) if e is None else e["ground"] for e in electrodes], axis=1
+    )
+    ground = electrode_ground.sum(axis=1)
     electrode_cdf = np.cumsum(
-        np.stack([e["ground"] for e in electrodes], axis=1) / ground[:, None], axis=1
+        np.divide(
+            electrode_ground,
+            ground[:, None],
+            out=np.zeros_like(electrode_ground),
+            where=ground[:, None] > 0,
+        ),
+        axis=1,
     )
 
     def log_mark_intensity(marks):
@@ -168,7 +189,7 @@ def clusterless_kde_model(encoding_model):
         out = np.full((len(marks), len(bins)), -np.inf)
         for index, electrode in enumerate(electrodes):
             rows = marks[:, 0] == index
-            if not rows.any():
+            if electrode is None or not rows.any():
                 continue
             # log K_wf(y, f_j), (n, n_encoding); factor out each mark's largest term
             log_waveform = norm.logpdf(
@@ -176,19 +197,19 @@ def clusterless_kde_model(encoding_model):
             ).sum(-1)
             largest = log_waveform.max(axis=1, keepdims=True)
             with np.errstate(divide="ignore"):
-                out[rows] = (
-                    largest
-                    + np.log(np.exp(log_waveform - largest) @ electrode["kernel"])
-                    + electrode["log_scale"]
+                out[rows] = largest + np.log(
+                    np.exp(log_waveform - largest) @ electrode["kernel"]
                 )
         return out
 
     def sample_marks(state_bins, rng):
-        marks = np.empty((len(state_bins), 1 + electrodes[0]["features"].shape[1]))
+        marks = np.empty((len(state_bins), 1 + n_features))
         which = (electrode_cdf[state_bins] <= rng.random(len(state_bins))[:, None]).sum(1)
         marks[:, 0] = np.minimum(which, len(electrodes) - 1)
         for index, electrode in enumerate(electrodes):
             rows = np.flatnonzero(marks[:, 0] == index)
+            if electrode is None or not len(rows):
+                continue
             cdf = electrode["spike_cdf"][state_bins[rows]]
             spike = np.minimum(
                 (cdf <= rng.random(len(rows))[:, None]).sum(1), cdf.shape[1] - 1
