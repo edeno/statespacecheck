@@ -26,7 +26,7 @@ class TestPredictiveConsistency:
         pred = predictive_density(state, likelihood)
         log_pred_from_density = np.log(pred)
 
-        log_pred_direct = log_predictive_density(state, likelihood=likelihood)
+        log_pred_direct = log_predictive_density(state, observation_likelihood=likelihood)
 
         # Should be very close (within numerical precision)
         np.testing.assert_allclose(log_pred_from_density, log_pred_direct, rtol=1e-10)
@@ -53,10 +53,12 @@ class TestPredictiveConsistency:
         scale_factor = 2.5
 
         # Compute base log predictive
-        log_pred_base = log_predictive_density(state, likelihood=likelihood)
+        log_pred_base = log_predictive_density(state, observation_likelihood=likelihood)
 
         # Compute with scaled likelihood
-        log_pred_scaled = log_predictive_density(state, likelihood=likelihood * scale_factor)
+        log_pred_scaled = log_predictive_density(
+            state, observation_likelihood=likelihood * scale_factor
+        )
 
         # Should differ by log(scale_factor)
         np.testing.assert_allclose(
@@ -73,11 +75,13 @@ class TestPredictiveConsistency:
         log_scale = np.log(scale_factor)
 
         # Compute base log predictive
-        log_pred_base = log_predictive_density(state, log_likelihood=log_likelihood)
+        log_pred_base = log_predictive_density(
+            state, log_observation_likelihood=log_likelihood
+        )
 
         # Compute with scaled log_likelihood (adding log(c))
         log_pred_scaled = log_predictive_density(
-            state, log_likelihood=log_likelihood + log_scale
+            state, log_observation_likelihood=log_likelihood + log_scale
         )
 
         # Should differ by log(scale_factor)
@@ -102,7 +106,7 @@ class TestPredictiveConsistency:
         likelihood = np.array([[0.5, 1.0, 0.8], [1.2, 0.9, 1.1]])
 
         with pytest.warns(UserWarning, match="state_dist has zero-sum rows"):
-            log_pred = log_predictive_density(state, likelihood=likelihood)
+            log_pred = log_predictive_density(state, observation_likelihood=likelihood)
 
         # Second time point should be NaN, first should be valid
         assert np.isfinite(log_pred[0])
@@ -113,8 +117,8 @@ class TestPredictiveConsistency:
         state = np.array([[1.0, 2.0, 3.0]])
         log_likelihood = np.array([[0.5, np.inf, 0.8]])  # Contains +inf
 
-        with pytest.raises(ValueError, match="log_likelihood contains \\+inf"):
-            log_predictive_density(state, log_likelihood=log_likelihood)
+        with pytest.raises(ValueError, match="log_observation_likelihood contains \\+inf"):
+            log_predictive_density(state, log_observation_likelihood=log_likelihood)
 
     def test_neginf_in_log_likelihood_is_allowed(self):
         """Test that -inf in log_likelihood is allowed (represents zero probability)."""
@@ -122,7 +126,7 @@ class TestPredictiveConsistency:
         log_likelihood = np.array([[0.5, -np.inf, 0.8]])  # Contains -inf (OK)
 
         # Should work without error
-        log_pred = log_predictive_density(state, log_likelihood=log_likelihood)
+        log_pred = log_predictive_density(state, log_observation_likelihood=log_likelihood)
 
         # Result should be finite (the -inf term contributes 0 to sum)
         assert np.isfinite(log_pred[0])
@@ -135,8 +139,12 @@ class TestPredictiveConsistency:
         log_likelihood_nan = np.array([[0.5, np.nan, 0.8]])
         log_likelihood_neginf = np.array([[0.5, -np.inf, 0.8]])
 
-        log_pred_nan = log_predictive_density(state, log_likelihood=log_likelihood_nan)
-        log_pred_neginf = log_predictive_density(state, log_likelihood=log_likelihood_neginf)
+        log_pred_nan = log_predictive_density(
+            state, log_observation_likelihood=log_likelihood_nan
+        )
+        log_pred_neginf = log_predictive_density(
+            state, log_observation_likelihood=log_likelihood_neginf
+        )
 
         # Should produce same result
         np.testing.assert_allclose(log_pred_nan, log_pred_neginf, rtol=1e-10)
@@ -151,7 +159,7 @@ class TestPredictiveConsistency:
             pred = predictive_density(state, likelihood)
 
         with pytest.warns(UserWarning, match="state_dist has zero-sum rows"):
-            log_pred = log_predictive_density(state, likelihood=likelihood)
+            log_pred = log_predictive_density(state, observation_likelihood=likelihood)
 
         # Both should return NaN
         assert np.isnan(pred[0])
@@ -164,7 +172,7 @@ class TestPredictiveConsistency:
         likelihood = np.array([[0.1, 0.2, 0.3, 0.2, 0.1]])
 
         pred = predictive_density(state, likelihood)
-        log_pred_direct = log_predictive_density(state, likelihood=likelihood)
+        log_pred_direct = log_predictive_density(state, observation_likelihood=likelihood)
         log_pred_from_density = np.log(pred)
 
         np.testing.assert_allclose(log_pred_from_density, log_pred_direct, rtol=1e-10)
@@ -176,7 +184,7 @@ class TestPredictiveConsistency:
         likelihood = np.array([[0.5, 1.5, 0.8]])
 
         pred = predictive_density(state, likelihood)
-        log_pred_direct = log_predictive_density(state, likelihood=likelihood)
+        log_pred_direct = log_predictive_density(state, observation_likelihood=likelihood)
 
         # Result should be the likelihood value at the nonzero bin
         # State normalizes to [0, 1, 0], so predictive = 1 * 1.5 = 1.5
@@ -201,7 +209,7 @@ class TestPredictiveConsistency:
         likelihood = np.array([[[0.5, 1.0], [1.5, 2.0]], [[1.0, 1.0], [1.0, 1.0]]])
 
         pred = predictive_density(state, likelihood)
-        log_pred_direct = log_predictive_density(state, likelihood=likelihood)
+        log_pred_direct = log_predictive_density(state, observation_likelihood=likelihood)
         log_pred_from_density = np.log(pred)
 
         np.testing.assert_allclose(log_pred_from_density, log_pred_direct, rtol=1e-10)

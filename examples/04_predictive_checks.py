@@ -213,7 +213,9 @@ likelihood_fine_2d = likelihood_fine[np.newaxis, :]
 pred_dens_linear = predictive_density(state_fine_2d, likelihood_fine_2d)[0]
 
 # Log space computation
-log_pred_dens = log_predictive_density(state_fine_2d, likelihood=likelihood_fine_2d)[0]
+log_pred_dens = log_predictive_density(
+    state_fine_2d, observation_likelihood=likelihood_fine_2d
+)[0]
 
 print(f"Linear space: p(y) = {pred_dens_linear:.10f}")
 print(f"Log space: log p(y) = {log_pred_dens:.6f}")
@@ -264,7 +266,9 @@ observed_likelihood = np.array(
 )
 
 # Compute observed log predictive density
-observed_log_pred = log_predictive_density(state_dist_seq, likelihood=observed_likelihood)
+observed_log_pred = log_predictive_density(
+    state_dist_seq, observation_likelihood=observed_likelihood
+)
 
 print("Observed log predictive densities (first 5 time points):")
 print(observed_log_pred[:5])
@@ -293,7 +297,7 @@ def create_sampler(state_dist_seq, true_means, position_bins):
 
             # Compute predictive density for this simulation
             log_pred_samples[i] = log_predictive_density(
-                state_dist_seq, likelihood=sim_likelihood
+                state_dist_seq, observation_likelihood=sim_likelihood
             )
 
         return log_pred_samples
@@ -392,7 +396,7 @@ observed_like_misspec = np.array(
 
 # Compute observed log predictive density
 observed_log_pred_misspec = log_predictive_density(
-    state_dist_misspec, likelihood=observed_like_misspec
+    state_dist_misspec, observation_likelihood=observed_like_misspec
 )
 
 # Create sampler (using correct model means, not observed)
@@ -566,7 +570,7 @@ plt.show()
 #
 # ### 4. If Issues Detected, Compute P-values
 # ```python
-# log_pred = log_predictive_density(state_dist, likelihood=likelihood)
+# log_pred = log_predictive_density(state_dist, observation_likelihood=likelihood)
 # # Create sampler based on your model
 # p_vals = predictive_pvalue(log_pred, sampler, n_samples=1000)
 # ```

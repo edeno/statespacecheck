@@ -22,7 +22,7 @@ from ._validation import (
 
 def predictive_density(
     state_dist: DistributionArray,
-    likelihood: DistributionArray,
+    observation_likelihood: DistributionArray,
 ) -> DistributionArray:
     """Compute predictive density by integrating state dist with obs likelihood.
 
@@ -39,11 +39,12 @@ def predictive_density(
         ... represents arbitrary spatial dimensions.
         Non-negative values (NaN allowed to mark invalid bins).
         Will be normalized over spatial dimensions (everything except time).
-    likelihood : np.ndarray, shape (n_time, ...)
-        Likelihood p(y|x) evaluated at observed data across all positions.
+    observation_likelihood : np.ndarray, shape (n_time, ...)
+        Observation likelihood p(y|x) of the observed data at each position.
         Non-negative values (NaN allowed to mark invalid bins).
-        DO NOT normalize - this is a likelihood function.
-        Must have same shape as state_dist.
+        Not normalized over positions (unlike the ``likelihood`` of
+        :func:`~statespacecheck.kl_divergence`): it is a function of x, not a
+        distribution. Must have same shape as state_dist.
 
     Returns
     -------
@@ -53,8 +54,8 @@ def predictive_density(
     Raises
     ------
     ValueError
-        If state_dist and likelihood have different shapes, or if distributions
-        contain negative values.
+        If state_dist and observation_likelihood have different shapes, or if
+        they contain negative values.
 
     Examples
     --------
@@ -93,7 +94,11 @@ def predictive_density(
     """
     # Validate both distributions (converts NaN/inf to 0, checks shapes)
     state, like = validate_paired_distributions(
-        state_dist, likelihood, name1="state_dist", name2="likelihood", min_ndim=2
+        state_dist,
+        observation_likelihood,
+        name1="state_dist",
+        name2="observation_likelihood",
+        min_ndim=2,
     )
 
     # Flatten for vectorized operations
@@ -133,8 +138,9 @@ def predictive_density(
 
 def log_predictive_density(
     state_dist: DistributionArray,
-    likelihood: DistributionArray | None = None,
-    log_likelihood: DistributionArray | None = None,
+    observation_likelihood: DistributionArray | None = None,
+    *,
+    log_observation_likelihood: DistributionArray | None = None,
 ) -> DistributionArray:
     """Compute log predictive density directly in log-space using logsumexp.
 
@@ -152,17 +158,15 @@ def log_predictive_density(
         ... represents arbitrary spatial dimensions.
         Non-negative values (NaN allowed to mark invalid bins).
         Will be normalized over spatial dimensions (everything except time).
-    likelihood : np.ndarray, shape (n_time, ...), optional
-        Likelihood p(y|x) evaluated at observed data across all positions.
-        Non-negative values (NaN allowed to mark invalid bins).
-        DO NOT normalize - this is a likelihood function.
-        Must have same shape as state_dist.
-        Exactly one of `likelihood` or `log_likelihood` must be provided.
-    log_likelihood : np.ndarray, shape (n_time, ...), optional
-        Log-likelihood log p(y|x) evaluated at observed data.
-        Allows users who already have log-likelihood to avoid exp/log round-trip.
-        Must have same shape as state_dist.
-        Exactly one of `likelihood` or `log_likelihood` must be provided.
+    observation_likelihood : np.ndarray, shape (n_time, ...), optional
+        Observation likelihood p(y|x) of the observed data at each position.
+        Non-negative values (NaN allowed to mark invalid bins). Not normalized
+        over positions. Must have same shape as state_dist.
+        Exactly one of `observation_likelihood` or `log_observation_likelihood`
+        must be provided.
+    log_observation_likelihood : np.ndarray, shape (n_time, ...), optional
+        Log observation likelihood log p(y|x), keyword-only. Passing it avoids
+        an exp/log round-trip. Must have same shape as state_dist.
 
     Returns
     -------
@@ -172,23 +176,21 @@ def log_predictive_density(
     Raises
     ------
     ValueError
-        If neither or both of likelihood and log_likelihood are provided,
+        If neither or both of the likelihood arguments are provided,
         if shapes don't match, or if distributions contain negative values.
 
     Examples
     --------
     >>> import numpy as np
     >>> from statespacecheck import log_predictive_density
-    >>> # Using likelihood
     >>> state = np.array([[1.0, 1.0, 1.0]])
     >>> like = np.array([[2.0, 3.0, 4.0]])
-    >>> log_pred = log_predictive_density(state, likelihood=like)
+    >>> log_pred = log_predictive_density(state, like)
     >>> log_pred.shape
     (1,)
 
-    >>> # Using log_likelihood for numerical stability
-    >>> log_like = np.log(like)
-    >>> log_pred2 = log_predictive_density(state, log_likelihood=log_like)
+    >>> # From a log likelihood, for numerical stability
+    >>> log_pred2 = log_predictive_density(state, log_observation_likelihood=np.log(like))
     >>> np.allclose(log_pred, log_pred2)
     True
 
@@ -211,20 +213,25 @@ def log_predictive_density(
     - p(x) is the state distribution (normalized to sum to 1)
     - p(y|x) is the observation likelihood (NOT normalized)
 
-    For users who already have log-likelihood computed, passing it via
-    `log_likelihood` parameter avoids the exp/log round-trip and is more
+    For users who already have the log likelihood, passing it via
+    `log_observation_likelihood` avoids the exp/log round-trip and is more
     efficient and numerically stable.
     """
-    # Validate that exactly one of likelihood or log_likelihood is provided
-    if (likelihood is None) == (log_likelihood is None):
-        msg = "Exactly one of 'likelihood' or 'log_likelihood' must be provided"
+    if (observation_likelihood is None) == (log_observation_likelihood is None):
+        msg = (
+            "Exactly one of 'observation_likelihood' or 'log_observation_likelihood' "
+            "must be provided"
+        )
         raise ValueError(msg)
 
-    # Convert likelihood to log_likelihood if needed
-    if likelihood is not None:
+    if observation_likelihood is not None:
         # Validate state distribution (a probability) and likelihood (a function, not a dist)
         state, like = validate_paired_distributions(
-            state_dist, likelihood, name1="state_dist", name2="likelihood", min_ndim=2
+            state_dist,
+            observation_likelihood,
+            name1="state_dist",
+            name2="observation_likelihood",
+            min_ndim=2,
         )
         # Convert to log-space (avoiding log(0) by using where)
         like_flat = flatten_time_spatial(like)
@@ -234,26 +241,29 @@ def log_predictive_density(
         # Validate state_dist (it's a probability)
         state = validate_distribution(state_dist, name="state_dist", min_ndim=2)
 
-        # Validate log_likelihood manually (it's in log-space, can be negative!)
-        log_like = np.asarray(log_likelihood, dtype=float)
+        # Validate the log likelihood manually (it's in log-space, can be negative!)
+        log_like = np.asarray(log_observation_likelihood, dtype=float)
 
         if log_like.ndim < 2:
             msg = (
-                f"log_likelihood must be at least 2D with shape (n_time, ...), "
+                f"log_observation_likelihood must be at least 2D with shape (n_time, ...), "
                 f"got shape {log_like.shape}"
             )
             raise ValueError(msg)
 
         if log_like.shape != state.shape:
             msg = (
-                f"state_dist and log_likelihood must have same shape, "
+                f"state_dist and log_observation_likelihood must have same shape, "
                 f"got {state.shape} vs {log_like.shape}"
             )
             raise ValueError(msg)
 
-        # Check for +inf in log_likelihood (indicates upstream bug or overflow)
+        # +inf in the log likelihood indicates an upstream bug or overflow
         if np.isposinf(log_like).any():
-            msg = "log_likelihood contains +inf; this indicates an upstream bug or overflow"
+            msg = (
+                "log_observation_likelihood contains +inf; this indicates an upstream "
+                "bug or overflow"
+            )
             raise ValueError(msg)
 
         # Handle non-finite values: NaN → -inf (makes sense in log-space)
