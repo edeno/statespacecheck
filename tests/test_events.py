@@ -104,6 +104,31 @@ class TestPredictiveMarkProbabilities:
         with pytest.raises(ValueError, match="expected mark intensities are non-finite"):
             predictive_mark_probabilities(np.array([[1.0, 1.0]]), np.full((2, 1), 1e308))
 
+    @pytest.mark.parametrize("bad", [-0.5, np.nan, np.inf])
+    def test_invalid_state_values_raise(self, bad):
+        with pytest.raises(
+            ValueError, match="state_dist must contain only finite nonnegative"
+        ):
+            predictive_mark_probabilities(np.array([[1.5, bad]]), np.ones((2, 2)))
+
+    @pytest.mark.parametrize("bad", [-0.5, np.nan, np.inf])
+    def test_invalid_intensity_values_raise(self, bad):
+        intensities = np.array([[1.0, bad], [1.0, 1.0]])
+        with pytest.raises(
+            ValueError, match="mark_intensities must contain only finite nonnegative"
+        ):
+            predictive_mark_probabilities(np.full((1, 2), 0.5), intensities)
+
+    def test_no_marks_raises(self):
+        with pytest.raises(ValueError, match="at least one mark"):
+            predictive_mark_probabilities(np.full((1, 2), 0.5), np.ones((2, 0)))
+
+    def test_state_without_spatial_axis_raises(self):
+        with pytest.raises(
+            ValueError, match=r"state_dist must have shape \(n_events, \.\.\.\)"
+        ):
+            predictive_mark_probabilities(np.array([0.5, 0.5]), np.ones((2, 2)))
+
     def test_spatial_shape_mismatch_raises(self):
         with pytest.raises(ValueError, match="mark_intensities must have shape"):
             predictive_mark_probabilities(np.array([[0.5, 0.5]]), np.ones((3, 2)))
@@ -159,12 +184,14 @@ class TestMarkPredictivePvalue:
             slack = 3 * np.sqrt(alpha * (1 - alpha) / n_events)
             assert np.mean(pvalue <= alpha) <= alpha + slack
 
-    @pytest.mark.parametrize(
-        "marks", [np.array([0, 5]), np.array([-1, 0]), np.array([0.0, 1.0])]
-    )
-    def test_invalid_marks_raise(self, marks):
-        with pytest.raises(ValueError, match="observed_marks"):
+    @pytest.mark.parametrize("marks", [np.array([0, 5]), np.array([-1, 0])])
+    def test_out_of_range_marks_raise(self, marks):
+        with pytest.raises(ValueError, match=r"observed_marks must lie in \[0, 3\)"):
             mark_predictive_pvalue(np.full((2, 2), 0.5), np.ones((2, 3)), marks)
+
+    def test_non_integer_marks_raise(self):
+        with pytest.raises(ValueError, match="observed_marks must be a 1-D integer array"):
+            mark_predictive_pvalue(np.full((2, 2), 0.5), np.ones((2, 3)), np.array([0.0, 1.0]))
 
     def test_length_mismatch_raises(self):
         with pytest.raises(ValueError, match="one entry per event"):
@@ -238,6 +265,25 @@ class TestEventDiagnostics:
         with pytest.raises(ValueError, match="zero everywhere"):
             event_diagnostics(
                 np.full((5, 3), 1 / 3), np.zeros((3, 2)), np.array([0]), np.array([0])
+            )
+
+    @pytest.mark.parametrize("batch_size", [0, -3])
+    def test_invalid_batch_size_raises(self, batch_size):
+        # Without the check, a non-positive step would skip the batch loop and
+        # return uninitialized arrays.
+        with pytest.raises(ValueError, match="batch_size must be at least 1"):
+            event_diagnostics(
+                np.full((2, 2), 0.5),
+                np.ones((2, 2)),
+                np.array([0]),
+                np.array([0]),
+                batch_size=batch_size,
+            )
+
+    def test_predictive_without_spatial_axis_raises(self):
+        with pytest.raises(ValueError, match=r"predictive must have shape \(n_time, \.\.\.\)"):
+            event_diagnostics(
+                np.array([0.5, 0.5]), np.ones((2, 2)), np.array([0]), np.array([0])
             )
 
     def test_out_of_range_time_index_raises(self):
