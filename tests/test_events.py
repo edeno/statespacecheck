@@ -289,6 +289,16 @@ class TestMarkPredictivePvalue:
         with pytest.raises(ValueError, match=r"observed_marks must lie in \[0, 3\)"):
             mark_predictive_pvalue(np.full((2, 2), 0.5), np.ones((2, 3)), marks)
 
+    def test_mark_range_error_lists_values(self):
+        marks = np.array([0, 7, 1, -2, 2])
+        with pytest.raises(ValueError, match=r"positions \[1, 3\] have values \[7, -2\]"):
+            mark_predictive_pvalue(np.full((5, 2), 0.5), np.ones((2, 3)), marks)
+
+    def test_mark_range_error_lists_at_most_ten_values(self):
+        marks = np.arange(3, 15)  # all 12 out of range
+        with pytest.raises(ValueError, match=r"values \[3, 4, 5, 6, 7, 8, 9, 10, 11, 12\]$"):
+            mark_predictive_pvalue(np.full((12, 2), 0.5), np.ones((2, 3)), marks)
+
     def test_non_integer_marks_raise(self):
         with pytest.raises(ValueError, match="observed_marks must be a 1-D integer array"):
             mark_predictive_pvalue(np.full((2, 2), 0.5), np.ones((2, 3)), np.array([0.0, 1.0]))

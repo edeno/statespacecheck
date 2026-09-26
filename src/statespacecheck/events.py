@@ -143,8 +143,12 @@ def _validate_marks(marks: ArrayLike, n_marks: int, name: str) -> NDArray[np.int
             f"{name} must be a 1-D integer array; got shape {marks.shape}, dtype {marks.dtype}"
         )
         raise ValueError(msg)
-    if marks.size and (marks.min() < 0 or marks.max() >= n_marks):
-        msg = f"{name} must lie in [0, {n_marks}); got values outside that range"
+    outside = np.flatnonzero((marks < 0) | (marks >= n_marks))
+    if outside.size:
+        msg = (
+            f"{name} must lie in [0, {n_marks}); positions {_first(outside)} have values "
+            f"{[int(value) for value in marks[outside[:10]]]}"
+        )
         raise ValueError(msg)
     return marks.astype(np.intp, copy=False)
 
