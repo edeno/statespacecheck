@@ -7,7 +7,7 @@
 **Inputs to read first:**
 
 - [src/statespacecheck/events.py:319-427](../../../../src/statespacecheck/events.py): `event_diagnostics`. Mirror its validation order, batching loop and `EventDiagnostics` construction.
-- `src/statespacecheck/continuous_marks.py` (from phase 4a): `_monte_carlo_batch`, `_evaluate_intensity`, and the `rng` handling.
+- `src/statespacecheck/continuous_marks.py` (from phase 4a): `_monte_carlo_batch`, `_evaluate_log_intensity`, and the `rng` handling. The mark intensity is passed as its log ([shared-contracts.md#callable-protocols](shared-contracts.md#callable-protocols)).
 - `tests/conftest.py` (from phase 4a): the `discrete_mark_model` and `clusterless_1d_model` fixtures.
 - `statespacecheck-paper/manuscript/main.tex:152` (clusterless Q) and `:195-201` (clusterless f_pred): the definitions.
 - `examples/04_predictive_checks.py`: jupytext tutorial style (`py:percent` header; `utils.py` helpers).
