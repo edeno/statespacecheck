@@ -6,6 +6,12 @@ state space models.
 """
 
 from statespacecheck._validation import DistributionArray
+from statespacecheck.continuous_marks import (
+    MarkIntensity,
+    MarkPredictiveCheck,
+    MarkSampler,
+    monte_carlo_mark_pvalue,
+)
 from statespacecheck.events import (
     EventDiagnostics,
     EventFlags,
@@ -42,6 +48,9 @@ __all__ = [
     "DistributionArray",
     "EventDiagnostics",
     "EventFlags",
+    "MarkIntensity",
+    "MarkPredictiveCheck",
+    "MarkSampler",
     "__version__",
     "aggregate_over_period",
     "baseline_threshold",
@@ -59,6 +68,7 @@ __all__ = [
     "kl_divergence",
     "log_predictive_density",
     "mark_predictive_pvalue",
+    "monte_carlo_mark_pvalue",
     "plot_diagnostics",
     "predictive_density",
     "predictive_mark_probabilities",

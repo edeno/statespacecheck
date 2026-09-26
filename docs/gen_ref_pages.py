@@ -20,6 +20,14 @@ MODULES = [
         ),
     ),
     (
+        "continuous_marks",
+        "Continuous marks",
+        (
+            "The predictive p-value by Monte Carlo, for marks that cannot be enumerated, "
+            "such as the waveform features of clusterless decoding."
+        ),
+    ),
+    (
         "state_consistency",
         "Comparing distributions",
         (
