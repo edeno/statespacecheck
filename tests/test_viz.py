@@ -247,3 +247,13 @@ class TestPlotDiagnostics:
         assert len(axes) > 3  # Should have more than 3 due to twin axis
 
         plt.close(fig)
+
+
+def test_datetime_time_axis_with_flags() -> None:
+    """Flagged runs are shaded on a datetime time axis too."""
+    time = np.datetime64("2026-01-01T00:00:00") + np.arange(20) * np.timedelta64(1, "s")
+    flags = np.zeros(20, dtype=bool)
+    flags[5:8] = True
+    fig = plot_diagnostics(time, np.ones(20), np.ones(20), np.ones(20), flags=flags)
+    assert len(fig.axes[0].patches) == 1
+    plt.close(fig)

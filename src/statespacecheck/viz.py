@@ -143,9 +143,18 @@ def plot_diagnostics(
     ax.grid(True, alpha=0.3)
 
     if flags_arr is not None and flags_arr.any():
-        # Shade each run over its samples' full width, half a step either
-        # side, so a run of one sample is visible too.
-        half_step = float(np.median(np.diff(time_arr))) / 2 if time_arr.size > 1 else 0.5
+        # Shade each run over its samples' full width, half a step either side,
+        # so a run of one sample is visible too; the step is in the time axis's
+        # own units (numbers or datetime64), and other time types get no padding.
+        if time_arr.size > 1 and (
+            np.issubdtype(time_arr.dtype, np.number)
+            or np.issubdtype(time_arr.dtype, np.datetime64)
+        ):
+            half_step = np.median(np.diff(time_arr)) / 2
+        elif np.issubdtype(time_arr.dtype, np.number):
+            half_step = 0.5
+        else:
+            half_step = time_arr[0] - time_arr[0]
         for start, stop in _contiguous_runs(flags_arr):
             for axi in axes:
                 axi.axvspan(
