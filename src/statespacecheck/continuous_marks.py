@@ -353,6 +353,33 @@ def _rounding_magnitude(
     return magnitude
 
 
+def _check_mark_model(model: object) -> None:
+    """Raise ``TypeError`` unless ``model`` is a :class:`MarkModel`.
+
+    Checked for untyped callers (for example, a function passed where the model goes).
+    """
+    if not isinstance(model, MarkModel):
+        msg = (
+            "model must be a MarkModel(log_intensity, sample, ground_intensity); "
+            f"got {type(model).__name__}"
+        )
+        raise TypeError(msg)
+
+
+def _validate_observed_marks(marks: ArrayLike, n_events: int, name: str) -> NDArray[Any]:
+    """Check that there is one mark per event and that numeric marks are finite."""
+    marks = np.asarray(marks)
+    if marks.ndim == 0 or marks.shape[0] != n_events:
+        msg = f"{name} must have one entry per event ({n_events}); got shape {marks.shape}"
+        raise ValueError(msg)
+    if np.issubdtype(marks.dtype, np.number):
+        not_finite = np.flatnonzero(~np.isfinite(flatten_time_spatial(marks)).all(axis=1))
+        if not_finite.size:
+            msg = f"{name} must be finite; events {_first(not_finite)} are not"
+            raise ValueError(msg)
+    return marks
+
+
 def _check_positive_integer(value: object, name: str) -> None:
     if isinstance(value, bool) or not isinstance(value, int | np.integer) or value < 1:
         msg = f"{name} must be a positive integer; got {value!r}"
@@ -473,32 +500,14 @@ def monte_carlo_mark_pvalue(
     >>> mark_predictive_pvalue(state, rates, np.array([0, 1])).round(3)
     array([1.   , 0.317])
     """
-    # Checked for untyped callers (for example, a function passed where the model goes)
-    supplied: object = model
-    if not isinstance(supplied, MarkModel):
-        msg = (
-            "model must be a MarkModel(log_intensity, sample, ground_intensity); "
-            f"got {type(model).__name__}"
-        )
-        raise TypeError(msg)
+    _check_mark_model(model)
     _check_positive_integer(n_samples, "n_samples")
     _check_positive_integer(batch_size, "batch_size")
     state = _validate_state_distribution(state_dist, "state_dist")
     spatial_shape = np.shape(state_dist)[1:]
     ground = _validate_ground_intensity(model.ground_intensity, spatial_shape)
-    marks = np.asarray(observed_marks)
     n_events = state.shape[0]
-    if marks.ndim == 0 or marks.shape[0] != n_events:
-        msg = (
-            f"observed_marks must have one entry per event ({n_events}); "
-            f"got shape {marks.shape}"
-        )
-        raise ValueError(msg)
-    if np.issubdtype(marks.dtype, np.number):
-        not_finite = np.flatnonzero(~np.isfinite(flatten_time_spatial(marks)).all(axis=1))
-        if not_finite.size:
-            msg = f"observed_marks must be finite; events {_first(not_finite)} are not"
-            raise ValueError(msg)
+    marks = _validate_observed_marks(observed_marks, n_events, "observed_marks")
 
     generator = np.random.default_rng(rng)
     pvalue: DistributionArray = np.empty(n_events)
