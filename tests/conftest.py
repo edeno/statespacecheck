@@ -6,6 +6,8 @@ import numpy as np
 import pytest
 from scipy.stats import norm
 
+from statespacecheck import MarkModel
+
 
 @pytest.fixture
 def rng():
@@ -17,10 +19,10 @@ def rng():
 def discrete_mark_model():
     """Sorted-spike model written as a marked point process with integer marks.
 
-    Returns ``(rates, log_mark_intensity, sample_marks)``: place fields of 12
-    units on 50 positions, shape ``(n_bins, n_marks)``; the log joint intensity
-    of integer marks ``(n,)`` at every position, shape ``(n, n_bins)``; and a
-    sampler of each event's unit given its position bin.
+    Returns ``(rates, model)``: place fields of 12 units on 50 positions, shape
+    ``(n_bins, n_marks)``, and the :class:`MarkModel` of integer marks ``(n,)``:
+    their log joint intensity at every position, shape ``(n, n_bins)``, a
+    sampler of each event's unit given its position bin, and the total rate.
     """
     x = np.linspace(0.0, 1.0, 50)
     centers = np.random.default_rng(0).random(12)
@@ -35,7 +37,7 @@ def discrete_mark_model():
         # Inverse CDF: the first unit whose cumulative probability exceeds u
         return np.minimum((cumulative[bins] <= u[:, None]).sum(axis=1), rates.shape[1] - 1)
 
-    return rates, log_mark_intensity, sample_marks
+    return rates, MarkModel(log_mark_intensity, sample_marks, rates.sum(axis=1))
 
 
 @pytest.fixture(scope="session")
@@ -43,7 +45,8 @@ def clusterless_1d_model():
     """Clusterless model: 6 units on a 1-D track, each with a Gaussian waveform amplitude.
 
     ``lambda(x, y) = sum_u r_u(x) N(y; mu_u, sigma)``, so the ground intensity is
-    ``sum_u r_u(x)``. Marks have shape ``(n, 1)``.
+    ``sum_u r_u(x)``. Marks have shape ``(n, 1)``. ``model`` is its
+    :class:`MarkModel`.
     """
     position = np.linspace(0.0, 1.0, 60)
     centers = np.linspace(0.1, 0.9, 6)
@@ -71,7 +74,5 @@ def clusterless_1d_model():
         place_fields=place_fields,
         waveform_means=waveform_means,
         sigma=sigma,
-        ground_intensity=ground_intensity,
-        log_mark_intensity=log_mark_intensity,
-        sample_marks=sample_marks,
+        model=MarkModel(log_mark_intensity, sample_marks, ground_intensity),
     )

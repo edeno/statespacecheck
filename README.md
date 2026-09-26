@@ -158,9 +158,9 @@ than a unit, so the predictive p-value cannot be summed over marks.
 `monte_carlo_mark_pvalue` estimates it by simulation, as the paper describes: it draws a
 state from the event-weighted predictive distribution, draws a mark for a spike at that
 state, and ranks the observed mark's predictive density among the replicates'. It needs
-the log of the model's joint mark intensity (in log space, because densities of marks
-with many features underflow), a sampler of marks, and the total event rate at each
-state. The paper's Figure 2 example, with a 1-D mark:
+the observation model as a `MarkModel`: the log of its joint mark intensity (in log
+space, because densities of marks with many features underflow), a sampler of marks,
+and the total event rate at each state. The paper's Figure 2 example, with a 1-D mark:
 
 ```python
 import numpy as np
@@ -181,12 +181,15 @@ def sample_marks(bins, rng):  # one mark for a spike at each position bin
     return rng.normal(position[bins], sigma)[:, np.newaxis]
 
 
+model = ssc.MarkModel(
+    log_intensity=log_mark_intensity,
+    sample=sample_marks,
+    ground_intensity=np.ones_like(position),  # the same total rate everywhere
+)
 check = ssc.monte_carlo_mark_pvalue(
     predictive,
-    log_mark_intensity,
+    model,
     np.array([[60.0]]),  # the observed mark
-    ground_intensity=np.ones_like(position),  # the same total rate everywhere
-    sample_marks=sample_marks,
     n_samples=5000,
     rng=0,
 )

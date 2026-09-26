@@ -94,9 +94,9 @@ in the paper repository.
 ## Clusterless decoders (non_local_detector KDE)
 
 A clusterless spike's mark is its waveform features, so the predictive p-value comes from
-`monte_carlo_mark_pvalue`, which needs the model as three pieces: the log joint mark
-intensity, a sampler of marks, and the ground intensity (the total spike rate at each
-position). For `non_local_detector`'s clusterless KDE model, all three follow from the
+`monte_carlo_mark_pvalue`, which needs the model as a `MarkModel` of three pieces: the log
+joint mark intensity, a sampler of marks, and the ground intensity (the total spike rate
+at each position). For `non_local_detector`'s clusterless KDE model, all three follow from the
 fitted encoding model:
 
 - The electrode is part of the mark, `[electrode, feature_1, ..., feature_d]`: the
@@ -116,9 +116,11 @@ fitted encoding model:
 import numpy as np
 from scipy.stats import norm
 
+from statespacecheck import MarkModel
+
 
 def clusterless_kde_model(encoding_model):
-    """The log mark intensity, mark sampler and ground intensity of a fitted
+    """The MarkModel (log mark intensity, mark sampler, ground intensity) of a fitted
     non_local_detector clusterless KDE encoding model, over its interior bins.
 
     A mark is ``[electrode, feature_1, ..., feature_d]``: the electrode is part of the
@@ -236,28 +238,21 @@ def clusterless_kde_model(encoding_model):
             )
         return marks
 
-    return log_mark_intensity, sample_marks, ground
+    return MarkModel(log_mark_intensity, sample_marks, ground)
 ```
 
 Applied to a fitted model and its predictive distribution:
 
 <!-- not-executed -->
 ```python
-log_mark_intensity, sample_marks, ground_intensity = clusterless_kde_model(
-    model.encoding_model_[("", 0)]
-)
+mark_model = clusterless_kde_model(model.encoding_model_[("", 0)])
 # predictive: (n_time, n_bins) on the interior bins, as in the example above.
 # Marks of the spikes in [time[0], time[-1]], with the electrode as the first column:
 observed_marks = np.concatenate(
     [np.column_stack([np.full(len(f), e), f]) for e, f in enumerate(decoded_features)]
 )
 check = ssc.monte_carlo_mark_pvalue(
-    predictive[event_time_ind],
-    log_mark_intensity,
-    observed_marks,
-    ground_intensity=ground_intensity,
-    sample_marks=sample_marks,
-    rng=0,
+    predictive[event_time_ind], mark_model, observed_marks, rng=0
 )
 ```
 

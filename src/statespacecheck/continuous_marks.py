@@ -11,12 +11,12 @@ With a finite set of marks, such as the units of spike-sorted data, the
 predictive check is a finite sum; use :func:`~statespacecheck.mark_predictive_pvalue`
 and :func:`~statespacecheck.event_diagnostics`. When the marks are continuous or
 too many to enumerate, :func:`monte_carlo_mark_pvalue` evaluates the same check
-by simulation, from two functions of the model: one that evaluates the log of the
-joint intensity of given marks at every state (:data:`LogMarkIntensity`), and
-one that draws a mark for an event at a given state (:data:`MarkSampler`). The
-intensity is taken as its log because densities of many-dimensional marks are
-often too small to represent: the density of a mark with 32 waveform features
-can be ``exp(-140)``, below the smallest float32.
+by simulation, from a :class:`MarkModel`: a function that evaluates the log of
+the joint intensity of given marks at every state (:data:`LogMarkIntensity`), a
+function that draws a mark for an event at a given state (:data:`MarkSampler`),
+and the ground intensity. The intensity is taken as its log because densities of
+many-dimensional marks are often too small to represent: the density of a mark
+with 32 waveform features can be ``exp(-140)``, below the smallest float32.
 
 State-bin indices passed to a :data:`MarkSampler` are flat indices into the
 state grid, in the C order of ``state_dist.reshape(n_events, -1)``.
@@ -53,6 +53,31 @@ generator; returns marks of shape ``(n, *mark_shape)``, each drawn from
 ``lambda(x, y) / Lambda(x)`` at its bin. It must draw only from the generator it
 is given, so that seeded results are reproducible.
 """
+
+
+class MarkModel(NamedTuple):
+    """A marked point-process observation model, as :func:`monte_carlo_mark_pvalue` uses it.
+
+    The three parts must describe the same model: ``ground_intensity`` is the
+    integral of ``exp(log_intensity)`` over marks, and ``sample`` draws from
+    ``exp(log_intensity) / ground_intensity`` at each state. Bundling them keeps
+    one model's parts together; it cannot check that they agree, and a mismatch
+    biases the p-values.
+
+    Attributes
+    ----------
+    log_intensity : LogMarkIntensity
+        Log joint intensity ``log lambda(x, y)`` of marks at every state.
+    sample : MarkSampler
+        Draws a mark for an event at each given state bin.
+    ground_intensity : np.ndarray, shape (...)
+        Total event intensity ``Lambda(x)`` at every state (nonnegative).
+    """
+
+    log_intensity: LogMarkIntensity
+    sample: MarkSampler
+    ground_intensity: ArrayLike
+
 
 # Events processed per batch in :func:`monte_carlo_mark_pvalue`. Memory is
 # dominated by arrays over every replicated mark at every state, batch x
@@ -96,21 +121,21 @@ def _check_leading_axis(values: ArrayLike, n: int, name: str) -> None:
 
 
 def _evaluate_log_intensity(
-    log_mark_intensity: LogMarkIntensity,
+    log_intensity: LogMarkIntensity,
     marks: NDArray[Any],
     n: int,
     spatial_shape: tuple[int, ...],
 ) -> DistributionArray:
-    """Evaluate ``log_mark_intensity`` at ``n`` marks, checked, as a new ``(n, n_bins)`` array."""
-    values = np.array(log_mark_intensity(marks), dtype=np.float64)
+    """Evaluate ``log_intensity`` at ``n`` marks, checked, as a new ``(n, n_bins)`` array."""
+    values = np.array(log_intensity(marks), dtype=np.float64)
     if values.shape != (n, *spatial_shape):
         msg = (
-            f"log_mark_intensity must return shape {(n, *spatial_shape)}, the log "
+            f"model.log_intensity must return shape {(n, *spatial_shape)}, the log "
             f"intensity of each of the {n} marks at every state bin; got {values.shape}"
         )
         raise ValueError(msg)
     if np.any(np.isnan(values)) or np.any(np.isposinf(values)):
-        msg = "log_mark_intensity must return finite values, or -inf for zero intensity"
+        msg = "model.log_intensity must return finite values, or -inf for zero intensity"
         raise ValueError(msg)
     return values.reshape(n, -1)
 
@@ -153,8 +178,8 @@ def _monte_carlo_batch(
     state: DistributionArray,
     ground: DistributionArray,
     observed_marks: NDArray[Any],
-    log_mark_intensity: LogMarkIntensity,
-    sample_marks: MarkSampler,
+    log_intensity: LogMarkIntensity,
+    sample: MarkSampler,
     spatial_shape: tuple[int, ...],
     n_samples: int,
     rng: np.random.Generator,
@@ -168,14 +193,14 @@ def _monte_carlo_batch(
     ground : np.ndarray, shape (n_bins,)
         Flattened ground intensity.
     observed_marks : np.ndarray, shape (n_batch, *mark_shape)
-    log_mark_intensity, sample_marks
-        The model, as in :func:`monte_carlo_mark_pvalue`.
+    log_intensity, sample
+        The model's functions (:class:`MarkModel`).
     spatial_shape : tuple of int
-        Shape of the state grid, which ``log_mark_intensity`` must return per mark.
+        Shape of the state grid, which ``log_intensity`` must return per mark.
     n_samples : int
         Replicated marks per event.
     rng : np.random.Generator
-        Used for the state draws, then by ``sample_marks``.
+        Used for the state draws, then by ``sample``.
 
     Returns
     -------
@@ -193,17 +218,17 @@ def _monte_carlo_batch(
     log_norm = logsumexp(norm_terms, axis=1)
 
     observed_terms = log_state + _evaluate_log_intensity(
-        log_mark_intensity, observed_marks, n_batch, spatial_shape
+        log_intensity, observed_marks, n_batch, spatial_shape
     )
     observed_sum = logsumexp(observed_terms, axis=1)
 
     state_bins = _sample_state_bins(event_weighted, n_samples, rng)
-    replicated_marks = sample_marks(state_bins.ravel(), rng)
-    _check_leading_axis(replicated_marks, n_batch * n_samples, "sample_marks")
+    replicated_marks = sample(state_bins.ravel(), rng)
+    _check_leading_axis(replicated_marks, n_batch * n_samples, "model.sample")
     # The (n_batch, n_samples, n_bins) arrays dominate memory; the evaluated log
     # intensities are a new array, so the state term is added in place
     log_joint = _evaluate_log_intensity(
-        log_mark_intensity, np.asarray(replicated_marks), n_batch * n_samples, spatial_shape
+        log_intensity, np.asarray(replicated_marks), n_batch * n_samples, spatial_shape
     ).reshape(n_batch, n_samples, n_bins)
     log_joint += log_state[:, np.newaxis, :]
     simulated_sum = logsumexp(log_joint, axis=2)
@@ -213,10 +238,10 @@ def _monte_carlo_batch(
     impossible = np.isneginf(simulated_sum)
     if impossible.any():
         msg = (
-            f"{int(impossible.sum())} of {impossible.size} marks drawn by sample_marks have "
-            "zero intensity (log_mark_intensity -inf) at every state with predictive "
-            "mass, including the state they were drawn at. sample_marks must draw from "
-            "the model log_mark_intensity describes, and log_mark_intensity must be "
+            f"{int(impossible.sum())} of {impossible.size} marks drawn by model.sample have "
+            "zero intensity (model.log_intensity -inf) at every state with predictive "
+            "mass, including the state they were drawn at. model.sample must draw from "
+            "the model model.log_intensity describes, and model.log_intensity must be "
             "computed in log space"
         )
         raise ValueError(msg)
@@ -280,11 +305,9 @@ def _check_positive_integer(value: object, name: str) -> None:
 
 def monte_carlo_mark_pvalue(
     state_dist: ArrayLike,
-    log_mark_intensity: LogMarkIntensity,
+    model: MarkModel,
     observed_marks: ArrayLike,
     *,
-    ground_intensity: ArrayLike,
-    sample_marks: MarkSampler,
     n_samples: int = 1000,
     rng: np.random.Generator | int | None = None,
     return_samples: bool = False,
@@ -302,7 +325,7 @@ def monte_carlo_mark_pvalue(
     ``p = Pr[f_pred(Y) <= f_pred(y_obs)]``. It is estimated from ``n_samples``
     replicated marks per event: each draws a state from the event-weighted
     predictive distribution (:func:`~statespacecheck.event_weighted_predictive`),
-    then a mark at that state with ``sample_marks``. The comparison is made on
+    then a mark at that state with ``model.sample``. The comparison is made on
     log densities with a tolerance for their rounding error,
     ``16 * eps * (n_bins + M)``, where ``M`` bounds the magnitudes of the log
     terms that affect each sum (``log P``, ``log lambda`` and ``log Lambda``,
@@ -317,20 +340,15 @@ def monte_carlo_mark_pvalue(
     state_dist : np.ndarray, shape (n_events, ...)
         Predictive state distribution for each event, where ``...`` represents
         one or more spatial axes. Rows need not be normalized.
-    log_mark_intensity : LogMarkIntensity
-        Log joint intensity ``log lambda(x, y)``: called with marks of shape
-        ``(n, *mark_shape)``, returns shape ``(n, ...)``, with ``-inf`` where
-        the intensity is zero.
+    model : MarkModel
+        The observation model: the log joint intensity ``log lambda(x, y)``
+        (called with marks of shape ``(n, *mark_shape)``, it returns shape
+        ``(n, ...)``, with ``-inf`` where the intensity is zero), a sampler of
+        marks at flat state-bin indices, and the ground intensity, shape
+        ``(...)``. Its parts must describe the same model; see
+        :class:`MarkModel`.
     observed_marks : np.ndarray, shape (n_events, *mark_shape)
         The mark of each event.
-    ground_intensity : np.ndarray, shape (...)
-        Total event intensity ``Lambda(x)`` at every state. It must equal the
-        integral of ``exp(log_mark_intensity)`` over marks, for the same model
-        as ``sample_marks``; this cannot be checked here, and a mismatch biases
-        the p-values.
-    sample_marks : MarkSampler
-        Draws a mark for an event at each of the flat state-bin indices it is
-        given, using the generator it is given.
     n_samples : int, optional
         Replicated marks per event. Default is 1000; the p-value's Monte Carlo
         standard error is ``sqrt(p (1 - p) / n_samples)``.
@@ -353,6 +371,8 @@ def monte_carlo_mark_pvalue(
 
     Raises
     ------
+    TypeError
+        If ``model`` is not a :class:`MarkModel`.
     ValueError
         If shapes are inconsistent, inputs are negative or non-finite,
         ``n_samples`` or ``batch_size`` is not a positive integer, a callable
@@ -381,7 +401,7 @@ def monte_carlo_mark_pvalue(
     also gives:
 
     >>> import numpy as np
-    >>> from statespacecheck import mark_predictive_pvalue, monte_carlo_mark_pvalue
+    >>> from statespacecheck import MarkModel, mark_predictive_pvalue, monte_carlo_mark_pvalue
     >>> state = np.array([[0.6, 0.3, 0.1], [0.6, 0.3, 0.1]])
     >>> rates = np.array([[4.0, 1.0], [1.0, 1.0], [1.0, 4.0]])  # (n_bins, n_marks)
     >>> def log_mark_intensity(marks):
@@ -390,25 +410,26 @@ def monte_carlo_mark_pvalue(
     ...     return (rng.random(len(bins)) < rates[bins, 1] / rates[bins].sum(axis=1)).astype(
     ...         int
     ...     )
-    >>> check = monte_carlo_mark_pvalue(
-    ...     state,
-    ...     log_mark_intensity,
-    ...     np.array([0, 1]),
-    ...     ground_intensity=rates.sum(axis=1),
-    ...     sample_marks=sample_marks,
-    ...     n_samples=2000,
-    ...     rng=0,
-    ... )
+    >>> model = MarkModel(log_mark_intensity, sample_marks, rates.sum(axis=1))
+    >>> check = monte_carlo_mark_pvalue(state, model, np.array([0, 1]), n_samples=2000, rng=0)
     >>> check.pvalue.round(1)
     array([1. , 0.3])
     >>> mark_predictive_pvalue(state, rates, np.array([0, 1])).round(3)
     array([1.   , 0.317])
     """
+    # Checked for untyped callers (for example, a function passed where the model goes)
+    supplied: object = model
+    if not isinstance(supplied, MarkModel):
+        msg = (
+            "model must be a MarkModel(log_intensity, sample, ground_intensity); "
+            f"got {type(model).__name__}"
+        )
+        raise TypeError(msg)
     _check_positive_integer(n_samples, "n_samples")
     _check_positive_integer(batch_size, "batch_size")
     state = _validate_state_distribution(state_dist, "state_dist")
     spatial_shape = np.shape(state_dist)[1:]
-    ground = _validate_ground_intensity(ground_intensity, spatial_shape)
+    ground = _validate_ground_intensity(model.ground_intensity, spatial_shape)
     marks = np.asarray(observed_marks)
     n_events = state.shape[0]
     if marks.ndim == 0 or marks.shape[0] != n_events:
@@ -428,8 +449,8 @@ def monte_carlo_mark_pvalue(
             state[start:stop],
             ground,
             marks[start:stop],
-            log_mark_intensity,
-            sample_marks,
+            model.log_intensity,
+            model.sample,
             spatial_shape,
             n_samples,
             generator,
