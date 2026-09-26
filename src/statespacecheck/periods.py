@@ -25,8 +25,8 @@ def aggregate_over_period(
     """Aggregate metric values over specified time period.
 
     Aggregates time-series metrics (e.g., KL divergence, HPD overlap, or
-    predictive checks) over specified time periods using an indicator
-    function approach from the paper.
+    predictive checks) over the time points selected by an indicator
+    (boolean mask).
 
     Parameters
     ----------
@@ -98,13 +98,12 @@ def aggregate_over_period(
 
     Notes
     -----
-    This function implements the period-level aggregation approach from the paper,
-    using indicator functions (time_mask) to select time points for aggregation.
+    The indicator ``time_mask`` selects the time points to aggregate, so one
+    time series can be summarized over several periods of interest.
 
     Use cases:
     - Period-level KL divergence: weighted mean over non-local events
     - Period-level log-likelihood: sum for predictive checks
-    - Consistent with paper's weighted average equations
 
     When no time points are selected (all-false mask), returns NaN to indicate
     an undefined aggregation.
