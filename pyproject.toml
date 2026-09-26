@@ -23,7 +23,7 @@ keywords = [
     "bayesian",
     "diagnostics",
 ]
-dependencies = ["numpy>=1.26.0", "scipy>=1.11.1", "matplotlib>=3.8.0"]
+dependencies = ["numpy>=1.26.0", "scipy>=1.11.1", "matplotlib>=3.10.9"]
 classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
@@ -53,38 +53,38 @@ Changelog = "https://github.com/edeno/statespacecheck/blob/main/CHANGELOG.md"
 # `pip install -e .[dev]`. Keep `dev` identical to the `dev` dependency group
 # below, which `uv sync` installs by default.
 dev = [
-    "pytest>=8.0.0",
-    "pytest-cov>=6.0.0",
-    "hypothesis>=6.0.0",
+    "pytest>=9.1.1",
+    "pytest-cov>=7.1.0",
+    "hypothesis>=6.168.0",
     "ruff>=0.16,<0.17",  # ruff format output is stable within a minor version
-    "mypy>=1.13.0",
+    "mypy>=2.3.1",
     "scipy-stubs",
 ]
 docs = [
     "mkdocs>=1.6.0",
-    "mkdocs-material>=9.5.0",
-    "mkdocstrings[python]>=0.26.0",
-    "mkdocs-gen-files>=0.5.0",
-    "mkdocs-literate-nav>=0.6.0",
-    "mkdocs-section-index>=0.3.0",
-    "mkdocs-jupyter>=0.25.0",
-    "jupytext>=1.16.0",
+    "mkdocs-material>=9.7.7",
+    "mkdocstrings[python]>=1.0.6",
+    "mkdocs-gen-files>=0.6.1",
+    "mkdocs-literate-nav>=0.6.3",
+    "mkdocs-section-index>=0.3.12",
+    "mkdocs-jupyter>=0.26.3",
+    "jupytext>=1.19.5",
 ]
 
 [dependency-groups]
 # `uv sync` installs the package in editable mode plus this group; add
 # `--extra docs` for the documentation. Keep identical to the `dev` extra above.
 dev = [
-    "pytest>=8.0.0",
-    "pytest-cov>=6.0.0",
-    "hypothesis>=6.0.0",
+    "pytest>=9.1.1",
+    "pytest-cov>=7.1.0",
+    "hypothesis>=6.168.0",
     "ruff>=0.16,<0.17",
-    "mypy>=1.13.0",
+    "mypy>=2.3.1",
     "scipy-stubs",
 ]
 
 [build-system]
-requires = ["hatchling>=1.27", "hatch-vcs"]  # 1.27: PEP 639 License-Expression metadata by default
+requires = ["hatchling>=1.32.3", "hatch-vcs"]  # 1.27: PEP 639 License-Expression metadata by default
 build-backend = "hatchling.build"
 
 [tool.hatch.version]
