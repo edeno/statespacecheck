@@ -1,22 +1,45 @@
-"""State consistency tests for state space model goodness of fit.
+"""Compare a state distribution with a likelihood: HPD overlap and KL divergence.
 
-This module provides functions to assess the consistency between state
-distributions and their component likelihood distributions in Bayesian
-state space models. These tests help identify issues with prior specification
-and model assumptions.
+Each row (a time bin, or an event) pairs a state distribution, such as the
+one-step predictive distribution, with a likelihood over the same states.
+:func:`hpd_overlap` asks whether the two are consistent (their high-probability
+regions overlap); :func:`kl_divergence` measures how different they are.
+
+The paper applies both to each spike, with the spike's single-event likelihood;
+:func:`~statespacecheck.event_diagnostics` does this. Applying them to whole time
+bins with a whole-bin likelihood, which also includes the Poisson exposure term
+and silent units, is an extension beyond the paper.
 """
 
 import numpy as np
+from numpy.typing import ArrayLike
 from scipy.stats import entropy
 
 from ._validation import (
     DistributionArray,
+    as_paired_arrays,
     flatten_time_spatial,
     get_spatial_axes,
+    normalize_rows,
+    row_chunks,
     validate_coverage,
     validate_paired_distributions,
 )
 from .highest_density import DEFAULT_COVERAGE, highest_density_region
+
+
+def _exclude_bins_invalid_in_either(
+    state_dist: DistributionArray, likelihood: DistributionArray
+) -> tuple[DistributionArray, DistributionArray]:
+    """Mark a bin NaN in both arrays when it is non-finite in either.
+
+    Both distributions are then normalized over, and compared on, the same
+    set of valid bins. The arrays have the same shape.
+    """
+    invalid = ~(np.isfinite(state_dist) & np.isfinite(likelihood))
+    if invalid.any():
+        return np.where(invalid, np.nan, state_dist), np.where(invalid, np.nan, likelihood)
+    return state_dist, likelihood
 
 
 def _validate_and_normalize_distributions(
@@ -54,31 +77,23 @@ def _validate_and_normalize_distributions(
     - Each time slice normalized to sum to 1.0 over valid bins
     - Zero-sum rows remain all zeros; downstream returns inf (KL) or empty HPD
     """
-    # Use validation utilities for consistent validation
-    # This converts NaN/inf to 0 but keeps zeros that represent actual zero probability
+    # A bin invalid in either input is excluded from both; validation then
+    # converts NaN to 0 but keeps zeros that represent actual zero probability.
     state, like = validate_paired_distributions(
-        state_dist, likelihood, name1="state_dist", name2="likelihood", min_ndim=2
+        *_exclude_bins_invalid_in_either(state_dist, likelihood),
+        name1="state_dist",
+        name2="likelihood",
+        min_ndim=2,
     )
 
     # Flatten for vectorized operations
     state_flat = flatten_time_spatial(state)
     like_flat = flatten_time_spatial(like)
 
-    # Normalize each time slice
-    # After validation, NaN/inf already converted to 0, so use regular sum
-    # Shape: (n_time,)
-    state_sum = state_flat.sum(axis=1)
-    like_sum = like_flat.sum(axis=1)
-
-    # Normalize, setting inf/nan results to 0
-    # Division by zero is expected and handled, so suppress warnings
-    with np.errstate(divide="ignore", invalid="ignore"):
-        state_norm_flat = state_flat / state_sum[:, np.newaxis]
-        like_norm_flat = like_flat / like_sum[:, np.newaxis]
-
-    # Replace non-finite values (from zero-sum rows) with 0
-    state_norm_flat = np.nan_to_num(state_norm_flat, nan=0.0, posinf=0.0, neginf=0.0)
-    like_norm_flat = np.nan_to_num(like_norm_flat, nan=0.0, posinf=0.0, neginf=0.0)
+    # Normalize each time slice (after validation, NaN/inf are already 0); rows
+    # with no mass stay zero
+    state_norm_flat, _ = normalize_rows(state_flat)
+    like_norm_flat, _ = normalize_rows(like_flat)
 
     # Reshape back to original shape
     state_norm = state_norm_flat.reshape(state.shape)
@@ -87,14 +102,14 @@ def _validate_and_normalize_distributions(
     return state_norm, like_norm
 
 
-def kl_divergence(
-    state_dist: DistributionArray, likelihood: DistributionArray
-) -> DistributionArray:
+def kl_divergence(state_dist: ArrayLike, likelihood: ArrayLike) -> DistributionArray:
     """Compute Kullback-Leibler divergence between state distribution and likelihood.
 
-    Measures the information divergence between the state distribution and likelihood
-    distributions at each time point. Large divergences may indicate issues
-    with the prior specification or model assumptions.
+    Measures how different the likelihood is from the state distribution at each
+    time point, D(state_dist || likelihood). The divergence is large when the two
+    put their mass in different places, but also when the state distribution is
+    broad relative to a consistent likelihood, so the paper uses it as a reference
+    alongside :func:`hpd_overlap` and the predictive p-value.
 
     Parameters
     ----------
@@ -147,12 +162,116 @@ def kl_divergence(
     where P is the state distribution and Q is the likelihood.
 
     Distributions are automatically normalized over valid (non-NaN) bins.
-    NaN values mark invalid spatial bins (e.g., inaccessible locations)
-    and are excluded from both normalization and KL computation.
+    NaN values mark invalid spatial bins (e.g., inaccessible locations); a bin
+    that is NaN (or infinite) in either input is excluded from both, for
+    normalization and for the divergence.
 
     Time slices where distributions have no valid mass return inf for the divergence.
 
     """
+    state, like = as_paired_arrays(state_dist, likelihood)
+    divergence: DistributionArray = np.empty(state.shape[0])
+    for rows in row_chunks(state.shape):
+        divergence[rows] = _kl_divergence_rows(state[rows], like[rows])
+    return divergence
+
+
+def hpd_overlap(
+    state_dist: ArrayLike,
+    likelihood: ArrayLike,
+    *,
+    coverage: float = DEFAULT_COVERAGE,
+) -> DistributionArray:
+    """Compute overlap between HPD regions of state distribution and likelihood.
+
+    Measures the overlap between the highest probability-density (HPD) regions of
+    the state distribution and the likelihood, as a fraction of the smaller region
+    (the Szymkiewicz-Simpson overlap coefficient). It is 1 when one region lies
+    inside the other, so a broad prediction and a precise, consistent likelihood
+    score 1, and 0 when the regions are disjoint.
+
+    Parameters
+    ----------
+    state_dist : np.ndarray, shape (n_time, ...)
+        State probability distributions over position at each time point where
+        ... represents arbitrary spatial dimensions.
+        Can be either one-step predictive distribution or smoother output.
+        Non-negative values (NaN allowed to mark invalid bins).
+        Automatically normalized over valid (non-NaN) bins.
+    likelihood : np.ndarray, shape (n_time, ...)
+        Likelihood distributions at each time point. This is the
+        likelihood p(y_t | x_t) across spatial positions.
+        Non-negative values (NaN allowed to mark invalid bins).
+        Automatically normalized over valid (non-NaN) bins.
+        Must have same shape as state_dist.
+    coverage : float, optional
+        Coverage probability for the HPD regions. Must be between 0 and 1.
+        Default is 0.95 for 95% HPD regions.
+
+    Returns
+    -------
+    hpd_overlap : np.ndarray, shape (n_time,)
+        Proportion of overlap between the HPD regions of state_dist and
+        likelihood at each time point. Values range from 0 (no overlap)
+        to 1 (the smaller region lies entirely inside the larger).
+
+    Raises
+    ------
+    ValueError
+        If state_dist and likelihood have different shapes, if coverage
+        is not in (0, 1), or if distributions contain negative values.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from statespacecheck import hpd_overlap
+    >>> # 80% HPD regions: bins {0, 1} for the state distribution and {1, 2}
+    >>> # for the likelihood share one bin out of the smaller region's two
+    >>> state = np.array([[0.4, 0.4, 0.2, 0.0, 0.0]])
+    >>> like = np.array([[0.0, 0.4, 0.4, 0.2, 0.0]])
+    >>> hpd_overlap(state, like, coverage=0.8)
+    array([0.5])
+
+    See Also
+    --------
+    kl_divergence : Measure information divergence between distributions
+    highest_density_region : Compute highest density region mask
+
+    Notes
+    -----
+    The overlap is computed as:
+        overlap = intersection(HPD_state, HPD_like) / min(size(HPD_state), size(HPD_like))
+
+    where a region's size is its number of bins. This equals the paper's
+    region volume when all bins have the same volume; on a nonuniform grid,
+    resample to a uniform one first.
+
+    This normalization ensures that:
+    - overlap = 1.0 when one region completely contains the other
+    - overlap = 0.0 when regions don't overlap at all
+    - Values are comparable even when HPD regions have different sizes
+
+    When either HPD region is empty (a row with no probability mass), the
+    denominator is 0 and overlap is defined as 0, so such rows read as
+    disagreement. Check for all-zero rows separately if they can occur.
+
+    Distributions are automatically normalized over valid (non-NaN) bins.
+    NaN values mark invalid spatial bins (e.g., inaccessible locations); a bin
+    that is NaN (or infinite) in either input is excluded from both HPD regions.
+
+    """
+    validate_coverage(coverage)
+    state, like = as_paired_arrays(state_dist, likelihood)
+    overlap: DistributionArray = np.empty(state.shape[0])
+    for rows in row_chunks(state.shape):
+        overlap[rows] = _hpd_overlap_rows(state[rows], like[rows], coverage)
+    return overlap
+
+
+def _kl_divergence_rows(
+    state_dist: DistributionArray, likelihood: DistributionArray
+) -> DistributionArray:
+    """Compute :func:`kl_divergence` for one chunk of time points."""
     # Validate and normalize distributions (handles NaN correctly)
     state_norm, like_norm = _validate_and_normalize_distributions(state_dist, likelihood)
 
@@ -184,90 +303,17 @@ def kl_divergence(
     return np.maximum(kl_div, 0.0)
 
 
-def hpd_overlap(
-    state_dist: DistributionArray,
-    likelihood: DistributionArray,
-    *,
-    coverage: float = DEFAULT_COVERAGE,
+def _hpd_overlap_rows(
+    state_dist: DistributionArray, likelihood: DistributionArray, coverage: float
 ) -> DistributionArray:
-    """Compute overlap between HPD regions of state distribution and likelihood.
-
-    Measures the spatial overlap between the highest posterior density regions
-    of the state distribution and likelihood distributions. High overlap suggests
-    consistency between the likelihood and prior contributions to the state estimate.
-
-    Parameters
-    ----------
-    state_dist : np.ndarray, shape (n_time, ...)
-        State probability distributions over position at each time point where
-        ... represents arbitrary spatial dimensions.
-        Can be either one-step predictive distribution or smoother output.
-        Non-negative values (NaN allowed to mark invalid bins).
-        Automatically normalized over valid (non-NaN) bins.
-    likelihood : np.ndarray, shape (n_time, ...)
-        Likelihood distributions at each time point. This is the
-        likelihood p(y_t | x_t) across spatial positions.
-        Non-negative values (NaN allowed to mark invalid bins).
-        Automatically normalized over valid (non-NaN) bins.
-        Must have same shape as state_dist.
-    coverage : float, optional
-        Coverage probability for the HPD regions. Must be between 0 and 1.
-        Default is 0.95 for 95% HPD regions.
-
-    Returns
-    -------
-    hpd_overlap : np.ndarray, shape (n_time,)
-        Proportion of overlap between the HPD regions of state_dist and
-        likelihood at each time point. Values range from 0 (no overlap)
-        to 1 (complete overlap).
-
-    Raises
-    ------
-    ValueError
-        If state_dist and likelihood have different shapes, if coverage
-        is not in (0, 1), or if distributions contain negative values.
-
-    Examples
-    --------
-    >>> import numpy as np
-    >>> from statespacecheck import hpd_overlap
-    >>> # 80% HPD regions: bins {0, 1} for the state distribution and {1, 2}
-    >>> # for the likelihood share one bin out of the smaller region's two
-    >>> state = np.array([[0.4, 0.4, 0.2, 0.0, 0.0]])
-    >>> like = np.array([[0.0, 0.4, 0.4, 0.2, 0.0]])
-    >>> hpd_overlap(state, like, coverage=0.8)
-    array([0.5])
-
-    See Also
-    --------
-    kl_divergence : Measure information divergence between distributions
-    highest_density_region : Compute highest density region mask
-
-    Notes
-    -----
-    The overlap is computed as:
-        overlap = intersection(HPD_state, HPD_like) / min(size(HPD_state), size(HPD_like))
-
-    This normalization ensures that:
-    - overlap = 1.0 when one region completely contains the other
-    - overlap = 0.0 when regions don't overlap at all
-    - Values are comparable even when HPD regions have different sizes
-
-    When either HPD region is empty (a row with no probability mass), the
-    denominator is 0 and overlap is defined as 0, so such rows read as
-    disagreement. Check for all-zero rows separately if they can occur.
-
-    Distributions are automatically normalized over valid (non-NaN) bins.
-    NaN values mark invalid spatial bins (e.g., inaccessible locations)
-    and are excluded from both normalization and HPD region computation.
-
-    """
-    validate_coverage(coverage)
-
-    # Validate but don't normalize - HPD works on relative magnitudes (unnormalized weights)
-    # This saves 2 full array normalizations for large datasets
+    """Compute :func:`hpd_overlap` for one chunk of time points."""
+    # Validate but don't normalize - HPD works on relative magnitudes (unnormalized
+    # weights). A bin invalid in either input is excluded from both.
     state, like = validate_paired_distributions(
-        state_dist, likelihood, name1="state_dist", name2="likelihood", min_ndim=2
+        *_exclude_bins_invalid_in_either(state_dist, likelihood),
+        name1="state_dist",
+        name2="likelihood",
+        min_ndim=2,
     )
 
     # Get HPD regions (highest_density_region works on unnormalized weights)

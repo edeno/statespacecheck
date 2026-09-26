@@ -134,16 +134,11 @@ class TestValidateDistribution:
         flat_large = flatten_time_spatial(clean_large)
         assert flat_large.shape == (2, 10000)
 
-    def test_zero_spatial_dimension_handled(self) -> None:
-        """Test that zero spatial dimension is handled correctly by numpy."""
-        # Create array with one spatial dimension being 0
-        # Shape (2, 0) means 2 time points, 0 spatial bins
-        dist = np.array([[], []])  # Shape (2, 0)
-
-        # This should succeed - numpy handles empty arrays fine
-        clean = validate_distribution(dist, min_ndim=2)
-        flat = flatten_time_spatial(clean)
-        assert flat.shape == (2, 0)
+    def test_zero_spatial_dimension_raises(self) -> None:
+        """A distribution over no bins has no defined diagnostics."""
+        dist = np.array([[], []])  # Shape (2, 0): 2 time points, 0 spatial bins
+        with pytest.raises(ValueError, match="no bins along its spatial axes"):
+            validate_distribution(dist, min_ndim=2)
 
 
 class TestValidatePairedDistributions:

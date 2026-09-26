@@ -8,9 +8,11 @@ state space models.
 from statespacecheck._validation import DistributionArray
 from statespacecheck.events import (
     EventDiagnostics,
+    EventFlags,
     baseline_threshold,
     event_diagnostics,
     event_likelihood,
+    flag_events,
     mark_predictive_pvalue,
     predictive_mark_probabilities,
 )
@@ -38,6 +40,7 @@ __all__ = [
     "DEFAULT_COVERAGE",
     "DistributionArray",
     "EventDiagnostics",
+    "EventFlags",
     "__version__",
     "aggregate_over_period",
     "baseline_threshold",
@@ -45,6 +48,7 @@ __all__ = [
     "event_diagnostics",
     "event_likelihood",
     "find_low_overlap_intervals",
+    "flag_events",
     "flag_extreme_kl",
     "flag_extreme_pvalues",
     "flag_low_overlap",

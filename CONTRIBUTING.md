@@ -133,7 +133,8 @@ pull requests and updates their versions monthly.
 ## Continuous Integration
 
 `.github/workflows/ci.yml` runs on pull requests and pushes to `main`, on
-`v*` tags, and on demand (Actions → CI → Run workflow). Its jobs:
+`v*` tags, weekly (Monday 06:00 UTC), and on demand (Actions → CI → Run
+workflow). Its jobs:
 
 1. **Code Quality** (`quality`): `ruff format --check`, `ruff check` and
    `mypy` from the locked environment (`uv sync --frozen`), and
@@ -143,9 +144,18 @@ pull requests and updates their versions monthly.
    warnings as errors; coverage goes to Codecov from Python 3.12 on Linux.
 4. **Dependency floors** (`test-minimum-pins`): the tests on Python 3.10 with
    the lowest NumPy, SciPy and matplotlib that `pyproject.toml` allows.
-5. **Build** (`build`) and **install tests** (`test-package`): builds the wheel
+5. **Nightly dependencies** (`test-nightly`): the tests against the nightly
+   builds of NumPy, SciPy and matplotlib; on the weekly schedule and on demand
+   only.
+6. **Build** (`build`) and **install tests** (`test-package`): builds the wheel
    and sdist, then installs each and runs a smoke test.
-6. **Publish** and **GitHub release**: on `v*` tags only; see below.
+7. **Publish** and **GitHub release**: on `v*` tags only; see below.
+
+`.github/workflows/docs.yml` runs on every pull request and push to `main`: it
+executes the tutorial notebooks, checks that their committed text outputs match
+the fresh run and that the run does not warn, checks each tutorial's jupytext
+pair, builds the site with `mkdocs build --strict`, and deploys it to GitHub
+Pages from `main`.
 
 Every action is pinned to a commit SHA; Dependabot proposes updates monthly.
 
@@ -159,27 +169,30 @@ The version comes from the git tag through `hatch-vcs`: a development install
 reports something like `0.2.1.dev3+g1a2b3c4`, and a tagged commit reports
 `X.Y.Z`. **Do not** edit version numbers in the code.
 
-### Release Checklist
-
-- [ ] CI passes on `main`
-- [ ] CHANGELOG: the `[Unreleased]` section renamed to `## [X.Y.Z] - YYYY-MM-DD`
-- [ ] `CITATION.cff`: `version` and `date-released` updated
-- [ ] Tag `vX.Y.Z` pushed, following semantic versioning
-
 ## Testing
 
 ### Test Structure
 
 ```
+conftest.py                          # Root: matplotlib backend, closes figures after each test
 tests/
 ├── conftest.py                      # Shared fixtures
 ├── helpers.py                       # Shared test data generators
-├── test_highest_density.py          # HPD region tests
-├── test_state_consistency.py        # KL divergence, HPD overlap tests
-├── test_predictive_density.py       # Predictive checks tests
-├── test_validation.py               # Input validation tests
-├── test_edge_cases.py              # Edge case handling
-└── test_properties.py              # Property-based tests (Hypothesis)
+├── test_events.py                   # Per-spike diagnostics and flagging (the paper's method)
+├── test_state_consistency.py        # KL divergence, HPD overlap
+├── test_highest_density.py          # HPD regions
+├── test_predictive_density.py       # Predictive densities
+├── test_predictive_pvalue.py        # Monte Carlo predictive p-values
+├── test_predictive_consistency.py   # Predictive checks on simulated models
+├── test_periods.py                  # Time-series flagging and aggregation
+├── test_viz.py                      # plot_diagnostics
+├── test_chunking.py                 # Results do not depend on the chunk size
+├── test_docs_examples.py            # README and docs code blocks run as shown
+├── test_validation.py               # Input validation
+├── test_edge_cases.py               # Edge cases
+├── test_kl_subnormal.py             # KL divergence with subnormal numbers
+├── test_properties.py               # Property-based tests (Hypothesis)
+└── test_version.py                  # __version__
 ```
 
 ### Running Tests
@@ -237,6 +250,39 @@ def test_highest_density_region_with_peaked_distribution() -> None:
     expected = np.array([[True, True, True]])
     np.testing.assert_array_equal(region, expected)
     assert region.shape == distribution.shape
+```
+
+## Documentation
+
+The documentation site is built with [MkDocs](https://www.mkdocs.org/) from
+`docs/`, the docstrings, the tutorial notebooks, and sections of `README.md`
+and `CONTRIBUTING.md` (included with `--8<--`):
+
+```bash
+uv run --extra docs mkdocs serve          # live preview at http://127.0.0.1:8000
+uv run --extra docs mkdocs build --strict # what the docs workflow runs
+```
+
+Tutorials are edited in `examples/`: each is a jupytext pair, a `.py` script
+and a `.ipynb` notebook with its outputs. The site shows the notebook's
+committed outputs, so after editing a tutorial, sync the pair and re-run the
+notebook:
+
+```bash
+uv run --extra docs jupytext --sync examples/NN_name.py
+uv run --extra docs jupyter nbconvert --to notebook --execute --inplace examples/NN_name.ipynb
+```
+
+`docs/tutorials/` holds the tutorials' index page and symlinks to the
+notebooks; a new tutorial needs a symlink there, a line in that index, and a
+`nav` entry in `mkdocs.yml`. The docs workflow (`.github/workflows/docs.yml`)
+executes every notebook on every pull request, and fails if a committed text
+output differs from the fresh run, if the run warns, or if a pair's cells differ.
+Figures are not compared. To run the same checks locally:
+
+```bash
+uv run --extra docs jupyter nbconvert --to notebook --execute --output-dir /tmp/executed examples/[0-9][0-9]_*.ipynb
+uv run --extra docs python docs/check_tutorials.py /tmp/executed
 ```
 
 ## Code Style Guidelines
@@ -352,9 +398,14 @@ git diff main
 
 ## Getting Help
 
-- **Issues**: [GitHub Issues](https://github.com/edeno/statespacecheck/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/edeno/statespacecheck/discussions)
+- **Issues**: [GitHub Issues](https://github.com/edeno/statespacecheck/issues) (bug
+  reports and feature requests have templates)
+- **Security problems**: report privately; see
+  [SECURITY.md](https://github.com/edeno/statespacecheck/blob/main/SECURITY.md)
 - **Email**: eric.denovellis@ucsf.edu
+
+This project follows the
+[Contributor Covenant Code of Conduct](https://github.com/edeno/statespacecheck/blob/main/CODE_OF_CONDUCT.md).
 
 ## License
 

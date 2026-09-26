@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+from numpy.testing import assert_array_equal
 
 from statespacecheck.periods import (
     _contiguous_runs,
@@ -128,7 +129,7 @@ class TestAggregateOverPeriod:
         metric_values = np.array([[1.0, 2.0], [3.0, 4.0]])  # 2D
         time_mask = np.array([True, True])
 
-        with pytest.raises(ValueError, match="must be 1-dimensional"):
+        with pytest.raises(ValueError, match="metric_values must be 1-D"):
             aggregate_over_period(metric_values, time_mask)
 
     def test_warns_weights_with_sum(self):
@@ -261,7 +262,7 @@ class TestRobustZscore:
         """Test with standard normal-like data."""
         rng = np.random.default_rng(42)
         x = rng.standard_normal(1000)
-        z = _robust_zscore(x)
+        z, _ = _robust_zscore(x)
         # For normal data, median-based z should be close to standard z
         assert np.abs(np.median(z)) < 0.1
         assert 0.8 < np.std(z) < 1.2
@@ -269,33 +270,43 @@ class TestRobustZscore:
     def test_with_nans(self) -> None:
         """Test that NaN values are preserved."""
         x = np.array([1.0, 2.0, np.nan, 4.0, 5.0])
-        z = _robust_zscore(x)
+        z, _ = _robust_zscore(x)
         assert np.isnan(z[2])
         assert np.all(np.isfinite(z[[0, 1, 3, 4]]))
 
     def test_with_infs(self) -> None:
         """Test that Inf values result in NaN z-scores."""
         x = np.array([1.0, 2.0, np.inf, 4.0, 5.0])
-        z = _robust_zscore(x)
+        z, _ = _robust_zscore(x)
         assert np.isnan(z[2])
 
     def test_constant_array(self) -> None:
-        """Test with constant array (zero MAD)."""
+        """With no spread at all, the scale falls back to 1, and says so."""
         x = np.array([5.0, 5.0, 5.0, 5.0])
-        z = _robust_zscore(x)
-        # Should handle gracefully with fallback to IQR
-        assert np.all(np.isfinite(z))
+        z, unit_scale = _robust_zscore(x)
+        assert unit_scale
+        assert_array_equal(z, 0.0)
+
+    def test_mostly_tied_values_warn_in_flag_extreme_kl(self) -> None:
+        """More than 3/4 tied values (for example many KL of 0) leave no robust
+        spread, so the rule becomes KL above the median plus z_thresh."""
+        kl = np.zeros(100)
+        kl[:10] = 0.5
+        kl[50] = 3.2
+        with pytest.warns(UserWarning, match="scale of 1"):
+            flags = flag_extreme_kl(kl, min_len=1)
+        assert_array_equal(np.flatnonzero(flags), [50])
 
     def test_all_nan(self) -> None:
         """Test with all NaN values."""
         x = np.array([np.nan, np.nan, np.nan])
-        z = _robust_zscore(x)
+        z, _ = _robust_zscore(x)
         assert np.all(np.isnan(z))
 
     def test_single_finite_value(self) -> None:
         """Test with only one finite value."""
         x = np.array([np.nan, 3.0, np.nan])
-        z = _robust_zscore(x)
+        z, _ = _robust_zscore(x)
         # With only one value, z-score should be 0
         assert z[1] == 0.0
         assert np.isnan(z[0])
@@ -332,6 +343,22 @@ class TestFlagLowOverlap:
         flags = flag_low_overlap(overlap, threshold=0.4, min_len=3)
         # NaN should not be flagged, breaks run
         assert not flags[2]
+
+    def test_value_at_threshold_flagged(self) -> None:
+        """The rule is 'at or below' the threshold, as in the paper."""
+        overlap = np.array([0.5, 0.4, 0.40001, 0.0])
+        flags = flag_low_overlap(overlap, threshold=0.4, min_len=1)
+        np.testing.assert_array_equal(flags, [False, True, False, True])
+
+    def test_zero_threshold_flags_zero_overlap(self) -> None:
+        """A baseline threshold of 0 (common for overlap) still flags overlap of 0."""
+        overlap = np.array([0.0, 0.2, 0.0])
+        flags = flag_low_overlap(overlap, threshold=0.0, min_len=1)
+        np.testing.assert_array_equal(flags, [True, False, True])
+
+    def test_intervals_include_values_at_threshold(self) -> None:
+        overlap = np.array([0.8, 0.3, 0.3, 0.3, 0.8])
+        assert find_low_overlap_intervals(overlap, threshold=0.3, min_len=3) == [(1, 4)]
 
     def test_different_threshold(self) -> None:
         """Test with different threshold values."""
@@ -389,6 +416,20 @@ class TestFindLowOverlapIntervals:
 class TestFlagExtremeKL:
     """Test flag_extreme_kl function."""
 
+    def test_infinite_kl_always_flagged(self) -> None:
+        """Infinite KL (disjoint supports) is the most extreme misfit: always flagged."""
+        kl = np.array([0.1, np.inf, 0.2, 0.15, np.inf])
+        flags = flag_extreme_kl(kl, z_thresh=3.0, min_len=1)
+        np.testing.assert_array_equal(flags, [False, True, False, False, True])
+
+    def test_all_infinite_kl_flagged(self) -> None:
+        flags = flag_extreme_kl(np.full(4, np.inf), min_len=1)
+        assert flags.all()
+
+    def test_nan_kl_not_flagged(self) -> None:
+        flags = flag_extreme_kl(np.array([np.nan, 0.1, 0.2]), min_len=1)
+        assert not flags.any()
+
     def test_normal_values_not_flagged(self) -> None:
         """Test that normal KL values are not flagged."""
         rng = np.random.default_rng(42)
@@ -406,7 +447,7 @@ class TestFlagExtremeKL:
 
     def test_short_spikes_filtered(self) -> None:
         """Test that short extreme spikes are filtered out."""
-        kl = np.ones(20)
+        kl = np.linspace(0.9, 1.1, 20)
         kl[5:7] = 100.0  # Short spike (length 2)
         flags = flag_extreme_kl(kl, z_thresh=3.0, min_len=5)
         assert np.sum(flags) == 0
@@ -450,21 +491,18 @@ class TestFlagExtremePvalues:
         flags = flag_extreme_pvalues(p, alpha=0.05, min_len=5)
         assert np.sum(flags[5:10]) == 5
 
-    def test_high_pvalues_flagged(self) -> None:
-        """Test that very high p-values are flagged."""
+    def test_high_pvalues_not_flagged(self) -> None:
+        """p near 1 means the observation is typical of the prediction: not a misfit."""
         p = np.ones(20) * 0.5
-        p[5:10] = 0.99  # Very high p-values
-        flags = flag_extreme_pvalues(p, alpha=0.05, min_len=5)
-        assert np.sum(flags[5:10]) == 5
+        p[5:10] = [0.96, 0.98, 0.99, 0.999, 1.0]
+        flags = flag_extreme_pvalues(p, alpha=0.05, min_len=1)
+        assert not flags.any()
 
-    def test_both_extremes_flagged(self) -> None:
-        """Test that both low and high extremes are flagged."""
-        p = np.ones(30) * 0.5
-        p[5:10] = 0.01  # Low
-        p[20:25] = 0.99  # High
-        flags = flag_extreme_pvalues(p, alpha=0.05, min_len=5)
-        assert np.sum(flags[5:10]) == 5
-        assert np.sum(flags[20:25]) == 5
+    def test_pvalue_at_cutoff_flagged(self) -> None:
+        """The rule is p <= alpha: a p-value equal to the cutoff is flagged."""
+        p = np.array([0.5, 0.05, 0.0500001, 0.049])
+        flags = flag_extreme_pvalues(p, alpha=0.05, min_len=1)
+        np.testing.assert_array_equal(flags, [False, True, False, True])
 
     def test_short_runs_filtered(self) -> None:
         """Test that short extreme runs are filtered out."""
@@ -565,3 +603,58 @@ class TestCombineFlags:
         combined3 = combine_flags(flag1, flag2, flag3, min_votes=3, min_len=3)
         np.testing.assert_array_equal(combined2, flag1)
         np.testing.assert_array_equal(combined3, np.zeros(5, dtype=bool))
+
+
+# Each time-series flag function, its series argument and its threshold argument
+SERIES_FLAGS = [
+    pytest.param((flag_low_overlap, "overlap", "threshold"), id="low_overlap"),
+    pytest.param((find_low_overlap_intervals, "overlap", "threshold"), id="intervals"),
+    pytest.param((flag_extreme_kl, "kl", "z_thresh"), id="extreme_kl"),
+    pytest.param((flag_extreme_pvalues, "pvalues", "alpha"), id="extreme_pvalues"),
+]
+
+
+class TestArgumentChecks:
+    """Bad arguments raise, naming the argument, instead of silently flagging
+    everything or nothing."""
+
+    def test_index_array_as_time_mask_raises(self) -> None:
+        """An index array is not a mask: casting it to bool would select everything."""
+        values = np.array([10.0, 20.0, 30.0, 40.0, 50.0])
+        with pytest.raises(ValueError, match="time_mask must be a boolean array"):
+            aggregate_over_period(values, np.array([0, 1, 2, 3]))
+
+    @pytest.mark.parametrize("case", SERIES_FLAGS)
+    def test_two_dimensional_series_raises(self, case) -> None:
+        flag, series, _ = case
+        with pytest.raises(ValueError, match=rf"{series} must be 1-D"):
+            flag(np.ones((3, 4)))
+
+    @pytest.mark.parametrize("case", SERIES_FLAGS)
+    def test_nan_threshold_raises(self, case) -> None:
+        """A NaN threshold compares False with everything."""
+        flag, _, threshold = case
+        with pytest.raises(ValueError, match=f"{threshold} is NaN"):
+            flag(np.linspace(0.1, 0.9, 10), **{threshold: np.nan})
+
+    @pytest.mark.parametrize("case", SERIES_FLAGS)
+    def test_min_len_below_one_raises(self, case) -> None:
+        flag, _, _ = case
+        with pytest.raises(ValueError, match="min_len must be at least 1; got 0"):
+            flag(np.linspace(0.1, 0.9, 10), min_len=0)
+
+    def test_combine_flags_rejects_non_boolean_flags(self) -> None:
+        overlap = np.array([0.9, 0.9, 0.9])
+        with pytest.raises(ValueError, match=r"flags\[1\] must be a boolean array"):
+            combine_flags(np.ones(3, dtype=bool), overlap, min_len=1)
+
+    @pytest.mark.parametrize("min_votes", [0, 3])
+    def test_combine_flags_rejects_impossible_min_votes(self, min_votes) -> None:
+        flags = np.ones(5, dtype=bool)
+        with pytest.raises(ValueError, match=r"min_votes must be between 1 and 2"):
+            combine_flags(flags, flags, min_votes=min_votes)
+
+    def test_combine_flags_min_len_below_one_raises(self) -> None:
+        flags = np.ones(5, dtype=bool)
+        with pytest.raises(ValueError, match="min_len must be at least 1; got 0"):
+            combine_flags(flags, flags, min_len=0)

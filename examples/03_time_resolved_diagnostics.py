@@ -17,7 +17,7 @@
 # %% [markdown]
 # # Time-Resolved Diagnostics for State Space Models
 #
-# This notebook demonstrates how to apply goodness-of-fit diagnostics to **time series data**, identifying **when and where** models fail. This is the core application of the `statespacecheck` package.
+# This notebook applies the diagnostics to **whole time bins**, identifying **when** a model fails, and uses the run-based flagging functions of `statespacecheck.periods`. These are extensions beyond the paper, which evaluates each spike separately; for that workflow see the [per-spike tutorial](../05_per_event_diagnostics/).
 #
 # **Learning objectives:**
 # - Apply diagnostics to realistic time series data
@@ -26,7 +26,7 @@
 # - Aggregate metrics over time periods
 # - Interpret diagnostic patterns in neuroscience context
 #
-# **Previous:** [02_highest_density_regions.ipynb](02_highest_density_regions.ipynb) | **Next:** [04_predictive_checks.ipynb](04_predictive_checks.ipynb)
+# **Previous:** [02_highest_density_regions](../02_highest_density_regions/) | **Next:** [04_predictive_checks](../04_predictive_checks/)
 
 # %% [markdown]
 # ## Setup
@@ -228,14 +228,14 @@ plt.show()
 #
 # **Key parameters:**
 # - `z_thresh`: Z-score threshold for KL divergence (higher = more conservative)
-# - `threshold`: Overlap threshold (lower values = stricter, flag more time points)
+# - `threshold`: Overlap at or below this is flagged (lower values flag fewer time points)
 # - `min_len`: Minimum duration to filter out brief artifacts
 
 # %%
 # Flag time points with extreme values
 kl_flags = flag_extreme_kl(kl_div, z_thresh=3.0, min_len=5)
 
-# Flag times with low overlap (threshold=0.3 means flag when overlap < 30%)
+# Flag times with low overlap (at or below 0.3)
 overlap_flags = flag_low_overlap(overlap, threshold=0.3, min_len=5)
 
 # Combine flags (flag if either metric indicates problem)
@@ -244,10 +244,10 @@ combined_flags = combine_flags(kl_flags, overlap_flags, min_votes=1, min_len=5)
 # Print statistics
 print("Flagged time points:")
 print(
-    f"  High KL divergence (> 1.0): {kl_flags.sum()} / {len(kl_flags)} ({kl_flags.sum() / len(kl_flags) * 100:.1f}%)"
+    f"  Extreme KL divergence (robust z > 3): {kl_flags.sum()} / {len(kl_flags)} ({kl_flags.sum() / len(kl_flags) * 100:.1f}%)"
 )
 print(
-    f"  Low overlap (< 0.3): {overlap_flags.sum()} / {len(overlap_flags)} ({overlap_flags.sum() / len(overlap_flags) * 100:.1f}%)"
+    f"  Low overlap (<= 0.3): {overlap_flags.sum()} / {len(overlap_flags)} ({overlap_flags.sum() / len(overlap_flags) * 100:.1f}%)"
 )
 print(
     f"  Combined (either flag): {combined_flags.sum()} / {len(combined_flags)} ({combined_flags.sum() / len(combined_flags) * 100:.1f}%)"
@@ -265,7 +265,7 @@ print(
 # Often we want to identify **continuous intervals** of poor fit, not just individual time points.
 
 # %%
-# Find intervals of low overlap (threshold=0.3 means flag periods where overlap < 30%)
+# Find intervals of low overlap (at or below 0.3)
 intervals = find_low_overlap_intervals(overlap, threshold=0.3, min_len=5)
 
 print("Detected problem intervals:")
@@ -295,7 +295,7 @@ ax.axvspan(
     misfit_start,
     misfit_end,
     alpha=0.2,
-    color="blue",
+    facecolor="blue",
     edgecolor="blue",
     linewidth=2,
     linestyle="--",
@@ -560,7 +560,7 @@ print(
 # - Validate model assumptions across different behavioral states
 #
 # **Next steps:**
-# - **Next notebook**: [04_predictive_checks.ipynb](04_predictive_checks.ipynb) - Advanced posterior predictive checks
+# - **Next notebook**: [04_predictive_checks](../04_predictive_checks/) - Monte Carlo predictive checks of time bins
 # - **Apply to your data**: Use these tools on real state space model outputs!
 
 # %% [markdown]

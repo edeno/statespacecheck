@@ -1,28 +1,35 @@
-"""Predictive check functions for state space model goodness of fit.
+"""Predictive densities and Monte Carlo predictive checks of whole time bins.
 
-This module provides functions to compute predictive densities and
-perform predictive checks for Bayesian state space models.
+These are extensions beyond the paper. The paper's predictive check is the
+rank-based predictive p-value of each spike, computed exactly over the units by
+:func:`~statespacecheck.mark_predictive_pvalue` and
+:func:`~statespacecheck.event_diagnostics`. The functions here compute the
+predictive density of all observations in a time bin, and a Monte Carlo p-value
+from a user-supplied sampler.
 """
 
 import warnings
 from collections.abc import Callable
+from functools import partial
 
 import numpy as np
+from numpy.typing import ArrayLike
 from scipy.special import logsumexp
 
 from ._validation import (
     DistributionArray,
+    as_paired_arrays,
     flatten_time_spatial,
+    normalize_rows,
+    row_chunks,
     validate_distribution,
     validate_paired_distributions,
 )
 
-# Note: aggregate_over_period has been moved to periods.py as a generic utility
-
 
 def predictive_density(
-    state_dist: DistributionArray,
-    likelihood: DistributionArray,
+    state_dist: ArrayLike,
+    observation_likelihood: ArrayLike,
 ) -> DistributionArray:
     """Compute predictive density by integrating state dist with obs likelihood.
 
@@ -39,11 +46,13 @@ def predictive_density(
         ... represents arbitrary spatial dimensions.
         Non-negative values (NaN allowed to mark invalid bins).
         Will be normalized over spatial dimensions (everything except time).
-    likelihood : np.ndarray, shape (n_time, ...)
-        Likelihood p(y|x) evaluated at observed data across all positions.
-        Non-negative values (NaN allowed to mark invalid bins).
-        DO NOT normalize - this is a likelihood function.
-        Must have same shape as state_dist.
+    observation_likelihood : np.ndarray, shape (n_time, ...)
+        Observation likelihood p(y|x) of the observed data at each position.
+        Non-negative values; a NaN bin is excluded from both inputs (the state
+        is renormalized over the other bins).
+        Not normalized over positions (unlike the ``likelihood`` of
+        :func:`~statespacecheck.kl_divergence`): it is a function of x, not a
+        distribution. Must have same shape as state_dist.
 
     Returns
     -------
@@ -53,8 +62,9 @@ def predictive_density(
     Raises
     ------
     ValueError
-        If state_dist and likelihood have different shapes, or if distributions
-        contain negative values.
+        If state_dist and observation_likelihood have different shapes, if
+        they contain negative values, or if observation_likelihood contains
+        +inf.
 
     Examples
     --------
@@ -83,7 +93,8 @@ def predictive_density(
     - p(y_k | x_k) is the observation likelihood (NOT normalized)
 
     Distributions are validated using validate_paired_distributions:
-    - NaN/inf values in input are converted to 0.0
+    - A bin that is NaN in the likelihood is excluded from the state too
+    - Other NaN/inf values are converted to 0.0 (+inf in the likelihood raises)
     - Shape and non-negativity are checked
     - State distribution is normalized after validation
     - Likelihood is NOT normalized (critical for correct results)
@@ -91,50 +102,17 @@ def predictive_density(
     Integration is performed by flattening spatial dimensions and computing
     row-wise sums over all spatial bins.
     """
-    # Validate both distributions (converts NaN/inf to 0, checks shapes)
-    state, like = validate_paired_distributions(
-        state_dist, likelihood, name1="state_dist", name2="likelihood", min_ndim=2
+    state, like = as_paired_arrays(
+        state_dist, observation_likelihood, "observation_likelihood"
     )
-
-    # Flatten for vectorized operations
-    state_flat = flatten_time_spatial(state)
-    like_flat = flatten_time_spatial(like)
-
-    # Normalize state distribution ONLY (not likelihood!)
-    # Shape: (n_time,)
-    state_sum = state_flat.sum(axis=1)
-
-    # Check for zero-sum state rows before normalization
-    zero_rows = state_sum == 0
-    if np.any(zero_rows):
-        warnings.warn(
-            "state_dist has zero-sum rows; predictive set to NaN for those rows",
-            UserWarning,
-            stacklevel=2,
-        )
-
-    # Normalize state, handling zero-sum rows
-    with np.errstate(divide="ignore", invalid="ignore"):
-        state_normalized = state_flat / state_sum[:, np.newaxis]
-
-    # Replace non-finite values (from zero-sum rows) with 0
-    state_normalized = np.nan_to_num(state_normalized, nan=0.0, posinf=0.0, neginf=0.0)
-
-    # Compute predictive density: sum over spatial dimensions
-    # f_predictive(y) = ∑_x p(x) * p(y|x)
-    # Note: likelihood is NOT normalized (critical!)
-    predictive: DistributionArray = (state_normalized * like_flat).sum(axis=1)
-
-    # Set zero-sum rows to NaN (they have no valid state mass)
-    predictive[zero_rows] = np.nan
-
-    return predictive
+    return _by_chunks_warning_on_zero_rows(_predictive_density_rows, state, like)
 
 
 def log_predictive_density(
-    state_dist: DistributionArray,
-    likelihood: DistributionArray | None = None,
-    log_likelihood: DistributionArray | None = None,
+    state_dist: ArrayLike,
+    observation_likelihood: ArrayLike | None = None,
+    *,
+    log_observation_likelihood: ArrayLike | None = None,
 ) -> DistributionArray:
     """Compute log predictive density directly in log-space using logsumexp.
 
@@ -152,17 +130,17 @@ def log_predictive_density(
         ... represents arbitrary spatial dimensions.
         Non-negative values (NaN allowed to mark invalid bins).
         Will be normalized over spatial dimensions (everything except time).
-    likelihood : np.ndarray, shape (n_time, ...), optional
-        Likelihood p(y|x) evaluated at observed data across all positions.
-        Non-negative values (NaN allowed to mark invalid bins).
-        DO NOT normalize - this is a likelihood function.
+    observation_likelihood : np.ndarray, shape (n_time, ...), optional
+        Observation likelihood p(y|x) of the observed data at each position.
+        Non-negative values; a NaN bin is excluded from both inputs (the state
+        is renormalized over the other bins). Not normalized over positions.
         Must have same shape as state_dist.
-        Exactly one of `likelihood` or `log_likelihood` must be provided.
-    log_likelihood : np.ndarray, shape (n_time, ...), optional
-        Log-likelihood log p(y|x) evaluated at observed data.
-        Allows users who already have log-likelihood to avoid exp/log round-trip.
-        Must have same shape as state_dist.
-        Exactly one of `likelihood` or `log_likelihood` must be provided.
+        Exactly one of `observation_likelihood` or `log_observation_likelihood`
+        must be provided.
+    log_observation_likelihood : np.ndarray, shape (n_time, ...), optional
+        Log observation likelihood log p(y|x), keyword-only. Passing it avoids
+        an exp/log round-trip. -inf is a zero likelihood; a NaN bin is excluded
+        from both inputs. Must have same shape as state_dist.
 
     Returns
     -------
@@ -172,23 +150,22 @@ def log_predictive_density(
     Raises
     ------
     ValueError
-        If neither or both of likelihood and log_likelihood are provided,
-        if shapes don't match, or if distributions contain negative values.
+        If neither or both of the likelihood arguments are provided,
+        if shapes don't match, if distributions contain negative values, or if
+        the (log) observation likelihood contains +inf.
 
     Examples
     --------
     >>> import numpy as np
     >>> from statespacecheck import log_predictive_density
-    >>> # Using likelihood
     >>> state = np.array([[1.0, 1.0, 1.0]])
     >>> like = np.array([[2.0, 3.0, 4.0]])
-    >>> log_pred = log_predictive_density(state, likelihood=like)
+    >>> log_pred = log_predictive_density(state, like)
     >>> log_pred.shape
     (1,)
 
-    >>> # Using log_likelihood for numerical stability
-    >>> log_like = np.log(like)
-    >>> log_pred2 = log_predictive_density(state, log_likelihood=log_like)
+    >>> # From a log likelihood, for numerical stability
+    >>> log_pred2 = log_predictive_density(state, log_observation_likelihood=np.log(like))
     >>> np.allclose(log_pred, log_pred2)
     True
 
@@ -211,99 +188,50 @@ def log_predictive_density(
     - p(x) is the state distribution (normalized to sum to 1)
     - p(y|x) is the observation likelihood (NOT normalized)
 
-    For users who already have log-likelihood computed, passing it via
-    `log_likelihood` parameter avoids the exp/log round-trip and is more
+    For users who already have the log likelihood, passing it via
+    `log_observation_likelihood` avoids the exp/log round-trip and is more
     efficient and numerically stable.
     """
-    # Validate that exactly one of likelihood or log_likelihood is provided
-    if (likelihood is None) == (log_likelihood is None):
-        msg = "Exactly one of 'likelihood' or 'log_likelihood' must be provided"
+    if (observation_likelihood is None) == (log_observation_likelihood is None):
+        msg = (
+            "Exactly one of 'observation_likelihood' or 'log_observation_likelihood' "
+            "must be provided"
+        )
         raise ValueError(msg)
 
-    # Convert likelihood to log_likelihood if needed
-    if likelihood is not None:
-        # Validate state distribution (a probability) and likelihood (a function, not a dist)
-        state, like = validate_paired_distributions(
-            state_dist, likelihood, name1="state_dist", name2="likelihood", min_ndim=2
+    if observation_likelihood is not None:
+        state, like = as_paired_arrays(
+            state_dist, observation_likelihood, "observation_likelihood"
         )
-        # Convert to log-space (avoiding log(0) by using where)
-        like_flat = flatten_time_spatial(like)
-        with np.errstate(divide="ignore"):
-            log_like_flat = np.where(like_flat > 0, np.log(like_flat), -np.inf)
     else:
-        # Validate state_dist (it's a probability)
-        state = validate_distribution(state_dist, name="state_dist", min_ndim=2)
-
-        # Validate log_likelihood manually (it's in log-space, can be negative!)
-        log_like = np.asarray(log_likelihood, dtype=float)
-
-        if log_like.ndim < 2:
+        state = np.asarray(state_dist, dtype=float)
+        # Validate the log likelihood manually (it's in log-space, can be negative!)
+        like = np.asarray(log_observation_likelihood, dtype=float)
+        if like.ndim < 2:
             msg = (
-                f"log_likelihood must be at least 2D with shape (n_time, ...), "
-                f"got shape {log_like.shape}"
+                f"log_observation_likelihood must be at least 2D with shape (n_time, ...), "
+                f"got shape {like.shape}"
+            )
+            raise ValueError(msg)
+        if state.ndim < 2:
+            validate_distribution(state, name="state_dist", min_ndim=2)
+        if like.shape != state.shape:
+            msg = (
+                f"state_dist and log_observation_likelihood must have same shape, "
+                f"got {state.shape} vs {like.shape}"
             )
             raise ValueError(msg)
 
-        if log_like.shape != state.shape:
-            msg = (
-                f"state_dist and log_likelihood must have same shape, "
-                f"got {state.shape} vs {log_like.shape}"
-            )
-            raise ValueError(msg)
-
-        # Check for +inf in log_likelihood (indicates upstream bug or overflow)
-        if np.isposinf(log_like).any():
-            msg = "log_likelihood contains +inf; this indicates an upstream bug or overflow"
-            raise ValueError(msg)
-
-        # Handle non-finite values: NaN → -inf (makes sense in log-space)
-        # Note: We do NOT check for negative values (negative is expected in log-space!)
-        # posinf already checked above and raises, so only handle nan and neginf
-        log_like = np.nan_to_num(log_like, nan=-np.inf, neginf=-np.inf)
-
-        log_like_flat = flatten_time_spatial(log_like)
-
-    # Flatten state for vectorized operations
-    state_flat = flatten_time_spatial(state)
-
-    # Normalize state distribution ONLY (not likelihood!)
-    state_sum = state_flat.sum(axis=1)
-
-    # Check for zero-sum state rows before normalization
-    zero_rows = state_sum == 0
-    if np.any(zero_rows):
-        warnings.warn(
-            "state_dist has zero-sum rows; predictive set to NaN for those rows",
-            UserWarning,
-            stacklevel=2,
-        )
-
-    # Normalize state, handling zero-sum rows
-    with np.errstate(divide="ignore", invalid="ignore"):
-        state_normalized = state_flat / state_sum[:, np.newaxis]
-
-    # Replace non-finite values (from zero-sum rows) with 0
-    state_normalized = np.nan_to_num(state_normalized, nan=0.0, posinf=0.0, neginf=0.0)
-
-    # Convert normalized state to log-space
-    with np.errstate(divide="ignore"):
-        log_state_normalized = np.where(
-            state_normalized > 0, np.log(state_normalized), -np.inf
-        )
-
-    # Compute log predictive density using logsumexp
-    # log ∑_x p(x) * p(y|x) = logsumexp(log p(x) + log p(y|x))
-    log_predictive: DistributionArray = logsumexp(log_state_normalized + log_like_flat, axis=1)
-
-    # Set zero-sum rows to NaN (they have no valid state mass)
-    log_predictive[zero_rows] = np.nan
-
-    return log_predictive
+    return _by_chunks_warning_on_zero_rows(
+        partial(_log_predictive_density_rows, is_log=observation_likelihood is None),
+        state,
+        like,
+    )
 
 
 def predictive_pvalue(
-    observed_log_pred: DistributionArray,
-    sample_log_pred: Callable[[int], DistributionArray],
+    observed_log_pred: ArrayLike,
+    sample_log_pred: Callable[[int], ArrayLike],
     *,
     n_samples: int = 1000,
 ) -> DistributionArray:
@@ -377,10 +305,16 @@ def predictive_pvalue(
     The p-value at time t is computed as:
         p_value[t] = (1 / n_samples) * sum(simulated[t] <= observed[t])
 
-    Interpretation:
-    - p-value near 0.5: observed data consistent with model
-    - p-value near 0 or 1: observed data extreme relative to model predictions
-    - Systematic patterns across time suggest model misspecification
+    Interpretation: the statistic is a log predictive density, so a small
+    p-value means the observed data were less probable than nearly all
+    replicates, i.e. unexpected under the model. A p-value near 1 means the
+    observation was among the most probable outcomes, which is good fit, not
+    misfit. Flag small values (for example ``p <= 0.05``, as
+    :func:`~statespacecheck.periods.flag_extreme_pvalues` does).
+
+    The estimate is the fraction of ``n_samples`` replicates, so it is a
+    multiple of ``1 / n_samples`` and can be exactly 0; choose ``n_samples``
+    large enough to resolve the cutoff you use.
 
     The sampler function should:
     1. Generate new data from the model
@@ -435,3 +369,134 @@ def predictive_pvalue(
     if np.any(mask):
         p_values[mask] = np.mean(simulated_arr[:, mask] <= observed_arr[mask], axis=0)
     return p_values
+
+
+def _by_chunks_warning_on_zero_rows(
+    row_function: Callable[
+        [DistributionArray, DistributionArray], tuple[DistributionArray, bool]
+    ],
+    state: DistributionArray,
+    likelihood: DistributionArray,
+) -> DistributionArray:
+    """Apply a row function to chunks of time; warn once if any state row is empty.
+
+    ``row_function`` returns the values for its rows and whether any of its
+    state rows sum to zero.
+    """
+    values: DistributionArray = np.empty(state.shape[0])
+    any_zero_rows = False
+    for rows in row_chunks(state.shape):
+        values[rows], zero_rows = row_function(state[rows], likelihood[rows])
+        any_zero_rows |= zero_rows
+    if any_zero_rows:
+        warnings.warn(
+            "state_dist has zero-sum rows; predictive set to NaN for those rows",
+            UserWarning,
+            stacklevel=3,  # the public function's caller
+        )
+    return values
+
+
+def _exclude_bins_with_nan_likelihood(
+    state_dist: DistributionArray, likelihood: DistributionArray, name: str
+) -> DistributionArray:
+    """Mark state bins NaN where the likelihood is NaN, so both exclude them.
+
+    Raises if the likelihood contains +inf, which indicates an upstream bug or
+    overflow.
+    """
+    if np.isposinf(likelihood).any():
+        msg = f"{name} contains +inf; this indicates an upstream bug or overflow"
+        raise ValueError(msg)
+    nan_bins = np.isnan(likelihood)
+    if nan_bins.any():
+        return np.where(nan_bins, np.nan, state_dist)
+    return state_dist
+
+
+def _predictive_density_rows(
+    state_dist: DistributionArray, observation_likelihood: DistributionArray
+) -> tuple[DistributionArray, bool]:
+    """Compute :func:`predictive_density` for one chunk; also report zero-sum rows."""
+    state_dist = _exclude_bins_with_nan_likelihood(
+        state_dist, observation_likelihood, "observation_likelihood"
+    )
+    # Validate both distributions (converts NaN/inf to 0, checks shapes)
+    state, like = validate_paired_distributions(
+        state_dist,
+        observation_likelihood,
+        name1="state_dist",
+        name2="observation_likelihood",
+        min_ndim=2,
+    )
+
+    # Flatten for vectorized operations
+    state_flat = flatten_time_spatial(state)
+    like_flat = flatten_time_spatial(like)
+
+    # Normalize the state distribution ONLY (not the likelihood!)
+    state_normalized, zero_rows = normalize_rows(state_flat)
+
+    # Compute predictive density: sum over spatial dimensions
+    # f_predictive(y) = ∑_x p(x) * p(y|x)
+    # Note: likelihood is NOT normalized (critical!)
+    predictive: DistributionArray = (state_normalized * like_flat).sum(axis=1)
+
+    # Set zero-sum rows to NaN (they have no valid state mass)
+    predictive[zero_rows] = np.nan
+
+    return predictive, bool(zero_rows.any())
+
+
+def _log_predictive_density_rows(
+    state_dist: DistributionArray, likelihood: DistributionArray, *, is_log: bool
+) -> tuple[DistributionArray, bool]:
+    """Compute :func:`log_predictive_density` for one chunk; also report zero-sum rows.
+
+    ``likelihood`` is the observation likelihood, or its log if ``is_log``.
+    """
+    state_dist = _exclude_bins_with_nan_likelihood(
+        state_dist,
+        likelihood,
+        "log_observation_likelihood" if is_log else "observation_likelihood",
+    )
+    if not is_log:
+        # Validate state distribution (a probability) and likelihood (a function, not a dist)
+        state, like = validate_paired_distributions(
+            state_dist,
+            likelihood,
+            name1="state_dist",
+            name2="observation_likelihood",
+            min_ndim=2,
+        )
+        # Convert to log-space (avoiding log(0) by using where)
+        like_flat = flatten_time_spatial(like)
+        with np.errstate(divide="ignore"):
+            log_like_flat = np.where(like_flat > 0, np.log(like_flat), -np.inf)
+    else:
+        state = validate_distribution(state_dist, name="state_dist", min_ndim=2)
+        # NaN bins are excluded from the state above; -inf is a zero likelihood.
+        # Negative values are expected in log-space.
+        log_like = np.nan_to_num(likelihood, nan=-np.inf, neginf=-np.inf)
+        log_like_flat = flatten_time_spatial(log_like)
+
+    # Flatten state for vectorized operations
+    state_flat = flatten_time_spatial(state)
+
+    # Normalize the state distribution ONLY (not the likelihood!)
+    state_normalized, zero_rows = normalize_rows(state_flat)
+
+    # Convert normalized state to log-space
+    with np.errstate(divide="ignore"):
+        log_state_normalized = np.where(
+            state_normalized > 0, np.log(state_normalized), -np.inf
+        )
+
+    # Compute log predictive density using logsumexp
+    # log ∑_x p(x) * p(y|x) = logsumexp(log p(x) + log p(y|x))
+    log_predictive: DistributionArray = logsumexp(log_state_normalized + log_like_flat, axis=1)
+
+    # Set zero-sum rows to NaN (they have no valid state mass)
+    log_predictive[zero_rows] = np.nan
+
+    return log_predictive, bool(zero_rows.any())

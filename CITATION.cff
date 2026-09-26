@@ -1,22 +1,28 @@
 cff-version: 1.2.0
-message: If you use this software, please cite it with the metadata below.
+message: >-
+  If you use this software, please cite it with the metadata below, and cite
+  the companion paper for the methods.
 type: software
-title: statespacecheck
+title: "statespacecheck: Goodness-of-fit diagnostics for state space models"
 abstract: >-
-  Goodness-of-fit diagnostics for state space models: time-resolved and
-  per-event measures of consistency between the predictive state
-  distribution and the likelihood of each observation, for identifying when
-  and where a model fails to agree with the data.
+  Local goodness-of-fit diagnostics for state space models: for each
+  observation, down to individual spikes, HPD overlap, KL divergence and a
+  predictive p-value comparing the model's one-step predictive distribution
+  with the observation's likelihood, to find when and where a decoder
+  disagrees with the data.
 authors:
   - family-names: Denovellis
     given-names: Eric
     email: eric.denovellis@ucsf.edu
+    orcid: "https://orcid.org/0000-0003-4606-087X"
   - family-names: Zeng
     given-names: Sirui
     email: zengsr@bu.edu
+    orcid: "https://orcid.org/0009-0001-4056-552X"
   - family-names: Eden
     given-names: Uri T.
     email: tzvi@bu.edu
+    orcid: "https://orcid.org/0000-0002-2058-3691"
 repository-code: https://github.com/edeno/statespacecheck
 url: https://edeno.github.io/statespacecheck
 license: MIT
@@ -25,7 +31,31 @@ date-released: "2026-09-25"
 keywords:
   - neuroscience
   - state-space-models
+  - neural-decoding
   - goodness-of-fit
+  - model-checking
+  - predictive-checks
+  - point-process
+  - spike-trains
   - bayesian
   - diagnostics
-  - kalman-filter
+references:
+  - type: article
+    title: Local goodness-of-fit measures for neural decoding
+    authors:
+      - family-names: Zeng
+        given-names: Sirui
+        orcid: "https://orcid.org/0009-0001-4056-552X"
+      - family-names: Comrie
+        given-names: Alison E.
+        orcid: "https://orcid.org/0000-0002-2251-4892"
+      - family-names: Frank
+        given-names: Loren M.
+        orcid: "https://orcid.org/0000-0002-1752-5677"
+      - family-names: Eden
+        given-names: Uri T.
+        orcid: "https://orcid.org/0000-0002-2058-3691"
+      - family-names: Denovellis
+        given-names: Eric L.
+        orcid: "https://orcid.org/0000-0003-4606-087X"
+    url: https://github.com/edeno/statespacecheck-paper

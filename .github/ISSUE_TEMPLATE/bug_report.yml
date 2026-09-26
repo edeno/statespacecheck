@@ -1,0 +1,30 @@
+name: Bug report
+description: Something gives an error or a wrong result
+labels: [bug]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: example
+    attributes:
+      label: A minimal example
+      description: >-
+        Code that reproduces the problem, ideally with small simulated arrays
+        (np.random.default_rng(0)) rather than your data. Include the full error
+        message.
+      render: python
+    validations:
+      required: true
+  - type: textarea
+    id: versions
+    attributes:
+      label: Versions
+      description: The output of the command below.
+      value: |
+        python -c "import sys, numpy, scipy, statespacecheck; print(sys.version, numpy.__version__, scipy.__version__, statespacecheck.__version__)"
+    validations:
+      required: true

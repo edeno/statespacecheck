@@ -322,3 +322,26 @@ class TestHPDOverlap:
         # intersection: position (0,1) (size=1)
         # overlap = 1 / min(2, 2) = 1 / 2 = 0.5
         assert np.allclose(overlap, 0.5)
+
+
+class TestInvalidBinInOneInput:
+    """A bin that is NaN or infinite in either input is excluded from both."""
+
+    @pytest.mark.parametrize("value", [np.nan, np.inf, -np.inf])
+    @pytest.mark.parametrize("bad_input", ["state", "likelihood"])
+    def test_matches_nan_in_both(self, value, bad_input):
+        rng = np.random.default_rng(7)
+        state = make_random_distribution_1d(rng, 5, 8)
+        like = make_random_distribution_1d(rng, 5, 8)
+        bad = {"state": state.copy(), "likelihood": like.copy()}
+        bad[bad_input][:, [0, 3]] = value
+        state_nan, like_nan = state.copy(), like.copy()
+        state_nan[:, [0, 3]] = np.nan
+        like_nan[:, [0, 3]] = np.nan
+
+        kl = kl_divergence(bad["state"], bad["likelihood"])
+        assert np.all(np.isfinite(kl))
+        np.testing.assert_allclose(kl, kl_divergence(state_nan, like_nan), rtol=1e-12)
+        np.testing.assert_array_equal(
+            hpd_overlap(bad["state"], bad["likelihood"]), hpd_overlap(state_nan, like_nan)
+        )

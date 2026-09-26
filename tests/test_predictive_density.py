@@ -176,7 +176,7 @@ class TestLogPredictiveDensity:
         # Neither provided - should error
         with pytest.raises(
             ValueError,
-            match="Exactly one of 'likelihood' or 'log_likelihood' must be provided",
+            match="Exactly one of 'observation_likelihood' or 'log_observation_likelihood'",
         ):
             log_predictive_density(state)
 
@@ -185,9 +185,13 @@ class TestLogPredictiveDensity:
         log_likelihood = np.log(likelihood)
         with pytest.raises(
             ValueError,
-            match="Exactly one of 'likelihood' or 'log_likelihood' must be provided",
+            match="Exactly one of 'observation_likelihood' or 'log_observation_likelihood'",
         ):
-            log_predictive_density(state, likelihood=likelihood, log_likelihood=log_likelihood)
+            log_predictive_density(
+                state,
+                observation_likelihood=likelihood,
+                log_observation_likelihood=log_likelihood,
+            )
 
     def test_matches_log_of_predictive_density_stable_case(self):
         """Test that log_predictive_density matches log(predictive_density) for stable inputs."""
@@ -199,7 +203,7 @@ class TestLogPredictiveDensity:
         likelihood = rng.random((n_time, n_position)) + 0.1  # Avoid zeros
 
         # Compute using both methods
-        log_pred = log_predictive_density(state, likelihood=likelihood)
+        log_pred = log_predictive_density(state, observation_likelihood=likelihood)
         pred = predictive_density(state, likelihood)
 
         # Should match (for stable case)
@@ -212,8 +216,10 @@ class TestLogPredictiveDensity:
         log_likelihood = np.log(likelihood)
 
         # Compute using both likelihood and log_likelihood
-        log_pred_from_like = log_predictive_density(state, likelihood=likelihood)
-        log_pred_from_log = log_predictive_density(state, log_likelihood=log_likelihood)
+        log_pred_from_like = log_predictive_density(state, observation_likelihood=likelihood)
+        log_pred_from_log = log_predictive_density(
+            state, log_observation_likelihood=log_likelihood
+        )
 
         # Should produce identical results
         np.testing.assert_allclose(log_pred_from_like, log_pred_from_log, rtol=1e-10)
@@ -231,7 +237,7 @@ class TestLogPredictiveDensity:
         likelihood[:, 0] = 1e-100  # Slightly larger at position 0
 
         # Using likelihood input (will convert internally)
-        log_pred = log_predictive_density(state, likelihood=likelihood)
+        log_pred = log_predictive_density(state, observation_likelihood=likelihood)
 
         # Should not be -inf (numerical underflow)
         assert np.all(np.isfinite(log_pred))
@@ -245,7 +251,7 @@ class TestLogPredictiveDensity:
 
         # If we use log(sum(exp(...))), this will underflow to -inf
         # But logsumexp handles it correctly
-        log_pred = log_predictive_density(state, log_likelihood=log_likelihood)
+        log_pred = log_predictive_density(state, log_observation_likelihood=log_likelihood)
 
         # Should not be -inf
         assert np.isfinite(log_pred[0])
@@ -259,7 +265,7 @@ class TestLogPredictiveDensity:
         state = np.array([[1.0, 1.0, 1.0]])
         likelihood = np.array([[2.0, 3.0, 4.0]])
 
-        log_pred = log_predictive_density(state, likelihood=likelihood)
+        log_pred = log_predictive_density(state, observation_likelihood=likelihood)
 
         # Expected: log((1/3)*2 + (1/3)*3 + (1/3)*4) = log(3.0)
         assert log_pred.shape == (1,)
@@ -270,7 +276,7 @@ class TestLogPredictiveDensity:
         state = np.array([[[1.0, 1.0], [1.0, 1.0]]])  # shape (1, 2, 2)
         likelihood = np.array([[[2.0, 3.0], [4.0, 5.0]]])  # shape (1, 2, 2)
 
-        log_pred = log_predictive_density(state, likelihood=likelihood)
+        log_pred = log_predictive_density(state, observation_likelihood=likelihood)
 
         # Expected: log((1/4)*(2+3+4+5)) = log(3.5)
         assert log_pred.shape == (1,)
@@ -282,7 +288,7 @@ class TestLogPredictiveDensity:
         log_likelihood = np.array([1.0, 2.0, 3.0])  # 1D instead of 2D
 
         with pytest.raises(ValueError, match="must be at least 2D"):
-            log_predictive_density(state, log_likelihood=log_likelihood)
+            log_predictive_density(state, log_observation_likelihood=log_likelihood)
 
     def test_log_likelihood_shape_mismatch_error(self):
         """Test that log_likelihood shape mismatch raises ValueError."""
@@ -290,4 +296,53 @@ class TestLogPredictiveDensity:
         log_likelihood = np.array([[1.0, 2.0]])  # Different shape
 
         with pytest.raises(ValueError, match="must have same shape"):
-            log_predictive_density(state, log_likelihood=log_likelihood)
+            log_predictive_density(state, log_observation_likelihood=log_likelihood)
+
+
+class TestArgumentNames:
+    """The observation likelihood p(y|x) is not normalized over states, unlike the
+    ``likelihood`` of kl_divergence and hpd_overlap; its name says so."""
+
+    def test_observation_likelihood_keywords(self) -> None:
+        state = np.array([[0.5, 0.5]])
+        obs_like = np.array([[2.0, 4.0]])
+        density = predictive_density(state, observation_likelihood=obs_like)
+        np.testing.assert_allclose(density, [3.0])
+        np.testing.assert_allclose(
+            log_predictive_density(state, log_observation_likelihood=np.log(obs_like)),
+            np.log([3.0]),
+        )
+
+    def test_log_observation_likelihood_is_keyword_only(self) -> None:
+        with pytest.raises(TypeError):
+            log_predictive_density(np.array([[0.5, 0.5]]), None, np.log([[2.0, 4.0]]))
+
+
+class TestInvalidLikelihoodBins:
+    """A NaN likelihood bin is excluded from both inputs; +inf is an error."""
+
+    @pytest.mark.parametrize(
+        "compute",
+        [
+            lambda s, like: predictive_density(s, like),
+            lambda s, like: np.exp(log_predictive_density(s, like)),
+            lambda s, like: np.exp(
+                log_predictive_density(s, log_observation_likelihood=np.log(like))
+            ),
+        ],
+        ids=["linear", "log", "log-likelihood"],
+    )
+    def test_nan_bin_is_excluded_from_both(self, compute):
+        state = np.array([[0.5, 0.25, 0.25]])
+        like = np.array([[np.nan, 2.0, 4.0]])
+        # The state is renormalized over the two valid bins: 0.5 * 2 + 0.5 * 4
+        np.testing.assert_allclose(compute(state, like), [3.0])
+
+    @pytest.mark.parametrize(
+        "compute",
+        [predictive_density, log_predictive_density],
+        ids=["linear", "log"],
+    )
+    def test_positive_infinity_raises(self, compute):
+        with pytest.raises(ValueError, match=r"observation_likelihood contains \+inf"):
+            compute(np.array([[0.5, 0.5]]), np.array([[np.inf, 1.0]]))

@@ -1,72 +1,82 @@
 """Visualization utilities for diagnostic plots.
 
-This module provides functions to create diagnostic plots for state space model
-goodness-of-fit assessment, including HPD overlap, KL divergence, and predictive
-p-values with optional flagged period highlighting.
+This module plots time series of HPD overlap, KL divergence, and predictive
+p-values, with optional shading of flagged periods. It is an extension beyond
+the paper, whose figures plot one marker per event; matplotlib is imported
+only when a plot is made.
 """
 
 from __future__ import annotations
 
-import matplotlib.pyplot as plt
-import numpy as np
-from matplotlib.figure import Figure
-from numpy.typing import NDArray
+from typing import TYPE_CHECKING
 
-# Import helper functions from periods module
-from .periods import _contiguous_runs, _robust_zscore
+import numpy as np
+from numpy.typing import ArrayLike
+
+from .periods import _as_flags, _contiguous_runs, _robust_zscore
+
+if TYPE_CHECKING:
+    from matplotlib.figure import Figure
 
 
 def plot_diagnostics(
-    time: NDArray[np.floating],
-    overlap: NDArray[np.floating],
-    kl: NDArray[np.floating],
-    pvals: NDArray[np.floating],
-    flags: NDArray[np.bool_] | None = None,
-    tau: float = 0.4,
-    z_thresh: float = 3.0,
-    alpha: float = 0.05,
+    time: ArrayLike,
+    overlap: ArrayLike,
+    kl: ArrayLike,
+    pvals: ArrayLike,
+    flags: ArrayLike | None = None,
+    *,
+    overlap_threshold: float = 0.4,
+    kl_z_threshold: float = 3.0,
+    pvalue_threshold: float = 0.05,
 ) -> Figure:
-    """Plot HPD overlap, KL (with robust z-band), and predictive p-values.
+    """Plot HPD overlap, KL divergence (with its robust z-score), and p-values.
 
-    Creates a three-panel diagnostic plot showing:
-    1. HPD overlap with threshold line
-    2. KL divergence with robust z-score on secondary axis
-    3. Predictive p-values with two-sided significance bounds
+    Creates a three-panel figure:
+
+    1. HPD overlap, with a line at ``overlap_threshold``;
+    2. KL divergence, with its robust z-score on a secondary axis and a line
+       at ``kl_z_threshold`` (the rule of
+       :func:`~statespacecheck.periods.flag_extreme_kl`); infinite values
+       (disjoint supports) are marked with triangles at the top;
+    3. predictive p-values, with a line at ``pvalue_threshold``. Small
+       p-values indicate misfit; p-values near 1 indicate a typical
+       observation.
 
     Optionally shades flagged periods across all panels.
 
     Parameters
     ----------
-    time : np.ndarray, shape (n_time,)
-        Time values for x-axis.
-    overlap : np.ndarray, shape (n_time,)
+    time : array_like, shape (n_time,)
+        Time values for the x-axis.
+    overlap : array_like, shape (n_time,)
         HPD overlap values.
-    kl : np.ndarray, shape (n_time,)
+    kl : array_like, shape (n_time,)
         KL divergence values.
-    pvals : np.ndarray, shape (n_time,)
+    pvals : array_like, shape (n_time,)
         Predictive p-values.
-    flags : np.ndarray, shape (n_time,), optional
-        Boolean array indicating problematic time points to highlight with shading.
-        True values mark periods where model-data agreement is poor (e.g., from
-        combine_flags(), flag_extreme_kl(), or flag_low_overlap()). These regions
-        will be shaded across all diagnostic panels to facilitate visual identification
-        of problematic periods. Default is None (no shading).
-    tau : float, optional
-        Threshold for HPD overlap visualization (dashed line). Default is 0.4.
-    z_thresh : float, optional
-        Z-score threshold for KL visualization (dashed line). Default is 3.0.
-    alpha : float, optional
-        Significance level for p-value bounds (dashed lines). Default is 0.05.
+    flags : array_like of bool, shape (n_time,), optional
+        Time points to shade, for example from
+        :func:`~statespacecheck.periods.combine_flags`. Default is None (no
+        shading).
+    overlap_threshold : float, optional
+        Where to draw the HPD overlap threshold. Default is 0.4.
+    kl_z_threshold : float, optional
+        Where to draw the robust z-score threshold for KL divergence.
+        Default is 3.0.
+    pvalue_threshold : float, optional
+        Where to draw the p-value cutoff. Default is 0.05.
 
     Returns
     -------
     fig : matplotlib.figure.Figure
-        Figure object containing the diagnostic plots.
+        Figure containing the diagnostic plots.
 
     Raises
     ------
     ValueError
-        If flags array has different shape than metrics.
+        If a metric or ``flags`` has a different length from ``time``, or if
+        ``flags`` is not boolean.
 
     Examples
     --------
@@ -81,59 +91,94 @@ def plot_diagnostics(
     >>> fig = plot_diagnostics(time, overlap, kl, pvals)
     >>> plt.close(fig)
     """
-    time_arr = np.asarray(time)
-    overlap_arr = np.asarray(overlap, dtype=float)
-    kl_arr = np.asarray(kl, dtype=float)
-    pvals_arr = np.asarray(pvals, dtype=float)
+    import matplotlib.pyplot as plt
 
-    if flags is not None:
-        flags_arr = np.asarray(flags, dtype=bool)
-        if flags_arr.shape != overlap_arr.shape:
-            msg = "flags must have same shape as metrics"
+    time_arr = np.asarray(time)
+    metrics = {
+        "overlap": np.asarray(overlap, dtype=float),
+        "kl": np.asarray(kl, dtype=float),
+        "pvals": np.asarray(pvals, dtype=float),
+    }
+    for name, values in metrics.items():
+        if values.shape != time_arr.shape:
+            msg = (
+                f"{name} must have the same length as time ({time_arr.shape}); "
+                f"got shape {values.shape}"
+            )
             raise ValueError(msg)
-    else:
-        flags_arr = None
+    overlap_arr, kl_arr, pvals_arr = metrics.values()
+
+    flags_arr = None
+    if flags is not None:
+        flags_arr = _as_flags(flags, "flags")
+        if flags_arr.shape != time_arr.shape:
+            msg = (
+                f"flags must have the same length as time ({time_arr.shape}); "
+                f"got shape {flags_arr.shape}"
+            )
+            raise ValueError(msg)
 
     fig, axes = plt.subplots(3, 1, sharex=True, figsize=(10, 7))
 
-    # 1) Overlap
     ax = axes[0]
     ax.plot(time_arr, overlap_arr, linewidth=1)
-    ax.axhline(tau, linestyle="--", linewidth=1)
+    ax.axhline(overlap_threshold, linestyle="--", linewidth=1)
     ax.set_ylabel("HPD overlap")
     ax.set_ylim(-0.05, 1.05)
     ax.grid(True, alpha=0.3)
 
-    # 2) KL (show raw KL and robust z as twin y if desired)
     ax = axes[1]
     ax.plot(time_arr, kl_arr, linewidth=1)
+    infinite = np.isposinf(kl_arr)
+    if infinite.any():
+        # Disjoint supports give infinite KL, the worst misfit, which a line cannot
+        # show: mark each near the top of the panel
+        ax.plot(
+            time_arr[infinite],
+            np.full(infinite.sum(), 0.95),
+            linestyle="none",
+            marker="^",
+            color="C3",
+            transform=ax.get_xaxis_transform(),
+            label="KL = ∞",
+        )
+        ax.legend(loc="upper left")
     ax.set_ylabel("KL divergence")
     ax.grid(True, alpha=0.3)
+    z_ax = ax.twinx()
+    z_ax.plot(time_arr, _robust_zscore(kl_arr)[0], linewidth=0.8, alpha=0.6)
+    z_ax.axhline(kl_z_threshold, linestyle="--", linewidth=1)
+    z_ax.set_ylabel("robust z(KL)")
 
-    # Optionally draw a z-threshold band using right y-axis (robust z)
-    z = _robust_zscore(kl_arr)
-    ax2 = ax.twinx()
-    ax2.plot(time_arr, z, linewidth=0.8, alpha=0.6)
-    ax2.axhline(z_thresh, linestyle="--", linewidth=1)
-    ax2.set_ylabel("robust z(KL)")
-
-    # 3) Predictive p-values
     ax = axes[2]
     ax.plot(time_arr, pvals_arr, linewidth=1)
-    ax.axhline(alpha / 2.0, linestyle="--", linewidth=1)
-    ax.axhline(1.0 - alpha / 2.0, linestyle="--", linewidth=1)
+    ax.axhline(pvalue_threshold, linestyle="--", linewidth=1)
     ax.set_ylabel("Predictive p")
     ax.set_xlabel("Time")
     ax.set_ylim(-0.05, 1.05)
     ax.grid(True, alpha=0.3)
 
-    # Shade flagged intervals across all panels
-    if flags_arr is not None and np.any(flags_arr):
-        for a, b in _contiguous_runs(flags_arr):
-            # Handle edge case where b might be at the end
-            time_end = time_arr[b - 1] if b - 1 < len(time_arr) else time_arr[-1]
+    if flags_arr is not None and flags_arr.any():
+        # Shade each run over its samples' full width, half the median step either
+        # side, so a run of one sample is visible too. Numbers are padded in their
+        # own units (by 0.5 for a single sample), datetime64 in the axis's float
+        # date numbers, because halving a timedelta64 truncates to its unit (half
+        # of 1 s would be 0 s); a single datetime and other time types get no
+        # padding.
+        span_time = time_arr
+        if np.issubdtype(time_arr.dtype, np.datetime64):
+            span_time = np.asarray(axes[0].convert_xunits(time_arr), dtype=float)
+        if time_arr.size > 1 and np.issubdtype(span_time.dtype, np.number):
+            half_step = np.median(np.diff(span_time)) / 2
+        elif np.issubdtype(time_arr.dtype, np.number):
+            half_step = 0.5
+        else:
+            half_step = span_time[0] - span_time[0]
+        for start, stop in _contiguous_runs(flags_arr):
             for axi in axes:
-                axi.axvspan(time_arr[a], time_end, alpha=0.15)
+                axi.axvspan(
+                    span_time[start] - half_step, span_time[stop - 1] + half_step, alpha=0.15
+                )
 
     fig.tight_layout()
     return fig

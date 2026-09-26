@@ -1,10 +1,88 @@
 """Validation utilities for distributions and parameters."""
 
-import numpy as np
-from numpy.typing import NDArray
+from collections.abc import Iterator
+from typing import Any
 
-# Type aliases for distribution arrays
-DistributionArray = NDArray[np.floating]
+import numpy as np
+from numpy.typing import ArrayLike, NDArray
+
+# Arrays of float64 values the package returns (inputs may be any array-like)
+DistributionArray = NDArray[np.float64]
+
+# The time-bin functions process this many array elements at a time, which
+# bounds their temporary arrays (about 32 MB of float64 each) however long the
+# recording. Every operation is row-wise, so results do not depend on it.
+_CHUNK_ELEMENTS = 2**22
+
+
+def row_chunks(shape: tuple[int, ...]) -> Iterator[slice]:
+    """Yield slices over the first (time) axis covering about ``_CHUNK_ELEMENTS`` each."""
+    n_rows = shape[0]
+    row_size = max(1, int(np.prod(shape[1:])))
+    step = max(1, _CHUNK_ELEMENTS // row_size)
+    for start in range(0, n_rows, step):
+        yield slice(start, min(start + step, n_rows))
+
+
+def check_threshold_not_nan(value: float, name: str) -> None:
+    """Raise if a flag threshold is NaN, which would silently flag nothing.
+
+    Parameters
+    ----------
+    value : float
+        The threshold.
+    name : str
+        The argument's name, for the error message.
+
+    Raises
+    ------
+    ValueError
+        If ``value`` is NaN.
+    """
+    if np.isnan(value):
+        msg = (
+            f"{name} is NaN, which would flag nothing; a quantile of values that "
+            "include +inf is NaN, so compute baseline thresholds with baseline_threshold"
+        )
+        raise ValueError(msg)
+
+
+def row_sums_rescaled(
+    flat: DistributionArray,
+) -> tuple[DistributionArray, DistributionArray]:
+    """Sum each row, first rescaling rows whose total is subnormal or overflows.
+
+    A subnormal total warns about an overflow when divided by on NumPy 1.26, and
+    a total that overflows to inf makes a row of finite values unusable. Such
+    rows are scaled by 2**1000 or 2**-1000; scaling by a power of two keeps the
+    normalized row (and the highest-density region) unchanged. Other rows and
+    their sums are not touched.
+
+    Parameters
+    ----------
+    flat : np.ndarray, shape (n_rows, n_bins)
+        Finite nonnegative values.
+
+    Returns
+    -------
+    flat : np.ndarray, shape (n_rows, n_bins)
+        The input, with the extreme rows rescaled (a copy if any are).
+    row_sums : np.ndarray, shape (n_rows,)
+        The sum of each row of the returned ``flat``.
+    """
+    with np.errstate(over="ignore"):
+        row_sums: DistributionArray = flat.sum(axis=1)
+    subnormal = (row_sums > 0.0) & (row_sums < np.finfo(np.float64).tiny)
+    overflowed = np.isposinf(row_sums)
+    if not (subnormal.any() or overflowed.any()):
+        return flat, row_sums
+    flat = flat.copy()
+    flat[subnormal] *= 2.0**1000
+    flat[overflowed] *= 2.0**-1000
+    rescaled = subnormal | overflowed
+    row_sums = row_sums.copy()
+    row_sums[rescaled] = flat[rescaled].sum(axis=1)
+    return flat, row_sums
 
 
 def validate_coverage(coverage: float) -> None:
@@ -31,7 +109,7 @@ def validate_coverage(coverage: float) -> None:
 
 
 def validate_distribution(
-    distribution: DistributionArray,
+    distribution: ArrayLike,
     name: str = "distribution",
     min_ndim: int = 1,
     allow_nan: bool = True,
@@ -78,6 +156,9 @@ def validate_distribution(
             f"Did you forget to add the time dimension?"
         )
         raise ValueError(msg)
+    if min_ndim >= 2 and arr.ndim >= 2 and np.prod(arr.shape[1:]) == 0:
+        msg = f"{name} has no bins along its spatial axes; got shape {arr.shape}"
+        raise ValueError(msg)
 
     # Handle non-finite values
     clean: DistributionArray
@@ -123,14 +204,54 @@ def flatten_time_spatial(arr: DistributionArray) -> DistributionArray:
     flat : np.ndarray, shape (n_time, n_spatial)
         Flattened array.
     """
-    n_time = arr.shape[0]
-    # Use numpy's automatic dimension calculation with -1
-    return arr.reshape(n_time, -1)
+    # Explicit sizes: reshape cannot infer a -1 axis when there are no rows
+    return arr.reshape(arr.shape[0], int(np.prod(arr.shape[1:])))
+
+
+def normalize_rows(
+    flat: DistributionArray,
+) -> tuple[DistributionArray, NDArray[np.bool_]]:
+    """Divide each row by its sum; a row that sums to zero becomes all zeros.
+
+    Parameters
+    ----------
+    flat : np.ndarray, shape (n_rows, n_bins)
+        Finite nonnegative values.
+
+    Returns
+    -------
+    normalized : np.ndarray, shape (n_rows, n_bins)
+        Each row divided by its sum (see :func:`row_sums_rescaled`).
+    zero_rows : np.ndarray of bool, shape (n_rows,)
+        The rows that sum to zero.
+    """
+    flat, row_sums = row_sums_rescaled(flat)
+    # Zero-sum rows divide 0 by 0; their NaNs become zeros below
+    with np.errstate(divide="ignore", invalid="ignore"):
+        normalized = flat / row_sums[:, np.newaxis]
+    return np.nan_to_num(normalized, nan=0.0, posinf=0.0, neginf=0.0), row_sums == 0
+
+
+def as_paired_arrays(
+    state_dist: ArrayLike, likelihood: ArrayLike, likelihood_name: str = "likelihood"
+) -> tuple[DistributionArray, DistributionArray]:
+    """Return both inputs as float arrays, raising if their shapes cannot pair.
+
+    The time-bin functions call this once, before processing time in chunks.
+    """
+    state = np.asarray(state_dist, dtype=float)
+    like = np.asarray(likelihood, dtype=float)
+    if state.ndim < 2 or state.shape != like.shape:
+        # Raise the usual error, which reports both full shapes
+        validate_paired_distributions(
+            state, like, name1="state_dist", name2=likelihood_name, min_ndim=2
+        )
+    return state, like
 
 
 def validate_paired_distributions(
-    dist1: DistributionArray,
-    dist2: DistributionArray,
+    dist1: ArrayLike,
+    dist2: ArrayLike,
     name1: str = "state_dist",
     name2: str = "likelihood",
     min_ndim: int = 2,
@@ -178,7 +299,7 @@ def validate_paired_distributions(
     return clean1, clean2
 
 
-def get_spatial_axes(arr: DistributionArray) -> tuple[int, ...]:
+def get_spatial_axes(arr: NDArray[Any]) -> tuple[int, ...]:
     """Get tuple of spatial dimension axes (all except time axis 0).
 
     Parameters

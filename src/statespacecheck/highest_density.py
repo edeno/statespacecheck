@@ -1,11 +1,13 @@
-"""Functions for computing highest density regions."""
+"""Highest probability-density (HPD) regions of distributions over a grid."""
 
 import numpy as np
-from numpy.typing import NDArray
+from numpy.typing import ArrayLike, NDArray
 
 from ._validation import (
     DistributionArray,
     flatten_time_spatial,
+    row_chunks,
+    row_sums_rescaled,
     validate_coverage,
     validate_distribution,
 )
@@ -15,7 +17,7 @@ DEFAULT_COVERAGE = 0.95
 
 
 def highest_density_region(
-    distribution: DistributionArray, *, coverage: float = DEFAULT_COVERAGE
+    distribution: ArrayLike, *, coverage: float = DEFAULT_COVERAGE
 ) -> NDArray[np.bool_]:
     """Compute boolean mask indicating highest density region membership.
 
@@ -65,7 +67,9 @@ def highest_density_region(
     - NaNs are ignored (treated as 0 mass).
     - If total mass at time t <= 0 or not finite, returns all-False for that t.
     - Works in unnormalized space to avoid numerical issues.
-    - Fully vectorized with no Python loops for efficiency.
+    - Vectorized within chunks of time points; the chunks bound memory.
+    - The input is probability mass per bin, so the region is the highest
+      probability-density region only when all bins have the same volume.
     - Uses `>=` threshold: all bins with value equal to cutoff are included.
     - Due to ties, actual coverage may slightly exceed requested coverage.
     - This ensures consistent behavior across equivalent distributions.
@@ -76,7 +80,20 @@ def highest_density_region(
 
     """
     validate_coverage(coverage)
+    values = np.asarray(distribution, dtype=float)
+    if values.ndim < 2:
+        # Raise the usual error, which explains the expected shape
+        validate_distribution(values, name="distribution", min_ndim=2, allow_nan=True)
+    isin_hd = np.empty(values.shape, dtype=bool)
+    for rows in row_chunks(values.shape):
+        isin_hd[rows] = _highest_density_region_rows(values[rows], coverage)
+    return isin_hd
 
+
+def _highest_density_region_rows(
+    distribution: DistributionArray, coverage: float
+) -> NDArray[np.bool_]:
+    """Compute :func:`highest_density_region` for one chunk of time points."""
     # Use centralized validation: handles NaN/inf → 0, checks non-negativity, validates dimensions
     clean = validate_distribution(
         distribution,
@@ -88,12 +105,11 @@ def highest_density_region(
     # Flatten to (n_time, n_spatial) for vectorized operations
     flat = flatten_time_spatial(clean)
 
-    n_time = clean.shape[0]
     n_spatial = flat.shape[1]
 
     # Compute total mass and target mass for each time point
     # Shape: (n_time,)
-    totals = flat.sum(axis=1)
+    flat, totals = row_sums_rescaled(flat)
     target = coverage * totals
 
     # Identify rows with no mass -> empty HPD (all False)
@@ -130,9 +146,6 @@ def highest_density_region(
     # Empty rows -> set cutoff to +inf so mask is all False
     cutoff = np.where(empty, np.inf, cutoff)
 
-    # Broadcast cutoff back to spatial shape and build mask
-    # Use the **clean** array for the comparison to keep behavior consistent
-    # Broadcasting: reshape cutoff from (n_time,) to (n_time, 1, 1, ...) to match spatial dims
-    # Using tuple unpacking for clarity
-    broadcast_shape = (n_time,) + (1,) * (clean.ndim - 1)
-    return clean >= cutoff.reshape(broadcast_shape)
+    # Compare each row with its cutoff, in the same (possibly rescaled) units,
+    # then restore the spatial shape
+    return (flat >= cutoff[:, None]).reshape(clean.shape)

@@ -5,9 +5,12 @@ import pytest
 from numpy.testing import assert_allclose, assert_array_equal
 
 from statespacecheck import (
+    EventDiagnostics,
+    EventFlags,
     baseline_threshold,
     event_diagnostics,
     event_likelihood,
+    flag_events,
     hpd_overlap,
     kl_divergence,
     mark_predictive_pvalue,
@@ -58,6 +61,10 @@ class TestEventLikelihood:
     def test_invalid_values_raise(self, bad):
         with pytest.raises(ValueError, match="finite nonnegative"):
             event_likelihood(np.array([[1.0, bad]]))
+
+    def test_returns_float64_for_other_float_inputs(self):
+        likelihood = event_likelihood(np.array([[1.0, 2.0, 1.0]], dtype=np.float32))
+        assert likelihood.dtype == np.float64
 
     def test_requires_event_axis(self):
         with pytest.raises(ValueError, match="n_events"):
@@ -163,6 +170,20 @@ class TestMarkPredictivePvalue:
         pvalue = mark_predictive_pvalue(state, intensities, np.array([1, 2]))
         assert pvalue[0] == pvalue[1]
         assert 0.0 < pvalue[0] < 1.0
+
+    def test_pvalue_does_not_depend_on_other_events(self):
+        """The tie tolerance is set by each event's own predictive probabilities,
+        so batching or subsetting events cannot change a p-value."""
+        state = np.eye(2)
+        intensities = np.ones((2, 10))
+        intensities[0, 1] = 1 + 3e-14  # nearly ties mark 0 at bin 0
+        intensities[1, 2] = 1000.0  # at bin 1, mark 2 is far more probable
+        marks = np.array([0, 2])
+        together = mark_predictive_pvalue(state, intensities, marks)
+        alone = [
+            mark_predictive_pvalue(state[[i]], intensities, marks[[i]])[0] for i in (0, 1)
+        ]
+        assert_array_equal(together, alone)
 
     def test_values_in_unit_interval(self, random_model):
         predictive, intensities, time_ind, marks = random_model
@@ -313,11 +334,187 @@ class TestBaselineThreshold:
         with pytest.raises(ValueError, match="no finite values"):
             baseline_threshold(np.full(4, np.nan), 0.5)
 
-    def test_infinity_raises(self):
-        with pytest.raises(ValueError, match="infinity"):
-            baseline_threshold(np.array([1.0, np.inf]), 0.5)
+    def test_positive_infinity_can_be_the_threshold(self):
+        """KL is +inf for disjoint supports; a high quantile can land on it."""
+        assert baseline_threshold(np.array([1.0, 2.0, np.inf]), 0.99) == np.inf
+        assert baseline_threshold(np.array([1.0, np.inf, np.inf]), 0.5) == np.inf
+
+    def test_positive_infinity_above_the_quantile_is_ignored(self):
+        """Below the infinite values, the threshold equals the usual quantile."""
+        values = np.r_[np.arange(100.0), np.inf]
+        assert baseline_threshold(values, 0.5) == np.quantile(np.arange(101.0), 0.5)
+        assert baseline_threshold(values, 0.0) == 0.0
+        # Between two finite values: interpolated, as np.quantile would without the inf
+        assert baseline_threshold(values, 0.505) == 50.5
+
+    @pytest.mark.parametrize(
+        ("values", "quantile", "expected"),
+        [
+            (np.r_[np.arange(100.0), np.inf], 0.99, 99.0),  # exact position, inf above
+            (np.array([1.0, np.inf]), 0.0, 1.0),
+            (np.array([1.0, 2.0, np.inf]), 0.5, 2.0),
+            (np.array([1.0, np.inf]), 1.0, np.inf),
+        ],
+    )
+    def test_exact_positions_next_to_infinity(self, values, quantile, expected):
+        """At an exact order-statistic position, +inf just above does not make it NaN."""
+        assert baseline_threshold(values, quantile) == expected
+
+    def test_negative_infinity_raises(self):
+        with pytest.raises(ValueError, match="-inf"):
+            baseline_threshold(np.array([1.0, -np.inf]), 0.5)
+
+    def test_all_infinite_raises(self):
+        with pytest.raises(ValueError, match="no finite values"):
+            baseline_threshold(np.array([np.inf, np.inf]), 0.5)
 
     @pytest.mark.parametrize("quantile", [-0.1, 1.1])
     def test_invalid_quantile_raises(self, quantile):
         with pytest.raises(ValueError, match="quantile"):
             baseline_threshold(np.arange(3.0), quantile)
+
+
+@pytest.fixture
+def small_diagnostics() -> EventDiagnostics:
+    return EventDiagnostics(
+        hpd_overlap=np.array([0.0, 0.05, 0.5, np.nan]),
+        kl_divergence=np.array([3.0, np.inf, 0.1, 2.0]),
+        predictive_pvalue=np.array([0.05, 0.9, 0.01, 1.0]),
+        likelihood=None,
+    )
+
+
+class TestFlagEvents:
+    def test_paper_rule_is_inclusive(self, small_diagnostics):
+        """HPD at or below, KL at or above, p at or below their thresholds."""
+        flags = flag_events(
+            small_diagnostics,
+            hpd_overlap_threshold=0.05,
+            kl_divergence_threshold=2.0,
+            pvalue_threshold=0.05,
+        )
+        assert isinstance(flags, EventFlags)
+        assert_array_equal(flags.hpd_overlap, [True, True, False, False])
+        assert_array_equal(flags.kl_divergence, [True, True, False, True])
+        assert_array_equal(flags.predictive_pvalue, [True, False, True, False])
+
+    def test_unset_thresholds_skip_the_metric(self, small_diagnostics):
+        """Only the p-value has a default cutoff (0.05); the others need a threshold."""
+        flags = flag_events(small_diagnostics)
+        assert flags.hpd_overlap is None
+        assert flags.kl_divergence is None
+        assert_array_equal(flags.predictive_pvalue, [True, False, True, False])
+
+    def test_pvalue_can_be_skipped(self, small_diagnostics):
+        flags = flag_events(small_diagnostics, pvalue_threshold=None)
+        assert flags.predictive_pvalue is None
+
+    def test_infinite_kl_threshold_flags_only_infinite(self, small_diagnostics):
+        flags = flag_events(small_diagnostics, kl_divergence_threshold=np.inf)
+        assert_array_equal(flags.kl_divergence, [False, True, False, False])
+
+    def test_with_baseline_thresholds(self, random_model):
+        """The paper's workflow: thresholds from a baseline, then flag every event."""
+        diagnostics = event_diagnostics(*random_model)
+        baseline = slice(0, 20)
+        flags = flag_events(
+            diagnostics,
+            hpd_overlap_threshold=baseline_threshold(diagnostics.hpd_overlap[baseline], 0.01),
+            kl_divergence_threshold=baseline_threshold(
+                diagnostics.kl_divergence[baseline], 0.99
+            ),
+        )
+        # The baseline's lowest overlap and highest divergence lie beyond its own
+        # 1st and 99th percentiles, so they are flagged
+        assert flags.hpd_overlap is not None
+        assert flags.kl_divergence is not None
+        assert flags.hpd_overlap[np.argmin(diagnostics.hpd_overlap[baseline])]
+        assert flags.kl_divergence[np.argmax(diagnostics.kl_divergence[baseline])]
+
+    @pytest.mark.parametrize(
+        "threshold",
+        ["hpd_overlap_threshold", "kl_divergence_threshold", "pvalue_threshold"],
+    )
+    def test_nan_threshold_raises(self, small_diagnostics, threshold):
+        """A NaN threshold (for example np.quantile of values including +inf) would
+        silently flag nothing."""
+        with pytest.raises(ValueError, match=f"{threshold} is NaN"):
+            flag_events(small_diagnostics, **{threshold: np.nan})
+
+
+class TestEventDiagnosticsErrors:
+    """Errors name the user's argument and point to absolute indices."""
+
+    @pytest.fixture
+    def model(self) -> tuple[np.ndarray, np.ndarray]:
+        rng = np.random.default_rng(3)
+        predictive = rng.dirichlet(np.ones(6), size=10)  # (n_time=10, n_bins=6)
+        fields = rng.gamma(2.0, size=(6, 4))  # (n_bins=6, n_marks=4)
+        return predictive, fields
+
+    def test_nan_predictive_names_the_argument_and_bin(self, model):
+        predictive, fields = model
+        predictive[7, 2] = np.nan
+        with pytest.raises(ValueError, match=r"predictive .*time bins \[7\]"):
+            event_diagnostics(predictive, fields, np.array([0, 7]), np.array([0, 1]))
+
+    def test_zero_mass_time_bin_reported_by_absolute_indices(self, model):
+        predictive, fields = model
+        predictive[5] = 0.0
+        time_ind = np.arange(10)
+        with pytest.raises(ValueError, match=r"time bins \[5\].*events \[5\]"):
+            event_diagnostics(predictive, fields, time_ind, np.zeros(10, int), batch_size=4)
+
+    def test_mark_with_no_intensity_reported_by_absolute_indices(self, model):
+        predictive, fields = model
+        fields[:, 3] = 0.0
+        marks = np.array([0, 1, 2, 0, 1, 2, 3])
+        with pytest.raises(ValueError, match=r"zero everywhere.*marks \[3\].*events \[6\]"):
+            event_diagnostics(predictive, fields, np.arange(7), marks, batch_size=2)
+
+    def test_bins_and_marks_without_events_are_not_checked(self, model):
+        """Decoder output often has invalid time bins and silent units where no event
+        falls; only the time bins and marks that events use must be valid."""
+        predictive, fields = model
+        time_ind, marks = np.array([0, 2, 4]), np.array([0, 1, 2])
+        clean = event_diagnostics(predictive, fields[:, :3], time_ind, marks)
+        predictive[1] = np.nan
+        predictive[3] = 0.0
+        fields[:, 3] = 0.0  # a unit with zero rate everywhere, which never fires
+        result = event_diagnostics(predictive, fields, time_ind, marks)
+        for field in ("hpd_overlap", "kl_divergence", "predictive_pvalue"):
+            # The extra all-zero column can change the matrix product in the last bit
+            assert_allclose(getattr(result, field), getattr(clean, field), rtol=1e-12)
+
+    def test_transposed_mark_intensities_suggests_transpose(self, model):
+        predictive, fields = model
+        with pytest.raises(ValueError, match=r"mark_intensities\.T"):
+            event_diagnostics(predictive, fields.T, np.array([0]), np.array([0]))
+
+    def test_float_time_indices_suggest_binning(self, model):
+        predictive, fields = model
+        with pytest.raises(ValueError, match="time-bin indices"):
+            event_diagnostics(predictive, fields, np.array([0.3, 1.7]), np.array([0, 1]))
+
+    def test_empty_lists_are_accepted(self, model):
+        predictive, fields = model
+        result = event_diagnostics(predictive, fields, [], [])
+        assert result.hpd_overlap.shape == (0,)
+
+
+class TestNoEvents:
+    """With no events, the building blocks return empty results, as event_diagnostics does."""
+
+    def test_event_likelihood(self):
+        assert event_likelihood(np.empty((0, 5))).shape == (0, 5)
+
+    def test_predictive_mark_probabilities(self):
+        assert predictive_mark_probabilities(np.empty((0, 5)), np.ones((5, 2))).shape == (0, 2)
+
+    def test_mark_predictive_pvalue(self):
+        pvalue = mark_predictive_pvalue(np.empty((0, 5)), np.ones((5, 2)), np.array([], int))
+        assert pvalue.shape == (0,)
+
+    def test_event_diagnostics_with_no_time_bins(self):
+        diagnostics = event_diagnostics(np.empty((0, 5)), np.ones((5, 2)), [], [])
+        assert diagnostics.hpd_overlap.shape == (0,)

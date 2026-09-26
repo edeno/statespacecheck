@@ -168,13 +168,14 @@ class TestKLDivergenceEdgeCases:
         assert np.isfinite(kl_div[0])
 
     def test_normalization_converts_nan_to_zero(self) -> None:
-        """Test that auto-normalization converts NaN to 0 and normalizes valid bins."""
+        """NaN in either input excludes the bin from both; the rest is normalized."""
         # Import the private function for testing
         from statespacecheck.state_consistency import _validate_and_normalize_distributions
 
-        # Unnormalized with NaN
-        state_dist = np.array([[0.2, 0.4, np.nan, 0.8]])  # valid bins sum to 1.4
-        likelihood = np.array([[0.3, np.nan, 0.3, 0.6]])  # valid bins sum to 1.2
+        # Unnormalized with NaN; bins 1 and 2 are invalid in one input each, so
+        # both inputs keep only bins 0 and 3
+        state_dist = np.array([[0.2, 0.4, np.nan, 0.8]])  # bins 0, 3 sum to 1.0
+        likelihood = np.array([[0.3, np.nan, 0.3, 0.6]])  # bins 0, 3 sum to 0.9
 
         state_norm, like_norm = _validate_and_normalize_distributions(state_dist, likelihood)
 
@@ -182,13 +183,13 @@ class TestKLDivergenceEdgeCases:
         assert np.isclose(state_norm.sum(), 1.0)
         assert np.isclose(like_norm.sum(), 1.0)
 
-        # Check NaN positions converted to 0
-        assert state_norm[0, 2] == 0.0
-        assert like_norm[0, 1] == 0.0
+        # Bins invalid in either input are 0 in both
+        np.testing.assert_array_equal(state_norm[0, 1:3], [0.0, 0.0])
+        np.testing.assert_array_equal(like_norm[0, 1:3], [0.0, 0.0])
 
-        # Check valid bins normalized correctly
-        assert np.isclose(state_norm[0, 0], 0.2 / 1.4)  # 0.142857...
-        assert np.isclose(like_norm[0, 0], 0.3 / 1.2)  # 0.25
+        # The shared valid bins are normalized
+        assert np.isclose(state_norm[0, 0], 0.2 / 1.0)
+        assert np.isclose(like_norm[0, 0], 0.3 / 0.9)
 
 
 class TestSmallSupports:
