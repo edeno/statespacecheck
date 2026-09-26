@@ -13,15 +13,14 @@ from ._validation import (
     DistributionArray,
     flatten_time_spatial,
     get_spatial_axes,
+    row_chunks,
     validate_coverage,
     validate_paired_distributions,
 )
 from .highest_density import DEFAULT_COVERAGE, highest_density_region
 
 
-def _relative_entropy(
-    p: DistributionArray, q: DistributionArray
-) -> DistributionArray:
+def _relative_entropy(p: DistributionArray, q: DistributionArray) -> DistributionArray:
     """Row-wise D(p || q) of nonnegative ``(n_rows, n_bins)`` arrays.
 
     The same operations as ``scipy.stats.entropy(p, q, axis=1)`` (normalize
@@ -190,35 +189,11 @@ def kl_divergence(
     Time slices where distributions have no valid mass return inf for the divergence.
 
     """
-    # Validate and normalize distributions (handles NaN correctly)
-    state_norm, like_norm = _validate_and_normalize_distributions(state_dist, likelihood)
-
-    n_time = state_norm.shape[0]
-
-    # Flatten all spatial dimensions
-    state_flat = state_norm.reshape(n_time, -1)
-    like_flat = like_norm.reshape(n_time, -1)
-
-    # Check for empty rows (sum == 0)
-    # After normalization, arrays have no NaNs: valid rows sum to 1.0, empty rows sum to 0.0
-    state_sum = state_flat.sum(axis=1)
-    like_sum = like_flat.sum(axis=1)
-
-    # Initialize output with inf for invalid time slices
-    kl_div: DistributionArray = np.full(n_time, np.inf, dtype=float)
-
-    # Find valid time slices (both distributions have positive mass over valid bins)
-    valid = (state_sum > 0) & (like_sum > 0)
-
-    # Compute entropy for valid time slices
-    # NaN already converted to 0 by validation
-    if np.any(valid):
-        kl_div[valid] = _relative_entropy(state_flat[valid], like_flat[valid])
-
-    # Clip to non-negative values to handle floating point precision errors
-    # The sum can return tiny negative values (~1e-113) with subnormal numbers
-    # KL divergence is mathematically always non-negative, so clip spurious negatives to 0
-    return np.maximum(kl_div, 0.0)
+    state, like = _as_paired_arrays(state_dist, likelihood)
+    divergence: DistributionArray = np.empty(state.shape[0])
+    for rows in row_chunks(state.shape):
+        divergence[rows] = _kl_divergence_rows(state[rows], like[rows])
+    return divergence
 
 
 def hpd_overlap(
@@ -304,7 +279,66 @@ def hpd_overlap(
 
     """
     validate_coverage(coverage)
+    state, like = _as_paired_arrays(state_dist, likelihood)
+    overlap: DistributionArray = np.empty(state.shape[0])
+    for rows in row_chunks(state.shape):
+        overlap[rows] = _hpd_overlap_rows(state[rows], like[rows], coverage)
+    return overlap
 
+
+def _as_paired_arrays(
+    state_dist: DistributionArray, likelihood: DistributionArray
+) -> tuple[DistributionArray, DistributionArray]:
+    """Return both inputs as float arrays, raising if their shapes cannot pair."""
+    state = np.asarray(state_dist, dtype=float)
+    like = np.asarray(likelihood, dtype=float)
+    if state.ndim < 2 or state.shape != like.shape:
+        # Raise the usual error, which reports both full shapes
+        validate_paired_distributions(
+            state, like, name1="state_dist", name2="likelihood", min_ndim=2
+        )
+    return state, like
+
+
+def _kl_divergence_rows(
+    state_dist: DistributionArray, likelihood: DistributionArray
+) -> DistributionArray:
+    """Compute :func:`kl_divergence` for one chunk of time points."""
+    # Validate and normalize distributions (handles NaN correctly)
+    state_norm, like_norm = _validate_and_normalize_distributions(state_dist, likelihood)
+
+    n_time = state_norm.shape[0]
+
+    # Flatten all spatial dimensions
+    state_flat = state_norm.reshape(n_time, -1)
+    like_flat = like_norm.reshape(n_time, -1)
+
+    # Check for empty rows (sum == 0)
+    # After normalization, arrays have no NaNs: valid rows sum to 1.0, empty rows sum to 0.0
+    state_sum = state_flat.sum(axis=1)
+    like_sum = like_flat.sum(axis=1)
+
+    # Initialize output with inf for invalid time slices
+    kl_div: DistributionArray = np.full(n_time, np.inf, dtype=float)
+
+    # Find valid time slices (both distributions have positive mass over valid bins)
+    valid = (state_sum > 0) & (like_sum > 0)
+
+    # Compute entropy for valid time slices
+    # NaN already converted to 0 by validation
+    if np.any(valid):
+        kl_div[valid] = _relative_entropy(state_flat[valid], like_flat[valid])
+
+    # Clip to non-negative values to handle floating point precision errors
+    # The sum can return tiny negative values (~1e-113) with subnormal numbers
+    # KL divergence is mathematically always non-negative, so clip spurious negatives to 0
+    return np.maximum(kl_div, 0.0)
+
+
+def _hpd_overlap_rows(
+    state_dist: DistributionArray, likelihood: DistributionArray, coverage: float
+) -> DistributionArray:
+    """Compute :func:`hpd_overlap` for one chunk of time points."""
     # Validate but don't normalize - HPD works on relative magnitudes (unnormalized
     # weights). A bin invalid in either input is excluded from both.
     state, like = validate_paired_distributions(

@@ -6,6 +6,7 @@ from numpy.typing import NDArray
 from ._validation import (
     DistributionArray,
     flatten_time_spatial,
+    row_chunks,
     validate_coverage,
     validate_distribution,
 )
@@ -78,7 +79,20 @@ def highest_density_region(
 
     """
     validate_coverage(coverage)
+    values = np.asarray(distribution, dtype=float)
+    if values.ndim < 2:
+        # Raise the usual error, which explains the expected shape
+        validate_distribution(values, name="distribution", min_ndim=2, allow_nan=True)
+    isin_hd = np.empty(values.shape, dtype=bool)
+    for rows in row_chunks(values.shape):
+        isin_hd[rows] = _highest_density_region_rows(values[rows], coverage)
+    return isin_hd
 
+
+def _highest_density_region_rows(
+    distribution: DistributionArray, coverage: float
+) -> NDArray[np.bool_]:
+    """Compute :func:`highest_density_region` for one chunk of time points."""
     # Use centralized validation: handles NaN/inf → 0, checks non-negativity, validates dimensions
     clean = validate_distribution(
         distribution,

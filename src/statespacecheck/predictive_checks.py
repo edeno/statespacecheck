@@ -13,6 +13,7 @@ from scipy.special import logsumexp
 from ._validation import (
     DistributionArray,
     flatten_time_spatial,
+    row_chunks,
     validate_distribution,
     validate_paired_distributions,
 )
@@ -92,47 +93,24 @@ def predictive_density(
     Integration is performed by flattening spatial dimensions and computing
     row-wise sums over all spatial bins.
     """
-    # Validate both distributions (converts NaN/inf to 0, checks shapes)
-    state, like = validate_paired_distributions(
-        state_dist,
-        observation_likelihood,
-        name1="state_dist",
-        name2="observation_likelihood",
-        min_ndim=2,
-    )
-
-    # Flatten for vectorized operations
-    state_flat = flatten_time_spatial(state)
-    like_flat = flatten_time_spatial(like)
-
-    # Normalize state distribution ONLY (not likelihood!)
-    # Shape: (n_time,)
-    state_sum = state_flat.sum(axis=1)
-
-    # Check for zero-sum state rows before normalization
-    zero_rows = state_sum == 0
-    if np.any(zero_rows):
+    state = np.asarray(state_dist, dtype=float)
+    like = np.asarray(observation_likelihood, dtype=float)
+    if state.ndim < 2 or state.shape != like.shape:
+        # Raise the usual error, which reports both full shapes
+        validate_paired_distributions(
+            state, like, name1="state_dist", name2="observation_likelihood", min_ndim=2
+        )
+    predictive: DistributionArray = np.empty(state.shape[0])
+    any_zero_rows = False
+    for rows in row_chunks(state.shape):
+        predictive[rows], zero_rows = _predictive_density_rows(state[rows], like[rows])
+        any_zero_rows |= zero_rows
+    if any_zero_rows:
         warnings.warn(
             "state_dist has zero-sum rows; predictive set to NaN for those rows",
             UserWarning,
             stacklevel=2,
         )
-
-    # Normalize state, handling zero-sum rows
-    with np.errstate(divide="ignore", invalid="ignore"):
-        state_normalized = state_flat / state_sum[:, np.newaxis]
-
-    # Replace non-finite values (from zero-sum rows) with 0
-    state_normalized = np.nan_to_num(state_normalized, nan=0.0, posinf=0.0, neginf=0.0)
-
-    # Compute predictive density: sum over spatial dimensions
-    # f_predictive(y) = ∑_x p(x) * p(y|x)
-    # Note: likelihood is NOT normalized (critical!)
-    predictive: DistributionArray = (state_normalized * like_flat).sum(axis=1)
-
-    # Set zero-sum rows to NaN (they have no valid state mass)
-    predictive[zero_rows] = np.nan
-
     return predictive
 
 
@@ -224,90 +202,52 @@ def log_predictive_density(
         )
         raise ValueError(msg)
 
+    state = np.asarray(state_dist, dtype=float)
     if observation_likelihood is not None:
-        # Validate state distribution (a probability) and likelihood (a function, not a dist)
-        state, like = validate_paired_distributions(
-            state_dist,
-            observation_likelihood,
-            name1="state_dist",
-            name2="observation_likelihood",
-            min_ndim=2,
-        )
-        # Convert to log-space (avoiding log(0) by using where)
-        like_flat = flatten_time_spatial(like)
-        with np.errstate(divide="ignore"):
-            log_like_flat = np.where(like_flat > 0, np.log(like_flat), -np.inf)
+        like = np.asarray(observation_likelihood, dtype=float)
+        if state.ndim < 2 or state.shape != like.shape:
+            # Raise the usual error, which reports both full shapes
+            validate_paired_distributions(
+                state, like, name1="state_dist", name2="observation_likelihood", min_ndim=2
+            )
     else:
-        # Validate state_dist (it's a probability)
-        state = validate_distribution(state_dist, name="state_dist", min_ndim=2)
-
         # Validate the log likelihood manually (it's in log-space, can be negative!)
-        log_like = np.asarray(log_observation_likelihood, dtype=float)
-
-        if log_like.ndim < 2:
+        like = np.asarray(log_observation_likelihood, dtype=float)
+        if like.ndim < 2:
             msg = (
                 f"log_observation_likelihood must be at least 2D with shape (n_time, ...), "
-                f"got shape {log_like.shape}"
+                f"got shape {like.shape}"
             )
             raise ValueError(msg)
-
-        if log_like.shape != state.shape:
+        if state.ndim < 2:
+            validate_distribution(state, name="state_dist", min_ndim=2)
+        if like.shape != state.shape:
             msg = (
                 f"state_dist and log_observation_likelihood must have same shape, "
-                f"got {state.shape} vs {log_like.shape}"
+                f"got {state.shape} vs {like.shape}"
             )
             raise ValueError(msg)
-
         # +inf in the log likelihood indicates an upstream bug or overflow
-        if np.isposinf(log_like).any():
+        if np.isposinf(like).any():
             msg = (
                 "log_observation_likelihood contains +inf; this indicates an upstream "
                 "bug or overflow"
             )
             raise ValueError(msg)
 
-        # Handle non-finite values: NaN → -inf (makes sense in log-space)
-        # Note: We do NOT check for negative values (negative is expected in log-space!)
-        # posinf already checked above and raises, so only handle nan and neginf
-        log_like = np.nan_to_num(log_like, nan=-np.inf, neginf=-np.inf)
-
-        log_like_flat = flatten_time_spatial(log_like)
-
-    # Flatten state for vectorized operations
-    state_flat = flatten_time_spatial(state)
-
-    # Normalize state distribution ONLY (not likelihood!)
-    state_sum = state_flat.sum(axis=1)
-
-    # Check for zero-sum state rows before normalization
-    zero_rows = state_sum == 0
-    if np.any(zero_rows):
+    log_predictive: DistributionArray = np.empty(state.shape[0])
+    any_zero_rows = False
+    for rows in row_chunks(state.shape):
+        log_predictive[rows], zero_rows = _log_predictive_density_rows(
+            state[rows], like[rows], is_log=observation_likelihood is None
+        )
+        any_zero_rows |= zero_rows
+    if any_zero_rows:
         warnings.warn(
             "state_dist has zero-sum rows; predictive set to NaN for those rows",
             UserWarning,
             stacklevel=2,
         )
-
-    # Normalize state, handling zero-sum rows
-    with np.errstate(divide="ignore", invalid="ignore"):
-        state_normalized = state_flat / state_sum[:, np.newaxis]
-
-    # Replace non-finite values (from zero-sum rows) with 0
-    state_normalized = np.nan_to_num(state_normalized, nan=0.0, posinf=0.0, neginf=0.0)
-
-    # Convert normalized state to log-space
-    with np.errstate(divide="ignore"):
-        log_state_normalized = np.where(
-            state_normalized > 0, np.log(state_normalized), -np.inf
-        )
-
-    # Compute log predictive density using logsumexp
-    # log ∑_x p(x) * p(y|x) = logsumexp(log p(x) + log p(y|x))
-    log_predictive: DistributionArray = logsumexp(log_state_normalized + log_like_flat, axis=1)
-
-    # Set zero-sum rows to NaN (they have no valid state mass)
-    log_predictive[zero_rows] = np.nan
-
     return log_predictive
 
 
@@ -451,3 +391,103 @@ def predictive_pvalue(
     if np.any(mask):
         p_values[mask] = np.mean(simulated_arr[:, mask] <= observed_arr[mask], axis=0)
     return p_values
+
+
+def _predictive_density_rows(
+    state_dist: DistributionArray, observation_likelihood: DistributionArray
+) -> tuple[DistributionArray, bool]:
+    """Compute :func:`predictive_density` for one chunk; also report zero-sum rows."""
+    # Validate both distributions (converts NaN/inf to 0, checks shapes)
+    state, like = validate_paired_distributions(
+        state_dist,
+        observation_likelihood,
+        name1="state_dist",
+        name2="observation_likelihood",
+        min_ndim=2,
+    )
+
+    # Flatten for vectorized operations
+    state_flat = flatten_time_spatial(state)
+    like_flat = flatten_time_spatial(like)
+
+    # Normalize state distribution ONLY (not likelihood!)
+    # Shape: (n_time,)
+    state_sum = state_flat.sum(axis=1)
+
+    # Check for zero-sum state rows before normalization
+    zero_rows = state_sum == 0
+
+    # Normalize state, handling zero-sum rows
+    with np.errstate(divide="ignore", invalid="ignore"):
+        state_normalized = state_flat / state_sum[:, np.newaxis]
+
+    # Replace non-finite values (from zero-sum rows) with 0
+    state_normalized = np.nan_to_num(state_normalized, nan=0.0, posinf=0.0, neginf=0.0)
+
+    # Compute predictive density: sum over spatial dimensions
+    # f_predictive(y) = ∑_x p(x) * p(y|x)
+    # Note: likelihood is NOT normalized (critical!)
+    predictive: DistributionArray = (state_normalized * like_flat).sum(axis=1)
+
+    # Set zero-sum rows to NaN (they have no valid state mass)
+    predictive[zero_rows] = np.nan
+
+    return predictive, bool(zero_rows.any())
+
+
+def _log_predictive_density_rows(
+    state_dist: DistributionArray, likelihood: DistributionArray, *, is_log: bool
+) -> tuple[DistributionArray, bool]:
+    """Compute :func:`log_predictive_density` for one chunk; also report zero-sum rows.
+
+    ``likelihood`` is the observation likelihood, or its log if ``is_log``.
+    """
+    if not is_log:
+        # Validate state distribution (a probability) and likelihood (a function, not a dist)
+        state, like = validate_paired_distributions(
+            state_dist,
+            likelihood,
+            name1="state_dist",
+            name2="observation_likelihood",
+            min_ndim=2,
+        )
+        # Convert to log-space (avoiding log(0) by using where)
+        like_flat = flatten_time_spatial(like)
+        with np.errstate(divide="ignore"):
+            log_like_flat = np.where(like_flat > 0, np.log(like_flat), -np.inf)
+    else:
+        state = validate_distribution(state_dist, name="state_dist", min_ndim=2)
+        # NaN -> -inf (zero likelihood); negative values are expected in log-space
+        log_like = np.nan_to_num(likelihood, nan=-np.inf, neginf=-np.inf)
+        log_like_flat = flatten_time_spatial(log_like)
+
+    # Flatten state for vectorized operations
+    state_flat = flatten_time_spatial(state)
+
+    # Normalize state distribution ONLY (not likelihood!)
+    state_sum = state_flat.sum(axis=1)
+
+    # Check for zero-sum state rows before normalization
+    zero_rows = state_sum == 0
+
+    # Normalize state, handling zero-sum rows
+    with np.errstate(divide="ignore", invalid="ignore"):
+        state_normalized = state_flat / state_sum[:, np.newaxis]
+
+    # Replace non-finite values (from zero-sum rows) with 0
+    state_normalized = np.nan_to_num(state_normalized, nan=0.0, posinf=0.0, neginf=0.0)
+
+    # Convert normalized state to log-space
+    with np.errstate(divide="ignore"):
+        log_state_normalized = np.where(
+            state_normalized > 0, np.log(state_normalized), -np.inf
+        )
+
+    # Compute log predictive density using logsumexp
+    # log ∑_x p(x) * p(y|x) = logsumexp(log p(x) + log p(y|x))
+    log_predictive: DistributionArray = logsumexp(log_state_normalized + log_like_flat, axis=1)
+
+    # Set zero-sum rows to NaN (they have no valid state mass)
+    log_predictive[zero_rows] = np.nan
+
+    return log_predictive, bool(zero_rows.any())

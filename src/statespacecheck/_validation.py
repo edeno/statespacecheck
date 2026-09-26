@@ -1,10 +1,26 @@
 """Validation utilities for distributions and parameters."""
 
+from collections.abc import Iterator
+
 import numpy as np
 from numpy.typing import NDArray
 
 # Type aliases for distribution arrays
 DistributionArray = NDArray[np.floating]
+
+# The time-bin functions process this many array elements at a time, which
+# bounds their temporary arrays (about 32 MB of float64 each) however long the
+# recording. Every operation is row-wise, so results do not depend on it.
+_CHUNK_ELEMENTS = 2**22
+
+
+def row_chunks(shape: tuple[int, ...]) -> Iterator[slice]:
+    """Yield slices over the first (time) axis covering about ``_CHUNK_ELEMENTS`` each."""
+    n_rows = shape[0]
+    row_size = max(1, int(np.prod(shape[1:])))
+    step = max(1, _CHUNK_ELEMENTS // row_size)
+    for start in range(0, n_rows, step):
+        yield slice(start, min(start + step, n_rows))
 
 
 def validate_coverage(coverage: float) -> None:
