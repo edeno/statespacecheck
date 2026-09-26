@@ -64,7 +64,6 @@ def generate_spatial_navigation_data(
     n_time: int = 100,
     track_length: float = 100.0,
     n_bins: int = 50,
-    velocity: float = 10.0,  # noqa: ARG001 - documented but not used
     state_uncertainty: float = 2.0,
     likelihood_uncertainty: float = 3.0,
     drift: float = 0.0,
@@ -84,8 +83,6 @@ def generate_spatial_navigation_data(
         Length of the track in cm. Default is 100.0.
     n_bins : int, optional
         Number of spatial bins. Default is 50.
-    velocity : float, optional
-        Average velocity in cm/s. Default is 10.0.
     state_uncertainty : float, optional
         Standard deviation of state distribution in cm. Default is 2.0.
     likelihood_uncertainty : float, optional

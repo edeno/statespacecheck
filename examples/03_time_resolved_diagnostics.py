@@ -391,7 +391,6 @@ good_data = generate_spatial_navigation_data(
     n_time=200,
     track_length=100.0,
     n_bins=50,
-    velocity=10.0,
     state_uncertainty=2.5,
     likelihood_uncertainty=3.0,
     drift=0.0,  # No systematic bias
