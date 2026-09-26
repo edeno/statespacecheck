@@ -1,6 +1,7 @@
 """Test data generators shared by the test modules."""
 
 import numpy as np
+from scipy.stats import norm
 
 from statespacecheck import MarkModel
 
@@ -198,3 +199,27 @@ def integer_mark_model(rates: np.ndarray) -> MarkModel:
             return np.log(rates[:, np.asarray(marks)].T)
 
     return MarkModel(log_intensity, unit_sampler(rates), rates.sum(axis=1))
+
+
+def gaussian_mark_model(
+    place_fields: np.ndarray, waveform_means: np.ndarray, sigma: float
+) -> MarkModel:
+    """Units with place fields ``(n_bins, n_units)`` and Gaussian 1-D waveform amplitudes.
+
+    ``lambda(x, y) = sum_u r_u(x) N(y; mu_u, sigma)``, so the ground intensity is
+    ``sum_u r_u(x)``. Marks have shape ``(n, 1)``.
+    """
+    sample_unit = unit_sampler(place_fields)
+
+    def log_mark_intensity(marks: np.ndarray) -> np.ndarray:
+        # log sum_u r_u(x) N(y; mu_u, sigma), shape (n, n_bins), with the largest
+        # log N(y; mu_u, sigma) factored out so the sum over units is a stable
+        # matrix product (every r_u > 0, so the sum is positive)
+        log_amplitude = norm.logpdf(np.asarray(marks)[:, :1], waveform_means, sigma)
+        largest = log_amplitude.max(axis=1, keepdims=True)
+        return largest + np.log(np.exp(log_amplitude - largest) @ place_fields.T)
+
+    def sample_marks(bins: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+        return rng.normal(waveform_means[sample_unit(bins, rng)], sigma)[:, None]
+
+    return MarkModel(log_mark_intensity, sample_marks, place_fields.sum(axis=1))

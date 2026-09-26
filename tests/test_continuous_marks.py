@@ -846,3 +846,55 @@ class TestClusterlessScale:
             return_likelihood=True,
         )
         assert_allclose(result.likelihood, [[1 / 7, 2 / 7, 4 / 7]], rtol=1e-9)
+
+
+@pytest.fixture(scope="module")
+def session_diagnostics(clusterless_session):
+    """Diagnostics of the simulated session under the true and the misspecified model."""
+    session = clusterless_session
+    return {
+        name: clusterless_event_diagnostics(
+            predictive,
+            model,
+            session.event_time_ind,
+            session.event_marks,
+            n_samples=500,
+            rng=0,
+        )
+        for name, predictive, model in [
+            ("true", session.predictive, session.model),
+            ("misspecified", session.misspecified_predictive, session.misspecified_model),
+        ]
+    }
+
+
+# Thresholds set from the fixture seed's observed values (true model: KS p = 0.88,
+# 6.9% of p <= 0.05, 14.5% for unit 0; misspecified: KS p = 1.6e-4, 12.0%, 57.9%)
+@pytest.mark.slow
+class TestSimulatedSession:
+    def test_calibrated_under_the_true_model(self, session_diagnostics):
+        pvalue = session_diagnostics["true"].predictive_pvalue
+        assert kstest(pvalue, "uniform").pvalue > 0.01
+        assert np.mean(pvalue <= 0.05) <= 0.08
+
+    def test_detects_misspecified_marks(self, session_diagnostics):
+        """Shifting every waveform mean by +0.8, more than their 0.6 spacing, reads most
+        spikes as the neighboring unit's: the decoder follows a consistently shifted
+        position, so most spikes still agree with the prediction. The p-values are
+        no longer uniform, and more of them are small."""
+        pvalue = session_diagnostics["misspecified"].predictive_pvalue
+        assert kstest(pvalue, "uniform").pvalue < 0.01
+        assert np.mean(pvalue <= 0.05) > 0.10
+
+    def test_flags_the_unit_the_misspecified_model_cannot_explain(
+        self, clusterless_session, session_diagnostics
+    ):
+        """Unit 0's marks (mean 1.0) lie below every shifted mean (1.8 and up), so no
+        relabeling explains them: most of its spikes are flagged."""
+        unit_0 = clusterless_session.event_unit == 0
+        flagged = {
+            name: np.mean(result.predictive_pvalue[unit_0] <= 0.05)
+            for name, result in session_diagnostics.items()
+        }
+        assert flagged["misspecified"] > 0.4
+        assert flagged["true"] < 0.25
