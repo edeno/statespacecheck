@@ -208,6 +208,47 @@ def flatten_time_spatial(arr: DistributionArray) -> DistributionArray:
     return arr.reshape(arr.shape[0], int(np.prod(arr.shape[1:])))
 
 
+def normalize_rows(
+    flat: DistributionArray,
+) -> tuple[DistributionArray, NDArray[np.bool_]]:
+    """Divide each row by its sum; a row that sums to zero becomes all zeros.
+
+    Parameters
+    ----------
+    flat : np.ndarray, shape (n_rows, n_bins)
+        Finite nonnegative values.
+
+    Returns
+    -------
+    normalized : np.ndarray, shape (n_rows, n_bins)
+        Each row divided by its sum (see :func:`row_sums_rescaled`).
+    zero_rows : np.ndarray of bool, shape (n_rows,)
+        The rows that sum to zero.
+    """
+    flat, row_sums = row_sums_rescaled(flat)
+    # Zero-sum rows divide 0 by 0; their NaNs become zeros below
+    with np.errstate(divide="ignore", invalid="ignore"):
+        normalized = flat / row_sums[:, np.newaxis]
+    return np.nan_to_num(normalized, nan=0.0, posinf=0.0, neginf=0.0), row_sums == 0
+
+
+def as_paired_arrays(
+    state_dist: ArrayLike, likelihood: ArrayLike, likelihood_name: str = "likelihood"
+) -> tuple[DistributionArray, DistributionArray]:
+    """Return both inputs as float arrays, raising if their shapes cannot pair.
+
+    The time-bin functions call this once, before processing time in chunks.
+    """
+    state = np.asarray(state_dist, dtype=float)
+    like = np.asarray(likelihood, dtype=float)
+    if state.ndim < 2 or state.shape != like.shape:
+        # Raise the usual error, which reports both full shapes
+        validate_paired_distributions(
+            state, like, name1="state_dist", name2=likelihood_name, min_ndim=2
+        )
+    return state, like
+
+
 def validate_paired_distributions(
     dist1: ArrayLike,
     dist2: ArrayLike,

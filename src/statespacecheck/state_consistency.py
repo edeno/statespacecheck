@@ -17,10 +17,11 @@ from scipy.stats import entropy
 
 from ._validation import (
     DistributionArray,
+    as_paired_arrays,
     flatten_time_spatial,
     get_spatial_axes,
+    normalize_rows,
     row_chunks,
-    row_sums_rescaled,
     validate_coverage,
     validate_paired_distributions,
 )
@@ -33,17 +34,12 @@ def _exclude_bins_invalid_in_either(
     """Mark a bin NaN in both arrays when it is non-finite in either.
 
     Both distributions are then normalized over, and compared on, the same
-    set of valid bins. Arrays of different shapes are returned unchanged for
-    the shape check to report.
+    set of valid bins. The arrays have the same shape.
     """
-    state = np.asarray(state_dist, dtype=float)
-    like = np.asarray(likelihood, dtype=float)
-    if state.shape == like.shape:
-        invalid = ~(np.isfinite(state) & np.isfinite(like))
-        if invalid.any():
-            state = np.where(invalid, np.nan, state)
-            like = np.where(invalid, np.nan, like)
-    return state, like
+    invalid = ~(np.isfinite(state_dist) & np.isfinite(likelihood))
+    if invalid.any():
+        return np.where(invalid, np.nan, state_dist), np.where(invalid, np.nan, likelihood)
+    return state_dist, likelihood
 
 
 def _validate_and_normalize_distributions(
@@ -94,21 +90,10 @@ def _validate_and_normalize_distributions(
     state_flat = flatten_time_spatial(state)
     like_flat = flatten_time_spatial(like)
 
-    # Normalize each time slice
-    # After validation, NaN/inf already converted to 0, so use regular sum
-    # Shape: (n_time,)
-    state_flat, state_sum = row_sums_rescaled(state_flat)
-    like_flat, like_sum = row_sums_rescaled(like_flat)
-
-    # Normalize, setting inf/nan results to 0
-    # Division by zero is expected and handled, so suppress warnings
-    with np.errstate(divide="ignore", invalid="ignore"):
-        state_norm_flat = state_flat / state_sum[:, np.newaxis]
-        like_norm_flat = like_flat / like_sum[:, np.newaxis]
-
-    # Replace non-finite values (from zero-sum rows) with 0
-    state_norm_flat = np.nan_to_num(state_norm_flat, nan=0.0, posinf=0.0, neginf=0.0)
-    like_norm_flat = np.nan_to_num(like_norm_flat, nan=0.0, posinf=0.0, neginf=0.0)
+    # Normalize each time slice (after validation, NaN/inf are already 0); rows
+    # with no mass stay zero
+    state_norm_flat, _ = normalize_rows(state_flat)
+    like_norm_flat, _ = normalize_rows(like_flat)
 
     # Reshape back to original shape
     state_norm = state_norm_flat.reshape(state.shape)
@@ -184,7 +169,7 @@ def kl_divergence(state_dist: ArrayLike, likelihood: ArrayLike) -> DistributionA
     Time slices where distributions have no valid mass return inf for the divergence.
 
     """
-    state, like = _as_paired_arrays(state_dist, likelihood)
+    state, like = as_paired_arrays(state_dist, likelihood)
     divergence: DistributionArray = np.empty(state.shape[0])
     for rows in row_chunks(state.shape):
         divergence[rows] = _kl_divergence_rows(state[rows], like[rows])
@@ -276,25 +261,11 @@ def hpd_overlap(
 
     """
     validate_coverage(coverage)
-    state, like = _as_paired_arrays(state_dist, likelihood)
+    state, like = as_paired_arrays(state_dist, likelihood)
     overlap: DistributionArray = np.empty(state.shape[0])
     for rows in row_chunks(state.shape):
         overlap[rows] = _hpd_overlap_rows(state[rows], like[rows], coverage)
     return overlap
-
-
-def _as_paired_arrays(
-    state_dist: ArrayLike, likelihood: ArrayLike
-) -> tuple[DistributionArray, DistributionArray]:
-    """Return both inputs as float arrays, raising if their shapes cannot pair."""
-    state = np.asarray(state_dist, dtype=float)
-    like = np.asarray(likelihood, dtype=float)
-    if state.ndim < 2 or state.shape != like.shape:
-        # Raise the usual error, which reports both full shapes
-        validate_paired_distributions(
-            state, like, name1="state_dist", name2="likelihood", min_ndim=2
-        )
-    return state, like
 
 
 def _kl_divergence_rows(

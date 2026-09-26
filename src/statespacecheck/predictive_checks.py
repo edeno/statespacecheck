@@ -10,6 +10,7 @@ from a user-supplied sampler.
 
 import warnings
 from collections.abc import Callable
+from functools import partial
 
 import numpy as np
 from numpy.typing import ArrayLike
@@ -17,9 +18,10 @@ from scipy.special import logsumexp
 
 from ._validation import (
     DistributionArray,
+    as_paired_arrays,
     flatten_time_spatial,
+    normalize_rows,
     row_chunks,
-    row_sums_rescaled,
     validate_distribution,
     validate_paired_distributions,
 )
@@ -100,25 +102,10 @@ def predictive_density(
     Integration is performed by flattening spatial dimensions and computing
     row-wise sums over all spatial bins.
     """
-    state = np.asarray(state_dist, dtype=float)
-    like = np.asarray(observation_likelihood, dtype=float)
-    if state.ndim < 2 or state.shape != like.shape:
-        # Raise the usual error, which reports both full shapes
-        validate_paired_distributions(
-            state, like, name1="state_dist", name2="observation_likelihood", min_ndim=2
-        )
-    predictive: DistributionArray = np.empty(state.shape[0])
-    any_zero_rows = False
-    for rows in row_chunks(state.shape):
-        predictive[rows], zero_rows = _predictive_density_rows(state[rows], like[rows])
-        any_zero_rows |= zero_rows
-    if any_zero_rows:
-        warnings.warn(
-            "state_dist has zero-sum rows; predictive set to NaN for those rows",
-            UserWarning,
-            stacklevel=2,
-        )
-    return predictive
+    state, like = as_paired_arrays(
+        state_dist, observation_likelihood, "observation_likelihood"
+    )
+    return _by_chunks_warning_on_zero_rows(_predictive_density_rows, state, like)
 
 
 def log_predictive_density(
@@ -212,15 +199,12 @@ def log_predictive_density(
         )
         raise ValueError(msg)
 
-    state = np.asarray(state_dist, dtype=float)
     if observation_likelihood is not None:
-        like = np.asarray(observation_likelihood, dtype=float)
-        if state.ndim < 2 or state.shape != like.shape:
-            # Raise the usual error, which reports both full shapes
-            validate_paired_distributions(
-                state, like, name1="state_dist", name2="observation_likelihood", min_ndim=2
-            )
+        state, like = as_paired_arrays(
+            state_dist, observation_likelihood, "observation_likelihood"
+        )
     else:
+        state = np.asarray(state_dist, dtype=float)
         # Validate the log likelihood manually (it's in log-space, can be negative!)
         like = np.asarray(log_observation_likelihood, dtype=float)
         if like.ndim < 2:
@@ -238,20 +222,11 @@ def log_predictive_density(
             )
             raise ValueError(msg)
 
-    log_predictive: DistributionArray = np.empty(state.shape[0])
-    any_zero_rows = False
-    for rows in row_chunks(state.shape):
-        log_predictive[rows], zero_rows = _log_predictive_density_rows(
-            state[rows], like[rows], is_log=observation_likelihood is None
-        )
-        any_zero_rows |= zero_rows
-    if any_zero_rows:
-        warnings.warn(
-            "state_dist has zero-sum rows; predictive set to NaN for those rows",
-            UserWarning,
-            stacklevel=2,
-        )
-    return log_predictive
+    return _by_chunks_warning_on_zero_rows(
+        partial(_log_predictive_density_rows, is_log=observation_likelihood is None),
+        state,
+        like,
+    )
 
 
 def predictive_pvalue(
@@ -396,6 +371,32 @@ def predictive_pvalue(
     return p_values
 
 
+def _by_chunks_warning_on_zero_rows(
+    row_function: Callable[
+        [DistributionArray, DistributionArray], tuple[DistributionArray, bool]
+    ],
+    state: DistributionArray,
+    likelihood: DistributionArray,
+) -> DistributionArray:
+    """Apply a row function to chunks of time; warn once if any state row is empty.
+
+    ``row_function`` returns the values for its rows and whether any of its
+    state rows sum to zero.
+    """
+    values: DistributionArray = np.empty(state.shape[0])
+    any_zero_rows = False
+    for rows in row_chunks(state.shape):
+        values[rows], zero_rows = row_function(state[rows], likelihood[rows])
+        any_zero_rows |= zero_rows
+    if any_zero_rows:
+        warnings.warn(
+            "state_dist has zero-sum rows; predictive set to NaN for those rows",
+            UserWarning,
+            stacklevel=3,  # the public function's caller
+        )
+    return values
+
+
 def _exclude_bins_with_nan_likelihood(
     state_dist: DistributionArray, likelihood: DistributionArray, name: str
 ) -> DistributionArray:
@@ -433,19 +434,8 @@ def _predictive_density_rows(
     state_flat = flatten_time_spatial(state)
     like_flat = flatten_time_spatial(like)
 
-    # Normalize state distribution ONLY (not likelihood!)
-    # Shape: (n_time,)
-    state_flat, state_sum = row_sums_rescaled(state_flat)
-
-    # Check for zero-sum state rows before normalization
-    zero_rows = state_sum == 0
-
-    # Normalize state, handling zero-sum rows
-    with np.errstate(divide="ignore", invalid="ignore"):
-        state_normalized = state_flat / state_sum[:, np.newaxis]
-
-    # Replace non-finite values (from zero-sum rows) with 0
-    state_normalized = np.nan_to_num(state_normalized, nan=0.0, posinf=0.0, neginf=0.0)
+    # Normalize the state distribution ONLY (not the likelihood!)
+    state_normalized, zero_rows = normalize_rows(state_flat)
 
     # Compute predictive density: sum over spatial dimensions
     # f_predictive(y) = ∑_x p(x) * p(y|x)
@@ -493,18 +483,8 @@ def _log_predictive_density_rows(
     # Flatten state for vectorized operations
     state_flat = flatten_time_spatial(state)
 
-    # Normalize state distribution ONLY (not likelihood!)
-    state_flat, state_sum = row_sums_rescaled(state_flat)
-
-    # Check for zero-sum state rows before normalization
-    zero_rows = state_sum == 0
-
-    # Normalize state, handling zero-sum rows
-    with np.errstate(divide="ignore", invalid="ignore"):
-        state_normalized = state_flat / state_sum[:, np.newaxis]
-
-    # Replace non-finite values (from zero-sum rows) with 0
-    state_normalized = np.nan_to_num(state_normalized, nan=0.0, posinf=0.0, neginf=0.0)
+    # Normalize the state distribution ONLY (not the likelihood!)
+    state_normalized, zero_rows = normalize_rows(state_flat)
 
     # Convert normalized state to log-space
     with np.errstate(divide="ignore"):
