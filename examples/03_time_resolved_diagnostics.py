@@ -295,7 +295,7 @@ ax.axvspan(
     misfit_start,
     misfit_end,
     alpha=0.2,
-    color="blue",
+    facecolor="blue",
     edgecolor="blue",
     linewidth=2,
     linestyle="--",
