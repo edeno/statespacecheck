@@ -162,7 +162,7 @@ reports something like `0.2.1.dev3+g1a2b3c4`, and a tagged commit reports
 ### Release Checklist
 
 - [ ] CI passes on `main`
-- [ ] CHANGELOG: the `[Unreleased]` section renamed to `## [X.Y.Z] - YYYY-MM-DD`
+- [ ] CHANGELOG: the `[Unreleased]` entries moved under a new `## [X.Y.Z] - YYYY-MM-DD` heading
 - [ ] `CITATION.cff`: `version` and `date-released` updated
 - [ ] Tag `vX.Y.Z` pushed, following semantic versioning
 
