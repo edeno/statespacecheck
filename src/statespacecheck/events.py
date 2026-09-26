@@ -354,9 +354,9 @@ def mark_predictive_pvalue(
 
     Small values mean the observed mark was unexpected given the predictive
     state distribution. A small absolute tolerance on the ``<=`` comparison,
-    ``16 * eps * n_bins`` times the largest predictive probability in the call,
-    absorbs floating-point reduction-order noise, so marks with equal predictive
-    probability receive equal p-values across platforms.
+    ``16 * eps * n_bins`` times the event's largest predictive mark
+    probability, absorbs floating-point reduction-order noise, so marks with
+    equal predictive probability receive equal p-values across platforms.
 
     Parameters
     ----------
@@ -398,13 +398,10 @@ def mark_predictive_pvalue(
         raise ValueError(msg)
     n_bins = int(np.prod(np.shape(state_dist)[1:]))
     observed = mark_probabilities[np.arange(n_events), marks]
-    atol = (
-        float(np.finfo(mark_probabilities.dtype).eps * n_bins * 16)
-        * float(np.max(mark_probabilities))
-        if mark_probabilities.size
-        else 0.0
-    )
-    no_more_probable = mark_probabilities <= observed[:, None] + atol
+    # Scaled by each event's own largest probability, so other events cannot change it
+    relative_tolerance = float(np.finfo(mark_probabilities.dtype).eps * n_bins * 16)
+    atol = relative_tolerance * mark_probabilities.max(axis=1)
+    no_more_probable = mark_probabilities <= (observed + atol)[:, None]
     pvalue: DistributionArray = (mark_probabilities * no_more_probable).sum(axis=1)
     # The sum can exceed one by a few ulps; clip only that representational error.
     np.minimum(pvalue, 1.0, out=pvalue)

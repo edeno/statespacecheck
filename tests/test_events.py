@@ -171,6 +171,20 @@ class TestMarkPredictivePvalue:
         assert pvalue[0] == pvalue[1]
         assert 0.0 < pvalue[0] < 1.0
 
+    def test_pvalue_does_not_depend_on_other_events(self):
+        """The tie tolerance is set by each event's own predictive probabilities,
+        so batching or subsetting events cannot change a p-value."""
+        state = np.eye(2)
+        intensities = np.ones((2, 10))
+        intensities[0, 1] = 1 + 3e-14  # nearly ties mark 0 at bin 0
+        intensities[1, 2] = 1000.0  # at bin 1, mark 2 is far more probable
+        marks = np.array([0, 2])
+        together = mark_predictive_pvalue(state, intensities, marks)
+        alone = [
+            mark_predictive_pvalue(state[[i]], intensities, marks[[i]])[0] for i in (0, 1)
+        ]
+        assert_array_equal(together, alone)
+
     def test_values_in_unit_interval(self, random_model):
         predictive, intensities, time_ind, marks = random_model
         pvalue = mark_predictive_pvalue(predictive[time_ind], intensities, marks)
