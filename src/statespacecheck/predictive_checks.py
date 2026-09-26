@@ -377,10 +377,16 @@ def predictive_pvalue(
     The p-value at time t is computed as:
         p_value[t] = (1 / n_samples) * sum(simulated[t] <= observed[t])
 
-    Interpretation:
-    - p-value near 0.5: observed data consistent with model
-    - p-value near 0 or 1: observed data extreme relative to model predictions
-    - Systematic patterns across time suggest model misspecification
+    Interpretation: the statistic is a log predictive density, so a small
+    p-value means the observed data were less probable than nearly all
+    replicates, i.e. unexpected under the model. A p-value near 1 means the
+    observation was among the most probable outcomes, which is good fit, not
+    misfit. Flag small values (for example ``p <= 0.05``, as
+    :func:`~statespacecheck.periods.flag_extreme_pvalues` does).
+
+    The estimate is the fraction of ``n_samples`` replicates, so it is a
+    multiple of ``1 / n_samples`` and can be exactly 0; choose ``n_samples``
+    large enough to resolve the cutoff you use.
 
     The sampler function should:
     1. Generate new data from the model

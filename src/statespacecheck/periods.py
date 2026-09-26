@@ -436,28 +436,33 @@ def flag_extreme_kl(
 
 def flag_extreme_pvalues(
     pvalues: NDArray[np.floating],
+    *,
     alpha: float = 0.05,
     min_len: int = 5,
 ) -> NDArray[np.bool_]:
-    """Two-sided extremeness test for predictive p-values.
+    """Flag time points whose predictive p-value is at or below a cutoff.
 
-    Flags when pvalues < alpha/2 or pvalues > 1 - alpha/2.
+    A small predictive p-value means the observation was unexpected under the
+    model's prediction; a p-value near 1 means it was typical, which is good
+    fit. The test is therefore one-sided: a time point is flagged when
+    ``p <= alpha``.
 
     Parameters
     ----------
     pvalues : np.ndarray, shape (n_time,)
         Predictive p-values.
     alpha : float, optional
-        Significance level for two-sided test. Default is 0.05.
-        This flags the extreme 5% of p-values (2.5% in each tail),
-        identifying observations that are unusually extreme under the model.
+        Cutoff: p-values at or below it are flagged. Default is 0.05.
     min_len : int, optional
-        Minimum length for flagged runs. Default is 5.
+        Minimum length of a run of consecutive flagged time points; shorter
+        runs are dropped. Default is 5. Use 1 to flag individual values (for
+        example per-event p-values, which are not a time series).
 
     Returns
     -------
     flags : np.ndarray, shape (n_time,)
-        Boolean array indicating flagged time points.
+        Boolean array indicating flagged time points. NaN p-values are never
+        flagged.
 
     Examples
     --------
@@ -471,15 +476,13 @@ def flag_extreme_pvalues(
 
     See Also
     --------
+    flag_events : The paper's per-event flagging rule
     flag_extreme_kl : Flag extreme KL divergence times
     flag_low_overlap : Flag low HPD overlap periods
     combine_flags : Combine multiple diagnostic methods
     """
     pvalues_arr = np.asarray(pvalues, dtype=float)
-    finite = np.isfinite(pvalues_arr)
-    too_low = pvalues_arr < (alpha / 2.0)
-    too_high = pvalues_arr > (1.0 - alpha / 2.0)
-    flags = finite & (too_low | too_high)
+    flags = np.isfinite(pvalues_arr) & (pvalues_arr <= alpha)
     return _enforce_min_len(flags, min_len)
 
 

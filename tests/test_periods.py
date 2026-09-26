@@ -450,21 +450,18 @@ class TestFlagExtremePvalues:
         flags = flag_extreme_pvalues(p, alpha=0.05, min_len=5)
         assert np.sum(flags[5:10]) == 5
 
-    def test_high_pvalues_flagged(self) -> None:
-        """Test that very high p-values are flagged."""
+    def test_high_pvalues_not_flagged(self) -> None:
+        """p near 1 means the observation is typical of the prediction: not a misfit."""
         p = np.ones(20) * 0.5
-        p[5:10] = 0.99  # Very high p-values
-        flags = flag_extreme_pvalues(p, alpha=0.05, min_len=5)
-        assert np.sum(flags[5:10]) == 5
+        p[5:10] = [0.96, 0.98, 0.99, 0.999, 1.0]
+        flags = flag_extreme_pvalues(p, alpha=0.05, min_len=1)
+        assert not flags.any()
 
-    def test_both_extremes_flagged(self) -> None:
-        """Test that both low and high extremes are flagged."""
-        p = np.ones(30) * 0.5
-        p[5:10] = 0.01  # Low
-        p[20:25] = 0.99  # High
-        flags = flag_extreme_pvalues(p, alpha=0.05, min_len=5)
-        assert np.sum(flags[5:10]) == 5
-        assert np.sum(flags[20:25]) == 5
+    def test_pvalue_at_cutoff_flagged(self) -> None:
+        """The rule is p <= alpha: a p-value equal to the cutoff is flagged."""
+        p = np.array([0.5, 0.05, 0.0500001, 0.049])
+        flags = flag_extreme_pvalues(p, alpha=0.05, min_len=1)
+        np.testing.assert_array_equal(flags, [False, True, False, True])
 
     def test_short_runs_filtered(self) -> None:
         """Test that short extreme runs are filtered out."""

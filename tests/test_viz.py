@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import subprocess
+import sys
+
 import matplotlib.pyplot as plt
 import numpy as np
 import pytest
@@ -52,17 +55,59 @@ class TestPlotDiagnostics:
         assert isinstance(fig, plt.Figure)
         plt.close(fig)
 
-    def test_with_custom_thresholds(self) -> None:
-        """Test plot with custom threshold parameters."""
+    def test_threshold_lines(self) -> None:
+        """Each panel marks its flag threshold; the p-value panel has one line, at the cutoff."""
         time = np.arange(50)
-        overlap = np.ones(50) * 0.5
-        kl = np.ones(50) * 1.0
-        pvals = np.ones(50) * 0.5
+        ones = np.ones(50)
 
-        fig = plot_diagnostics(time, overlap, kl, pvals, tau=0.3, z_thresh=2.5, alpha=0.01)
+        fig = plot_diagnostics(
+            time,
+            ones * 0.5,
+            ones,
+            ones * 0.5,
+            overlap_threshold=0.3,
+            kl_z_threshold=2.5,
+            pvalue_threshold=0.01,
+        )
 
-        assert isinstance(fig, plt.Figure)
+        def hlines(ax: plt.Axes) -> list[float]:
+            return [
+                line.get_ydata()[0]
+                for line in ax.get_lines()
+                if len(set(line.get_ydata())) == 1 and len(line.get_ydata()) == 2
+            ]
+
+        overlap_ax, _, pvalue_ax, z_ax = fig.axes
+        assert hlines(overlap_ax) == [0.3]
+        assert hlines(z_ax) == [2.5]
+        assert hlines(pvalue_ax) == [0.01]
         plt.close(fig)
+
+    def test_metric_length_mismatch_error(self) -> None:
+        """Metrics and time must have the same length."""
+        with pytest.raises(ValueError, match="same length as time"):
+            plot_diagnostics(np.arange(10), np.ones(10), np.ones(9), np.ones(10))
+
+    def test_single_flagged_point_is_visible(self) -> None:
+        """A run of one flagged sample is shaded with nonzero width."""
+        time = np.arange(20.0)
+        flags = np.zeros(20, dtype=bool)
+        flags[7] = True
+
+        fig = plot_diagnostics(time, np.ones(20), np.ones(20), np.ones(20), flags=flags)
+
+        spans = list(fig.axes[0].patches)
+        assert len(spans) == 1
+        assert spans[0].get_width() > 0
+        plt.close(fig)
+
+    def test_import_does_not_load_pyplot(self) -> None:
+        """Importing the package does not import matplotlib.pyplot."""
+        code = "import sys, statespacecheck; print('matplotlib.pyplot' in sys.modules)"
+        result = subprocess.run(
+            [sys.executable, "-c", code], capture_output=True, text=True, check=True
+        )
+        assert result.stdout.strip() == "False"
 
     def test_with_nan_values(self) -> None:
         """Test plot handles NaN values."""
@@ -100,7 +145,7 @@ class TestPlotDiagnostics:
         pvals = np.ones(50) * 0.5
         flags = np.zeros(30, dtype=bool)  # Wrong length
 
-        with pytest.raises(ValueError, match="same shape"):
+        with pytest.raises(ValueError, match="flags must have the same length as time"):
             plot_diagnostics(time, overlap, kl, pvals, flags=flags)
 
     def test_three_panel_structure(self) -> None:
