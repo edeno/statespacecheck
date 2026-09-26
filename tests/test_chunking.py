@@ -44,7 +44,11 @@ def test_results_do_not_depend_on_chunk_size(monkeypatch, pair, name):
     compute, warns = COMPUTATIONS[name]
 
     def run() -> np.ndarray:
-        context = pytest.warns(UserWarning, match="zero-sum rows") if warns else contextlib.nullcontext()
+        context = (
+            pytest.warns(UserWarning, match="zero-sum rows")
+            if warns
+            else contextlib.nullcontext()
+        )
         with context:
             return compute(*pair)
 
