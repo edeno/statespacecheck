@@ -76,9 +76,12 @@ on_track = np.asarray(model.is_track_interior_state_bins_, dtype=bool)
 on_track = on_track.reshape(-1, n_positions)[0]
 place_fields = place_fields[:, on_track].T  # (n_bins, n_units)
 
-# The decoder's convention for assigning spikes to time bins
-event_time_ind = np.concatenate([np.digitize(t, time[1:-1]) for t in spike_times])
-event_marks = np.concatenate([np.full(len(t), u) for u, t in enumerate(spike_times)])
+# The decoder's convention: it uses only the spikes in [time[0], time[-1]] and assigns
+# them to time bins with np.digitize (other spikes would be put in the first or last bin)
+decoded_spikes = [np.asarray(t) for t in spike_times]
+decoded_spikes = [t[(t >= time[0]) & (t <= time[-1])] for t in decoded_spikes]
+event_time_ind = np.concatenate([np.digitize(t, time[1:-1]) for t in decoded_spikes])
+event_marks = np.concatenate([np.full(len(t), u) for u, t in enumerate(decoded_spikes)])
 
 diagnostics = ssc.event_diagnostics(predictive, place_fields, event_time_ind, event_marks)
 ```
