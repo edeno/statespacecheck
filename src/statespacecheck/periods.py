@@ -12,6 +12,7 @@ import warnings
 
 import numpy as np
 from numpy.typing import NDArray
+from scipy.stats import median_abs_deviation
 
 
 def aggregate_over_period(
@@ -247,15 +248,10 @@ def _enforce_min_len(mask: NDArray[np.bool_], min_len: int) -> NDArray[np.bool_]
     return out
 
 
-# scipy.special.ndtri(0.75): the MAD of a standard normal distribution
-_NORMAL_MAD_SCALE = 0.6744897501960817
-
-
 def _robust_zscore(values: NDArray[np.floating]) -> NDArray[np.floating]:
     """Median/MAD-based z-score; returns NaN where values is NaN/Inf.
 
-    The MAD is scaled by 1 / Phi^-1(3/4), so it estimates the standard
-    deviation of normally distributed values.
+    Uses scipy's median_abs_deviation with Gaussian scaling factor.
 
     Parameters
     ----------
@@ -274,8 +270,8 @@ def _robust_zscore(values: NDArray[np.floating]) -> NDArray[np.floating]:
         return zscores
     finite_vals = values_arr[finite]
     median = np.median(finite_vals)
-    # Same as scipy.stats.median_abs_deviation(finite_vals, scale="normal")
-    mad = np.median(np.abs(finite_vals - median)) / _NORMAL_MAD_SCALE
+    # Use scipy's median_abs_deviation with scale='normal' for 1.4826 factor
+    mad = median_abs_deviation(finite_vals, scale="normal", nan_policy="propagate")
     if mad == 0.0:
         # Fall back to IQR-based scale if MAD is zero (all equal or extremely tied)
         q75, q25 = np.percentile(finite_vals, [75, 25])
