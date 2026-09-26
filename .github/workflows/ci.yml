@@ -62,6 +62,9 @@ jobs:
           # no extra permission, and findings fail the step.
           advanced-security: false
           annotations: true
+          # Pinned so that a Dependabot bump of the action does not also
+          # upgrade zizmor, whose new audits can fail CI; bump it deliberately.
+          version: "1.30.1"
 
   lockfile:
     name: uv.lock is current

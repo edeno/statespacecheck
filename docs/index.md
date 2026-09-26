@@ -123,16 +123,7 @@ Browse the [API Reference](reference/statespacecheck/highest_density.md) for det
 
 ## Citation
 
-If you use this package in your research, please cite:
-
-```bibtex
-@software{statespacecheck2025,
-  title={statespacecheck: Goodness-of-fit diagnostics for state space models},
-  author={Denovellis, Eric and Zeng, Sirui and Eden, Uri T.},
-  year={2025},
-  url={https://github.com/edeno/statespacecheck}
-}
-```
+--8<-- "README.md:citation"
 
 ## License
 

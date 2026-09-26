@@ -308,20 +308,24 @@ These diagnostics complement but are distinct from:
 
 ## Citation
 
-If you use this package in your research, please cite:
+<!-- --8<-- [start:citation] -->
+If you use this package in your research, please cite it; `CITATION.cff` in
+the repository records the version and release date:
 
 ```bibtex
-@software{statespacecheck2025,
+@software{statespacecheck,
   title={statespacecheck: Goodness-of-fit diagnostics for state space models},
   author={Denovellis, Eric and Zeng, Sirui and Eden, Uri T.},
-  year={2025},
-  version={0.1.0},
-  url={https://github.com/edeno/statespacecheck},
-  doi={10.5281/zenodo.XXXXXXX}
+  url={https://github.com/edeno/statespacecheck}
 }
 ```
 
-Note: A DOI will be assigned when the package is published to Zenodo.
+A DOI will be added once releases are archived on Zenodo.
+
+The methods are described in the companion paper, *Local goodness-of-fit
+measures for neural decoding* (Zeng, Comrie, Frank, Eden and Denovellis), whose
+analysis code is at <https://github.com/edeno/statespacecheck-paper>.
+<!-- --8<-- [end:citation] -->
 
 ## License
 

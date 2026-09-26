@@ -147,6 +147,10 @@ pull requests and updates their versions monthly.
    and sdist, then installs each and runs a smoke test.
 6. **Publish** and **GitHub release**: on `v*` tags only; see below.
 
+`.github/workflows/docs.yml` runs on every pull request and push to `main`: it
+executes the tutorial notebooks, checks each tutorial's jupytext pair, builds the
+site with `mkdocs build --strict`, and deploys it to GitHub Pages from `main`.
+
 Every action is pinned to a commit SHA; Dependabot proposes updates monthly.
 
 ## Release Process
@@ -158,13 +162,6 @@ release are in [.github/RELEASE_SETUP.md](https://github.com/edeno/statespaceche
 The version comes from the git tag through `hatch-vcs`: a development install
 reports something like `0.2.1.dev3+g1a2b3c4`, and a tagged commit reports
 `X.Y.Z`. **Do not** edit version numbers in the code.
-
-### Release Checklist
-
-- [ ] CI passes on `main`
-- [ ] CHANGELOG: the `[Unreleased]` section renamed to `## [X.Y.Z] - YYYY-MM-DD`
-- [ ] `CITATION.cff`: `version` and `date-released` updated
-- [ ] Tag `vX.Y.Z` pushed, following semantic versioning
 
 ## Testing
 
@@ -238,6 +235,33 @@ def test_highest_density_region_with_peaked_distribution() -> None:
     np.testing.assert_array_equal(region, expected)
     assert region.shape == distribution.shape
 ```
+
+## Documentation
+
+The documentation site is built with [MkDocs](https://www.mkdocs.org/) from
+`docs/`, the docstrings, the tutorial notebooks, and sections of `README.md`
+and `CONTRIBUTING.md` (included with `--8<--`):
+
+```bash
+uv run --extra docs mkdocs serve          # live preview at http://127.0.0.1:8000
+uv run --extra docs mkdocs build --strict # what the docs workflow runs
+```
+
+Tutorials are edited in `examples/`: each is a jupytext pair, a `.py` script
+and a `.ipynb` notebook with its outputs. The site shows the notebook's
+committed outputs, so after editing a tutorial, sync the pair and re-run the
+notebook:
+
+```bash
+uv run --extra docs jupytext --sync examples/NN_name.py
+uv run --extra docs jupyter nbconvert --to notebook --execute --inplace examples/NN_name.ipynb
+```
+
+`docs/tutorials/` holds the tutorials' index page and symlinks to the
+notebooks; a new tutorial needs a symlink there, a line in that index, and a
+`nav` entry in `mkdocs.yml`. The docs workflow (`.github/workflows/docs.yml`)
+executes every notebook and checks that each pair has the same cells on every
+pull request, but it does not compare outputs: re-running is up to you.
 
 ## Code Style Guidelines
 
