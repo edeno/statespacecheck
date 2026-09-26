@@ -125,11 +125,6 @@ def _validate_marks(marks: ArrayLike, n_marks: int, name: str) -> NDArray[np.int
         msg = (
             f"{name} must be a 1-D integer array; got shape {marks.shape}, dtype {marks.dtype}"
         )
-        if name == "event_time_ind" and np.issubdtype(marks.dtype, np.floating):
-            msg += (
-                ". It holds time-bin indices, not times: convert event times with, "
-                "e.g., np.digitize(event_times, time_bin_edges) - 1"
-            )
         raise ValueError(msg)
     if marks.size and (marks.min() < 0 or marks.max() >= n_marks):
         msg = f"{name} must lie in [0, {n_marks}); got values outside that range"
@@ -170,17 +165,15 @@ def _check_event_inputs(
         )
         raise ValueError(msg)
 
-    silent_mark = ~(rates > 0.0).any(axis=0)
-    bad_marks = np.flatnonzero(silent_mark)
+    # Marks that events use and whose intensity is zero everywhere
+    bad_marks = np.intersect1d(np.flatnonzero(~(rates > 0.0).any(axis=0)), marks)
     if bad_marks.size:
         events = np.flatnonzero(np.isin(marks, bad_marks))
-        if events.size:
-            msg = (
-                "mark_intensities is zero everywhere for marks "
-                f"{_first(np.intersect1d(bad_marks, marks))}, so their events have no "
-                f"likelihood; used by events {_first(events)}"
-            )
-            raise ValueError(msg)
+        msg = (
+            f"mark_intensities is zero everywhere for marks {_first(bad_marks)}, so "
+            f"their events have no likelihood; used by events {_first(events)}"
+        )
+        raise ValueError(msg)
 
     # Expected total event intensity per time bin under the prediction.
     with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
@@ -261,7 +254,7 @@ def event_likelihood(event_intensities: ArrayLike) -> DistributionArray:
         bad = np.flatnonzero(degenerate)
         msg = (
             "Cannot compute an event likelihood for rows that are zero everywhere; "
-            f"row indices: {bad[:10].tolist()}"
+            f"row indices: {_first(bad)}"
         )
         raise ValueError(msg)
     likelihood: DistributionArray = np.exp(log_intensity - log_norm)
@@ -328,14 +321,14 @@ def predictive_mark_probabilities(
     nonfinite_total = ~np.isfinite(total_intensity[:, 0])
     if nonfinite_total.any():
         bad = np.flatnonzero(nonfinite_total)
-        msg = f"Predictive total event intensity is non-finite for row indices: {bad[:10].tolist()}"
+        msg = f"Predictive total event intensity is non-finite for row indices: {_first(bad)}"
         raise ValueError(msg)
     zero_total = total_intensity[:, 0] == 0.0
     if zero_total.any():
         bad = np.flatnonzero(zero_total)
         msg = (
             "Predictive mark distribution is undefined for rows with zero total "
-            f"event intensity; row indices: {bad[:10].tolist()}"
+            f"event intensity; row indices: {_first(bad)}"
         )
         raise ValueError(msg)
     mark_probabilities: DistributionArray = expected_intensities / total_intensity
@@ -495,6 +488,14 @@ def event_diagnostics(
     spatial_shape = predictive.shape[1:]
     rates = _flatten_mark_intensities(mark_intensities, spatial_shape)
     n_time = predictive.shape[0]
+    # An empty list is a float array too; empty event lists are accepted
+    time_values = np.asarray(event_time_ind)
+    if time_values.size and np.issubdtype(time_values.dtype, np.floating):
+        msg = (
+            "event_time_ind must be a 1-D integer array of time-bin indices, not times: "
+            "convert event times with, e.g., np.digitize(event_times, time_bin_edges) - 1"
+        )
+        raise ValueError(msg)
     time_ind = _validate_marks(event_time_ind, n_time, "event_time_ind")
     marks = _validate_marks(event_marks, rates.shape[1], "event_marks")
     if time_ind.shape != marks.shape:
@@ -589,17 +590,14 @@ def baseline_threshold(baseline_values: ArrayLike, quantile: float) -> float:
     if not np.any(np.isfinite(values)):
         msg = "baseline_values contains no finite values; the threshold would be undefined"
         raise ValueError(msg)
-    # np.quantile interpolates linearly between the order statistics around a
-    # fractional position; interpolating toward +inf gives nan even with zero
-    # weight. The position, computed exactly as np.quantile computes it, is the
-    # same quantile of the ranks 0, 1, ..., n - 1.
-    position = float(np.quantile(np.arange(values.size, dtype=float), quantile))
-    lower = int(np.floor(position))
-    if position == lower:
-        # An exact order statistic: no interpolation.
-        return float(np.partition(values, lower)[lower])
-    upper = lower + 1
-    if np.isinf(np.partition(values, upper)[upper]):
+    # np.quantile interpolates linearly between the order statistics around the
+    # quantile's position; interpolating toward +inf gives nan even with zero
+    # weight, so check the two order statistics first.
+    lower = np.quantile(values, quantile, method="lower")
+    higher = np.quantile(values, quantile, method="higher")
+    if lower == higher:
+        return float(lower)
+    if np.isinf(higher):
         return float(np.inf)
     return float(np.quantile(values, quantile))
 
