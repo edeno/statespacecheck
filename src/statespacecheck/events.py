@@ -11,6 +11,8 @@ per-event quantities that the distribution-level diagnostics in
   space, giving the single-event likelihood.
 - :func:`predictive_mark_probabilities` gives the predictive probability of each
   mark for the next event.
+- :func:`event_weighted_predictive` gives the state distribution of the next
+  event, weighting the predictive distribution by the total event intensity.
 - :func:`mark_predictive_pvalue` evaluates the predictive check exactly by
   summing over the finite set of marks.
 - :func:`event_diagnostics` computes HPD overlap, KL divergence, and the exact
@@ -333,6 +335,85 @@ def predictive_mark_probabilities(
         raise ValueError(msg)
     mark_probabilities: DistributionArray = expected_intensities / total_intensity
     return mark_probabilities
+
+
+def _validate_ground_intensity(
+    ground_intensity: ArrayLike, spatial_shape: tuple[int, ...]
+) -> DistributionArray:
+    """Check the ground intensity against the state grid and flatten it to ``(n_bins,)``."""
+    ground = np.asarray(ground_intensity, dtype=np.float64)
+    if ground.shape != spatial_shape:
+        msg = (
+            f"ground_intensity must have shape {spatial_shape} to match the state "
+            f"distribution's spatial axes; got {ground.shape}"
+        )
+        raise ValueError(msg)
+    if not np.all(np.isfinite(ground)) or np.any(ground < 0.0):
+        msg = "ground_intensity must contain only finite nonnegative values"
+        raise ValueError(msg)
+    return ground.ravel()
+
+
+def event_weighted_predictive(
+    state_dist: ArrayLike, ground_intensity: ArrayLike
+) -> DistributionArray:
+    """Compute the state distribution of the next event.
+
+    ``P_event(x) = Lambda(x) P(x) / sum_u Lambda(u) P(u)``, where ``P`` is the
+    predictive state distribution and ``Lambda`` the ground intensity, the
+    total event intensity at each state. A randomly chosen event is more
+    likely to come from states with a higher total event intensity, so the
+    state of an event is distributed as ``P`` weighted by ``Lambda``. The two
+    are equal when the ground intensity is constant.
+
+    Parameters
+    ----------
+    state_dist : np.ndarray, shape (n_events, ...)
+        Predictive state distribution for each event, where ``...`` represents
+        one or more spatial axes. Rows need not be normalized.
+    ground_intensity : np.ndarray, shape (...)
+        Nonnegative total event intensity at every state, over the same
+        spatial axes. For sorted marks with intensities ``mark_intensities``
+        of shape ``(..., n_marks)``, this is ``mark_intensities.sum(axis=-1)``.
+
+    Returns
+    -------
+    event_weighted : np.ndarray, shape (n_events, ...)
+        Event-weighted state distribution; each row sums to 1.
+
+    Raises
+    ------
+    ValueError
+        If shapes are inconsistent, inputs are negative or non-finite, or a
+        row has zero (or non-finite) total event intensity under the state
+        distribution, for which the event's state is undefined.
+
+    See Also
+    --------
+    predictive_mark_probabilities : The mark distribution of the next event.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from statespacecheck import event_weighted_predictive
+    >>> state = np.array([[0.5, 0.5]])
+    >>> event_weighted_predictive(state, np.array([1.0, 3.0]))
+    array([[0.25, 0.75]])
+    """
+    state = _validate_state_distribution(state_dist, "state_dist")
+    ground = _validate_ground_intensity(ground_intensity, np.shape(state_dist)[1:])
+    with np.errstate(over="ignore", invalid="ignore"):
+        weighted = state * ground
+        total = weighted.sum(axis=1, keepdims=True)
+    undefined = ~np.isfinite(total[:, 0]) | (total[:, 0] == 0.0)
+    if undefined.any():
+        msg = (
+            "Event-weighted predictive distribution is undefined for rows with zero or "
+            f"non-finite total event intensity; row indices: {_first(np.flatnonzero(undefined))}"
+        )
+        raise ValueError(msg)
+    event_weighted: DistributionArray = (weighted / total).reshape(np.shape(state_dist))
+    return event_weighted
 
 
 def mark_predictive_pvalue(

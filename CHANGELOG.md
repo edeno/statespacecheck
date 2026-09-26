@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `event_weighted_predictive()`: the state distribution of the next event, the predictive distribution weighted by the total event intensity (the paper's event-weighted predictive distribution).
 - `flag_events()` and `EventFlags`: the paper's per-event flagging rule. HPD overlap at or below its threshold, KL divergence at or above its threshold, and the predictive p-value at or below its cutoff (default 0.05), each flagged separately.
 - A tutorial of the paper's per-spike workflow (`examples/05_per_event_diagnostics`), and documentation pages on interpreting the diagnostics and on getting the inputs from a decoder (a grid filter, `non_local_detector`, a Kalman filter). The API reference opens with an overview grouped by task that marks the extensions beyond the paper.
 
