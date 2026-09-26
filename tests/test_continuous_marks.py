@@ -497,8 +497,11 @@ class TestSilentFailures:
 
     def test_errors_name_the_event_not_its_position_in_the_batch(self):
         state = np.full((20, 3), 1 / 3)
-        state[13] = [0.0, 0.0, 1.0]
-        model = _uniform_model(ground_intensity=np.array([1.0, 1.0, 0.0]))
+        state[13] = [0.0, 0.0, 1.0]  # all its mass where there are no events
+        model = _uniform_model(
+            lambda m: np.tile([0.0, 0.0, -np.inf], (len(m), 1)),
+            ground_intensity=np.array([1.0, 1.0, 0.0]),
+        )
         with pytest.raises(ValueError, match=r"row indices: \[13\]"):
             monte_carlo_mark_pvalue(state, model, np.zeros(20, dtype=int), batch_size=8)
 

@@ -193,7 +193,6 @@ def _sample_state_bins(
 
 def _monte_carlo_batch(
     state: DistributionArray,
-    event_weighted: DistributionArray,
     ground: DistributionArray,
     observed_marks: NDArray[Any],
     log_intensity: LogMarkIntensity,
@@ -209,8 +208,6 @@ def _monte_carlo_batch(
     ----------
     state : np.ndarray, shape (n_batch, n_bins)
         Flattened predictive state distributions.
-    event_weighted : np.ndarray, shape (n_batch, n_bins)
-        Their event-weighted distributions, from which states are drawn.
     ground : np.ndarray, shape (n_bins,)
         Flattened ground intensity.
     observed_marks : np.ndarray, shape (n_batch, *mark_shape)
@@ -241,6 +238,14 @@ def _monte_carlo_batch(
     # log sum_x Lambda(x) P(x), the normalizer of the predictive mark density
     norm_terms = log_state + _safe_log(ground)
     log_norm = logsumexp(norm_terms, axis=1)
+    no_intensity = np.flatnonzero(np.isneginf(log_norm))
+    if no_intensity.size:
+        msg = (
+            "Event-weighted predictive distribution is undefined for rows with zero "
+            f"total event intensity; row indices: {(first_event + no_intensity)[:10].tolist()}"
+        )
+        raise ValueError(msg)
+    event_weighted = event_weighted_predictive(state, ground)
 
     observed_log_intensity = _evaluate_log_intensity(
         log_intensity, observed_marks, n_batch, spatial_shape
@@ -498,9 +503,6 @@ def monte_carlo_mark_pvalue(
         if not_finite.size:
             msg = f"observed_marks must be finite; events {not_finite[:10].tolist()} are not"
             raise ValueError(msg)
-    # For every event at once, so errors name the event (raises for events with no
-    # event intensity)
-    event_weighted = event_weighted_predictive(state, ground)
 
     generator = np.random.default_rng(rng)
     pvalue: DistributionArray = np.empty(n_events)
@@ -510,7 +512,6 @@ def monte_carlo_mark_pvalue(
         stop = min(start + batch_size, n_events)
         batch_pvalue, batch_observed, batch_simulated = _monte_carlo_batch(
             state[start:stop],
-            event_weighted[start:stop],
             ground,
             marks[start:stop],
             model.log_intensity,
