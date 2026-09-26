@@ -262,10 +262,13 @@ def _enforce_min_len(mask: NDArray[np.bool_], min_len: int) -> NDArray[np.bool_]
     return out
 
 
-def _robust_zscore(values: ArrayLike) -> DistributionArray:
+def _robust_zscore(values: ArrayLike, *, warn_no_spread: bool = False) -> DistributionArray:
     """Median/MAD-based z-score; returns NaN where values is NaN/Inf.
 
-    Uses scipy's median_abs_deviation with Gaussian scaling factor.
+    Uses scipy's median_abs_deviation with Gaussian scaling factor. When more
+    than half the finite values are tied the MAD is zero, and the scale falls
+    back to the interquartile range / 1.349; when that is zero too, to 1 (with
+    a warning if ``warn_no_spread``).
 
     Parameters
     ----------
@@ -289,7 +292,18 @@ def _robust_zscore(values: ArrayLike) -> DistributionArray:
     if mad == 0.0:
         # Fall back to IQR-based scale if MAD is zero (all equal or extremely tied)
         q75, q25 = np.percentile(finite_vals, [75, 25])
-        scale = (q75 - q25) / 1.349 if (q75 - q25) > 0 else 1.0
+        if q75 > q25:
+            scale = (q75 - q25) / 1.349
+        else:
+            if warn_no_spread:
+                warnings.warn(
+                    "More than 3/4 of the finite values are tied, so they have no robust "
+                    "spread; the z-scores use a scale of 1 (values above the median by "
+                    "more than the threshold, in the values' own units)",
+                    UserWarning,
+                    stacklevel=3,
+                )
+            scale = 1.0
     else:
         scale = mad
     zscores[finite] = (finite_vals - median) / scale
@@ -454,7 +468,11 @@ def flag_extreme_kl(
 
     The z-score is computed from the same values it tests, so the rule finds
     time points that stand out from the recording; a model that fits equally
-    badly everywhere is not flagged. The paper's simulation instead flags
+    badly everywhere is not flagged. When more than half the finite values are
+    tied (for example, many exactly zero), the MAD is zero and the scale falls
+    back to the interquartile range; when more than 3/4 are tied, to 1, with a
+    warning, so the rule becomes KL above the median by more than
+    ``z_thresh``. The paper's simulation instead flags
     values at or above a threshold set on a baseline period
     (:func:`~statespacecheck.baseline_threshold`, its 99th percentile), and
     the paper treats KL divergence as a reference, because it also flags
@@ -516,8 +534,8 @@ def flag_extreme_kl(
     combine_flags : Combine multiple diagnostic methods
     """
     kl_arr = _as_series(kl, "kl")
-    zscores = _robust_zscore(kl_arr)
     check_threshold_not_nan(z_thresh, "z_thresh")
+    zscores = _robust_zscore(kl_arr, warn_no_spread=True)
     flags = (np.isfinite(zscores) & (zscores > z_thresh)) | np.isposinf(kl_arr)
     return _enforce_min_len(flags, min_len)
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+from numpy.testing import assert_array_equal
 
 from statespacecheck.periods import (
     _contiguous_runs,
@@ -280,11 +281,21 @@ class TestRobustZscore:
         assert np.isnan(z[2])
 
     def test_constant_array(self) -> None:
-        """Test with constant array (zero MAD)."""
+        """With no spread at all, the scale falls back to 1, with a warning."""
         x = np.array([5.0, 5.0, 5.0, 5.0])
-        z = _robust_zscore(x)
-        # Should handle gracefully with fallback to IQR
-        assert np.all(np.isfinite(z))
+        with pytest.warns(UserWarning, match="scale of 1"):
+            z = _robust_zscore(x, warn_no_spread=True)
+        assert_array_equal(z, 0.0)
+
+    def test_mostly_tied_values_warn_in_flag_extreme_kl(self) -> None:
+        """More than 3/4 tied values (for example many KL of 0) leave no robust
+        spread, so the rule becomes KL above the median plus z_thresh."""
+        kl = np.zeros(100)
+        kl[:10] = 0.5
+        kl[50] = 3.2
+        with pytest.warns(UserWarning, match="scale of 1"):
+            flags = flag_extreme_kl(kl, min_len=1)
+        assert_array_equal(np.flatnonzero(flags), [50])
 
     def test_all_nan(self) -> None:
         """Test with all NaN values."""
@@ -436,7 +447,7 @@ class TestFlagExtremeKL:
 
     def test_short_spikes_filtered(self) -> None:
         """Test that short extreme spikes are filtered out."""
-        kl = np.ones(20)
+        kl = np.linspace(0.9, 1.1, 20)
         kl[5:7] = 100.0  # Short spike (length 2)
         flags = flag_extreme_kl(kl, z_thresh=3.0, min_len=5)
         assert np.sum(flags) == 0
@@ -627,7 +638,7 @@ class TestInputErrorsNameTheArgument:
 def test_nan_threshold_raises(flag, argument):
     """A NaN threshold would silently flag nothing."""
     with pytest.raises(ValueError, match=f"{argument} is NaN"):
-        flag(np.full(10, 0.5), **{argument: np.nan})
+        flag(np.linspace(0.1, 0.9, 10), **{argument: np.nan})
 
 
 class TestFlagArgumentChecks:
@@ -657,4 +668,4 @@ class TestFlagArgumentChecks:
     )
     def test_min_len_below_one_raises(self, flag):
         with pytest.raises(ValueError, match="min_len must be at least 1; got 0"):
-            flag(np.full(10, 0.5), 0)
+            flag(np.linspace(0.1, 0.9, 10), 0)
