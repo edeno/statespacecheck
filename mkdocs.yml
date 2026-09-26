@@ -69,6 +69,7 @@ plugins:
       nav_file: SUMMARY.md
   - section-index
   - mkdocs-jupyter:
+      include: ["*.ipynb"]  # not docs/gen_ref_pages.py, which is a build script
       execute: false
       include_source: true
       theme: light
@@ -84,8 +85,9 @@ markdown_extensions:
       pygments_lang_class: true
   - pymdownx.inlinehilite
   - pymdownx.snippets:
-      # Resolve includes from the repository root, and fail the build if one
-      # is missing (the default leaves the page silently empty).
+      # Resolve includes from the repository root, and fail the build if an
+      # included file or section start marker is missing (by default the
+      # include silently renders as nothing).
       base_path: [!relative $config_dir]
       check_paths: true
   - pymdownx.tabbed:

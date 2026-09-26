@@ -4,17 +4,12 @@ on:
   push:
     branches:
       - main
+  # Every pull request: the site draws on docs/, the docstrings, the example
+  # notebooks, and sections of README.md and CONTRIBUTING.md, and a build takes
+  # seconds.
   pull_request:
     branches:
       - main
-    paths:
-      - 'docs/**'
-      - 'mkdocs.yml'
-      - 'examples/**'
-      - 'src/**'  # the API reference is built from the docstrings
-      - 'CONTRIBUTING.md'  # included in the docs
-      - 'pyproject.toml'  # the docs extra
-      - '.github/workflows/docs.yml'
   workflow_dispatch:
 
 # Read-only by default; the deploy job elevates only what Pages needs.
@@ -48,6 +43,33 @@ jobs:
       - name: Install dependencies
         run: |
           uv pip install --system -e ".[docs]"
+
+      - name: Execute the tutorial notebooks
+        # The site shows the notebooks' committed outputs; this proves they run.
+        run: >-
+          jupyter nbconvert --to notebook --execute --output-dir "$RUNNER_TEMP"
+          examples/[0-9][0-9]_*.ipynb
+
+      - name: Check each tutorial's .py and .ipynb agree
+        run: |
+          python - <<'EOF'
+          from pathlib import Path
+
+          import jupytext
+
+          scripts = {p.stem for p in Path("examples").glob("[0-9][0-9]_*.py")}
+          notebooks = {p.stem for p in Path("examples").glob("[0-9][0-9]_*.ipynb")}
+          assert scripts and scripts == notebooks, f"unpaired tutorials: {scripts ^ notebooks}"
+          for stem in sorted(scripts):
+              script, notebook = Path(f"examples/{stem}.py"), Path(f"examples/{stem}.ipynb")
+              cells = [(c.cell_type, c.source) for c in jupytext.read(script).cells]
+              nb_cells = [(c.cell_type, c.source) for c in jupytext.read(notebook).cells]
+              assert cells == nb_cells, (
+                  f"{script} and {notebook} differ; run: "
+                  f"uv run --extra docs jupytext --sync {script}"
+              )
+          print("all tutorial pairs agree")
+          EOF
 
       - name: Build docs
         run: mkdocs build --strict

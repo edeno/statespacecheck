@@ -309,15 +309,13 @@ These diagnostics complement but are distinct from:
 ## Citation
 
 <!-- --8<-- [start:citation] -->
-If you use this package in your research, please cite it. `CITATION.cff` holds
-the metadata (GitHub's *Cite this repository* button reads it):
+If you use this package in your research, please cite it; `CITATION.cff` in
+the repository records the version and release date:
 
 ```bibtex
 @software{statespacecheck,
   title={statespacecheck: Goodness-of-fit diagnostics for state space models},
   author={Denovellis, Eric and Zeng, Sirui and Eden, Uri T.},
-  year={2026},
-  version={0.2.0},
   url={https://github.com/edeno/statespacecheck}
 }
 ```
