@@ -500,3 +500,21 @@ class TestEventDiagnosticsErrors:
         predictive, fields = model
         result = event_diagnostics(predictive, fields, [], [])
         assert result.hpd_overlap.shape == (0,)
+
+
+class TestNoEvents:
+    """With no events, the building blocks return empty results, as event_diagnostics does."""
+
+    def test_event_likelihood(self):
+        assert event_likelihood(np.empty((0, 5))).shape == (0, 5)
+
+    def test_predictive_mark_probabilities(self):
+        assert predictive_mark_probabilities(np.empty((0, 5)), np.ones((5, 2))).shape == (0, 2)
+
+    def test_mark_predictive_pvalue(self):
+        pvalue = mark_predictive_pvalue(np.empty((0, 5)), np.ones((5, 2)), np.array([], int))
+        assert pvalue.shape == (0,)
+
+    def test_event_diagnostics_with_no_time_bins(self):
+        diagnostics = event_diagnostics(np.empty((0, 5)), np.ones((5, 2)), [], [])
+        assert diagnostics.hpd_overlap.shape == (0,)

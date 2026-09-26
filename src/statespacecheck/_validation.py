@@ -194,9 +194,8 @@ def flatten_time_spatial(arr: DistributionArray) -> DistributionArray:
     flat : np.ndarray, shape (n_time, n_spatial)
         Flattened array.
     """
-    n_time = arr.shape[0]
-    # Use numpy's automatic dimension calculation with -1
-    return arr.reshape(n_time, -1)
+    # Explicit sizes: reshape cannot infer a -1 axis when there are no rows
+    return arr.reshape(arr.shape[0], int(np.prod(arr.shape[1:])))
 
 
 def validate_paired_distributions(

@@ -31,7 +31,12 @@ import numpy as np
 from numpy.typing import ArrayLike, NDArray
 from scipy.special import logsumexp
 
-from ._validation import DistributionArray, check_threshold_not_nan, validate_coverage
+from ._validation import (
+    DistributionArray,
+    check_threshold_not_nan,
+    flatten_time_spatial,
+    validate_coverage,
+)
 from .highest_density import DEFAULT_COVERAGE
 from .state_consistency import hpd_overlap, kl_divergence
 
@@ -108,7 +113,7 @@ def _validate_state_distribution(state_dist: ArrayLike, name: str) -> Distributi
     if not np.all(np.isfinite(state_dist)) or np.any(state_dist < 0.0):
         msg = f"{name} must contain only finite nonnegative values"
         raise ValueError(msg)
-    return state_dist.reshape(state_dist.shape[0], -1)
+    return flatten_time_spatial(state_dist)
 
 
 def _validate_marks(marks: ArrayLike, n_marks: int, name: str) -> NDArray[np.intp]:
@@ -238,7 +243,7 @@ def event_likelihood(event_intensities: ArrayLike) -> DistributionArray:
     array([[0.25, 0.5 , 0.25]])
     """
     event_intensities = np.asarray(event_intensities, dtype=np.float64)
-    if event_intensities.ndim < 2 or event_intensities[0].size == 0:
+    if event_intensities.ndim < 2 or np.prod(event_intensities.shape[1:]) == 0:
         msg = (
             "event_intensities must have shape (n_events, ...) with a non-empty spatial "
             f"axis; got shape {event_intensities.shape}"
@@ -247,7 +252,7 @@ def event_likelihood(event_intensities: ArrayLike) -> DistributionArray:
     if not np.all(np.isfinite(event_intensities)) or np.any(event_intensities < 0.0):
         msg = "event_intensities must contain only finite nonnegative values"
         raise ValueError(msg)
-    flat = event_intensities.reshape(event_intensities.shape[0], -1)
+    flat = flatten_time_spatial(event_intensities)
     with np.errstate(divide="ignore"):
         log_intensity = np.log(flat)
     log_norm = logsumexp(log_intensity, axis=-1, keepdims=True)
@@ -498,7 +503,7 @@ def event_diagnostics(
             f"{time_ind.shape[0]} and {marks.shape[0]}"
         )
         raise ValueError(msg)
-    predictive_flat = predictive.reshape(n_time, -1)
+    predictive_flat = flatten_time_spatial(predictive)
     _check_event_inputs(predictive_flat, rates, time_ind, marks)
 
     n_events = time_ind.shape[0]

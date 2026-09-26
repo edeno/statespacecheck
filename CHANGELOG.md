@@ -37,6 +37,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `event_likelihood()`, `predictive_mark_probabilities()` and `mark_predictive_pvalue()` return empty results for zero events, and `event_diagnostics()` for zero time bins, instead of raising `IndexError` or a reshape error.
 - `predictive_density()` and `log_predictive_density()` exclude a bin whose observation likelihood is NaN from the state as well, as `kl_divergence()` and `hpd_overlap()` do; they treated it as zero likelihood while the state kept its mass there, lowering the predictive density. A `+inf` observation likelihood raises `ValueError` (it was read as zero in linear space; the log path already raised).
 - `flag_events()`, `flag_low_overlap()`, `find_low_overlap_intervals()`, `flag_extreme_kl()` and `flag_extreme_pvalues()` raise `ValueError` for a NaN threshold, which silently flagged nothing. `np.quantile` of KL divergences that include `+inf` is NaN; `baseline_threshold()` handles them.
 - `mark_predictive_pvalue()` and `event_diagnostics()` scale the tie tolerance by each event's own largest predictive mark probability. It used the largest in the call, so a near-tied event's p-value could depend on `batch_size` or on which other events were passed with it.
