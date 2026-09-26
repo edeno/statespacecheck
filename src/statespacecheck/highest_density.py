@@ -7,6 +7,7 @@ from ._validation import (
     DistributionArray,
     flatten_time_spatial,
     row_chunks,
+    row_sums_rescaled,
     validate_coverage,
     validate_distribution,
 )
@@ -104,12 +105,11 @@ def _highest_density_region_rows(
     # Flatten to (n_time, n_spatial) for vectorized operations
     flat = flatten_time_spatial(clean)
 
-    n_time = clean.shape[0]
     n_spatial = flat.shape[1]
 
     # Compute total mass and target mass for each time point
     # Shape: (n_time,)
-    totals = flat.sum(axis=1)
+    flat, totals = row_sums_rescaled(flat)
     target = coverage * totals
 
     # Identify rows with no mass -> empty HPD (all False)
@@ -146,9 +146,6 @@ def _highest_density_region_rows(
     # Empty rows -> set cutoff to +inf so mask is all False
     cutoff = np.where(empty, np.inf, cutoff)
 
-    # Broadcast cutoff back to spatial shape and build mask
-    # Use the **clean** array for the comparison to keep behavior consistent
-    # Broadcasting: reshape cutoff from (n_time,) to (n_time, 1, 1, ...) to match spatial dims
-    # Using tuple unpacking for clarity
-    broadcast_shape = (n_time,) + (1,) * (clean.ndim - 1)
-    return clean >= cutoff.reshape(broadcast_shape)
+    # Compare each row with its cutoff, in the same (possibly rescaled) units,
+    # then restore the spatial shape
+    return (flat >= cutoff[:, None]).reshape(clean.shape)

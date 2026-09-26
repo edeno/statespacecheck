@@ -47,34 +47,41 @@ def check_threshold_not_nan(value: float, name: str) -> None:
         raise ValueError(msg)
 
 
-def rescale_subnormal_rows(
-    flat: DistributionArray, row_sums: DistributionArray
+def row_sums_rescaled(
+    flat: DistributionArray,
 ) -> tuple[DistributionArray, DistributionArray]:
-    """Scale rows whose total is subnormal by 2**1000 before they are normalized.
+    """Sum each row, first rescaling rows whose total is subnormal or overflows.
 
-    Dividing by a subnormal total raises a spurious "overflow encountered in
-    divide" RuntimeWarning on NumPy 1.26. Scaling by a power of two is exact, so
-    the normalized row is unchanged; other rows are not touched.
+    A subnormal total warns about an overflow when divided by on NumPy 1.26, and
+    a total that overflows to inf makes a row of finite values unusable. Such
+    rows are scaled by 2**1000 or 2**-1000; scaling by a power of two keeps the
+    normalized row (and the highest-density region) unchanged. Other rows and
+    their sums are not touched.
 
     Parameters
     ----------
     flat : np.ndarray, shape (n_rows, n_bins)
-        Nonnegative values.
-    row_sums : np.ndarray, shape (n_rows,)
-        ``flat.sum(axis=1)``.
+        Finite nonnegative values.
 
     Returns
     -------
-    flat, row_sums : np.ndarray
-        The inputs, with subnormal rows (and their sums) rescaled.
+    flat : np.ndarray, shape (n_rows, n_bins)
+        The input, with the extreme rows rescaled (a copy if any are).
+    row_sums : np.ndarray, shape (n_rows,)
+        The sum of each row of the returned ``flat``.
     """
+    with np.errstate(over="ignore"):
+        row_sums: DistributionArray = flat.sum(axis=1)
     subnormal = (row_sums > 0.0) & (row_sums < np.finfo(np.float64).tiny)
-    if not subnormal.any():
+    overflowed = np.isposinf(row_sums)
+    if not (subnormal.any() or overflowed.any()):
         return flat, row_sums
     flat = flat.copy()
     flat[subnormal] *= 2.0**1000
+    flat[overflowed] *= 2.0**-1000
+    rescaled = subnormal | overflowed
     row_sums = row_sums.copy()
-    row_sums[subnormal] = flat[subnormal].sum(axis=1)
+    row_sums[rescaled] = flat[rescaled].sum(axis=1)
     return flat, row_sums
 
 
@@ -148,6 +155,9 @@ def validate_distribution(
             f"for 2D spatial data use shape (n_time, n_x_bins, n_y_bins). "
             f"Did you forget to add the time dimension?"
         )
+        raise ValueError(msg)
+    if min_ndim >= 2 and arr.ndim >= 2 and np.prod(arr.shape[1:]) == 0:
+        msg = f"{name} has no bins along its spatial axes; got shape {arr.shape}"
         raise ValueError(msg)
 
     # Handle non-finite values

@@ -19,8 +19,8 @@ from ._validation import (
     DistributionArray,
     flatten_time_spatial,
     get_spatial_axes,
-    rescale_subnormal_rows,
     row_chunks,
+    row_sums_rescaled,
     validate_coverage,
     validate_paired_distributions,
 )
@@ -97,10 +97,8 @@ def _validate_and_normalize_distributions(
     # Normalize each time slice
     # After validation, NaN/inf already converted to 0, so use regular sum
     # Shape: (n_time,)
-    state_sum = state_flat.sum(axis=1)
-    like_sum = like_flat.sum(axis=1)
-    state_flat, state_sum = rescale_subnormal_rows(state_flat, state_sum)
-    like_flat, like_sum = rescale_subnormal_rows(like_flat, like_sum)
+    state_flat, state_sum = row_sums_rescaled(state_flat)
+    like_flat, like_sum = row_sums_rescaled(like_flat)
 
     # Normalize, setting inf/nan results to 0
     # Division by zero is expected and handled, so suppress warnings
