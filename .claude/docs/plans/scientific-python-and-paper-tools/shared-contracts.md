@@ -97,7 +97,7 @@ def monte_carlo_mark_pvalue(
 
 **Returns:**
 
-- `pvalue = mean_s 1{ log f_pred(ỹ_s) ≤ log f_pred(y_obs) + tol }`, with `tol = 16 * eps * n_bins`. This is the log-space counterpart of `mark_predictive_pvalue`'s tie tolerance (`events.py:306-312`).
+- `pvalue = mean_s 1{ log f_pred(ỹ_s) ≤ log f_pred(y_obs) + tol }`, with `tol = 16 * eps * (n_bins + M)`, where `M` sums the magnitudes of the finite log sums compared (the two numerators and twice the normalizer). A fixed `16 * eps * n_bins` split exact ties when the intensities were far from 1 (for example, all scaled by 1e-30), because rounding in the log sums grows with their magnitude. This is the log-space counterpart of `mark_predictive_pvalue`'s tie tolerance.
 - `observed_log_density` is always returned.
 - `simulated_log_density` is returned only if `return_samples=True`. It can be large; Figure 2 of the paper uses it for its histogram.
 

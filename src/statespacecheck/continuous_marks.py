@@ -179,16 +179,18 @@ def _monte_carlo_batch(
         Shapes ``(n_batch,)``, ``(n_batch,)`` and ``(n_batch, n_samples)``.
     """
     n_batch, n_bins = state.shape
-    # Raises for rows with no event intensity, before anything divides by it
+    # Raises for rows with no event intensity
     event_weighted = event_weighted_predictive(state, ground)
-    log_state = _safe_log(state / state.sum(axis=1, keepdims=True))
+    # The state's normalization cancels in the density ratio, so it is left out:
+    # summing the row could overflow
+    log_state = _safe_log(state)
     # log sum_x Lambda(x) P(x), the normalizer of the predictive mark density
     log_norm = logsumexp(log_state + _safe_log(ground), axis=1)
 
     observed_intensity = _evaluate_intensity(
         mark_intensity, observed_marks, n_batch, spatial_shape
     )
-    observed_log = logsumexp(log_state + _safe_log(observed_intensity), axis=1) - log_norm
+    observed_sum = logsumexp(log_state + _safe_log(observed_intensity), axis=1)
 
     state_bins = _sample_state_bins(event_weighted, n_samples, rng)
     replicated_marks = sample_marks(state_bins.ravel(), rng)
@@ -201,11 +203,27 @@ def _monte_carlo_batch(
         )
     ).reshape(n_batch, n_samples, n_bins)
     log_joint += log_state[:, np.newaxis, :]
-    simulated_log = logsumexp(log_joint, axis=2) - log_norm[:, np.newaxis]
+    simulated_sum = logsumexp(log_joint, axis=2)
 
-    tolerance = 16 * np.finfo(np.float64).eps * n_bins
+    observed_log = observed_sum - log_norm
+    simulated_log = simulated_sum - log_norm[:, np.newaxis]
+    # Marks of equal predictive density must tie. Each log density carries
+    # rounding of order eps times the magnitudes of its log sums (large when the
+    # intensities or the state are far from 1) plus eps per bin summed.
+    magnitude = (
+        np.abs(_finite_or_zero(observed_sum))[:, np.newaxis]
+        + np.abs(_finite_or_zero(simulated_sum))
+        + 2 * np.abs(_finite_or_zero(log_norm))[:, np.newaxis]
+    )
+    tolerance = 16 * np.finfo(np.float64).eps * (n_bins + magnitude)
     pvalue = np.mean(simulated_log <= observed_log[:, np.newaxis] + tolerance, axis=1)
     return pvalue, observed_log, simulated_log
+
+
+def _finite_or_zero(values: DistributionArray) -> DistributionArray:
+    """``values`` with non-finite entries (log of zero) replaced by 0."""
+    finite: DistributionArray = np.where(np.isfinite(values), values, 0.0)
+    return finite
 
 
 def _check_positive_integer(value: object, name: str) -> None:
@@ -239,11 +257,13 @@ def monte_carlo_mark_pvalue(
     replicated marks per event: each draws a state from the event-weighted
     predictive distribution (:func:`~statespacecheck.event_weighted_predictive`),
     then a mark at that state with ``sample_marks``. The comparison is made on
-    log densities with an absolute tolerance of ``16 * eps * n_bins``, the
-    log-space counterpart of the tie tolerance of
-    :func:`~statespacecheck.mark_predictive_pvalue`, so marks with equal
-    predictive density count as ties. Small values mean the observed mark was
-    unexpected given the prediction; an impossible mark gives 0.
+    log densities with a tolerance for their rounding error,
+    ``16 * eps * (n_bins + M)``, where ``M`` sums the magnitudes of the log sums
+    compared, so marks with equal predictive density count as ties at any
+    scale of the inputs (compare the tie tolerance of
+    :func:`~statespacecheck.mark_predictive_pvalue`). Small values mean the
+    observed mark was unexpected given the prediction; an impossible mark
+    gives 0.
 
     Parameters
     ----------

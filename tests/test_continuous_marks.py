@@ -177,7 +177,6 @@ class TestReproducibility:
 
 
 def test_return_samples(discrete_mark_model, discrete_events):
-    rates, _, _ = discrete_mark_model
     state, marks = discrete_events
     check = _discrete_check(
         discrete_mark_model, state, marks, n_samples=300, rng=10, return_samples=True
@@ -185,9 +184,10 @@ def test_return_samples(discrete_mark_model, discrete_events):
     assert isinstance(check, MarkPredictiveCheck)
     assert check.simulated_log_density is not None
     assert check.simulated_log_density.shape == (40, 300)
-    tolerance = 16 * np.finfo(float).eps * rates.shape[0]
+    # Replicates as probable as the observed mark are exact ties here; any tolerance
+    # between their rounding and the gaps between distinct marks' densities works
     recomputed = np.mean(
-        check.simulated_log_density <= check.observed_log_density[:, None] + tolerance, axis=1
+        check.simulated_log_density <= check.observed_log_density[:, None] + 1e-9, axis=1
     )
     assert_array_equal(check.pvalue, recomputed)
     without = _discrete_check(discrete_mark_model, state, marks, n_samples=300, rng=10)
@@ -214,6 +214,53 @@ def test_impossible_observed_mark_gives_zero_pvalue():
     )
     assert check.observed_log_density[0] == -np.inf
     assert check.pvalue[0] == 0.0
+
+
+def _two_mark_check(state, rates, marks, n_samples=10_000):
+    cumulative = np.cumsum(rates / rates.sum(axis=1, keepdims=True), axis=1)
+
+    def sample_marks(bins, rng):
+        return np.minimum((cumulative[bins] <= rng.random(len(bins))[:, None]).sum(axis=1), 1)
+
+    return monte_carlo_mark_pvalue(
+        state,
+        lambda m: rates[:, np.asarray(m)].T,
+        np.asarray(marks),
+        ground_intensity=rates.sum(axis=1),
+        sample_marks=sample_marks,
+        n_samples=n_samples,
+        rng=0,
+    )
+
+
+class TestScale:
+    """The p-value depends on the model, not on the scale of its numbers."""
+
+    @pytest.mark.parametrize("scale", [1e-30, 1.0, 1e30])
+    def test_equal_density_marks_tie_at_any_intensity_scale(self, scale):
+        """Both marks have predictive probability 0.5, so both p-values are 1."""
+        rates = np.array([[0.2, 1.0], [1.8, 1.0]]) * scale
+        check = _two_mark_check(np.full((2, 2), 0.5), rates, [0, 1])
+        assert_array_equal(check.pvalue, [1.0, 1.0])
+
+    def test_state_whose_sum_overflows(self):
+        """Rows of finite values whose sum overflows still define the prediction."""
+        state = np.full((2, 2), 1e308)
+        rates = np.diag([1e-308, 1e-308])
+        check = _two_mark_check(state, rates, [0, 1])
+        assert_array_equal(check.pvalue, [1.0, 1.0])
+        assert_allclose(check.observed_log_density, np.log(0.5), rtol=1e-12)
+
+    @pytest.mark.parametrize("state_scale", [1e-300, 1e300])
+    def test_state_scale_does_not_change_the_pvalue(self, state_scale):
+        state = np.array([[0.7, 0.2, 0.1], [0.1, 0.3, 0.6]])
+        rates = np.array([[4.0, 1.0], [1.0, 1.0], [1.0, 4.0]])
+        reference = _two_mark_check(state, rates, [1, 0], n_samples=2000)
+        scaled = _two_mark_check(state * state_scale, rates, [1, 0], n_samples=2000)
+        assert_allclose(
+            scaled.observed_log_density, reference.observed_log_density, rtol=1e-12
+        )
+        assert_allclose(scaled.pvalue, reference.pvalue, atol=2 / 2000)
 
 
 class TestValidation:

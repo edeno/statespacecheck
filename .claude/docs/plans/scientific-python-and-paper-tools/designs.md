@@ -81,7 +81,7 @@ def _sample_state_bins(
 This processes one batch of events. `state` has shape `(nb, n_bins)` and is the flattened `state_dist[start:stop]`; `marks` is `observed_marks[start:stop]`.
 
 ```python
-log_state = _safe_log(state / state.sum(axis=1, keepdims=True))  # (nb, n_bins)
+log_state = _safe_log(state)  # (nb, n_bins); the normalization cancels, and summing could overflow
 log_norm = logsumexp(log_state + _safe_log(ground_flat), axis=1)  # log Σ Λ P
 observed_intensity = _evaluate_intensity(mark_intensity, marks, nb, n_bins)
 observed_log = logsumexp(log_state + _safe_log(observed_intensity), axis=1) - log_norm
@@ -97,7 +97,8 @@ simulated_log = (
     logsumexp(_safe_log(replicated_intensity) + log_state[:, np.newaxis, :], axis=2)
     - log_norm[:, np.newaxis]
 )
-tol = 16 * np.finfo(float).eps * n_bins
+# tol grows with the magnitudes of the log sums (see shared-contracts.md)
+tol = 16 * np.finfo(float).eps * (n_bins + magnitude)
 pvalue[start:stop] = np.mean(simulated_log <= observed_log[:, np.newaxis] + tol, axis=1)
 ```
 
