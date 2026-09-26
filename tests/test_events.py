@@ -327,6 +327,19 @@ class TestBaselineThreshold:
         assert baseline_threshold(values, 0.5) == np.quantile(np.arange(101.0), 0.5)
         assert baseline_threshold(values, 0.0) == 0.0
 
+    @pytest.mark.parametrize(
+        ("values", "quantile", "expected"),
+        [
+            (np.r_[np.arange(100.0), np.inf], 0.99, 99.0),  # exact position, inf above
+            (np.array([1.0, np.inf]), 0.0, 1.0),
+            (np.array([1.0, 2.0, np.inf]), 0.5, 2.0),
+            (np.array([1.0, np.inf]), 1.0, np.inf),
+        ],
+    )
+    def test_exact_positions_next_to_infinity(self, values, quantile, expected):
+        """At an exact order-statistic position, +inf just above does not make it NaN."""
+        assert baseline_threshold(values, quantile) == expected
+
     def test_negative_infinity_raises(self):
         with pytest.raises(ValueError, match="-inf"):
             baseline_threshold(np.array([1.0, -np.inf]), 0.5)

@@ -585,11 +585,17 @@ def baseline_threshold(baseline_values: ArrayLike, quantile: float) -> float:
     if not np.any(np.isfinite(values)):
         msg = "baseline_values contains no finite values; the threshold would be undefined"
         raise ValueError(msg)
-    # Linear interpolation between order statistics, as np.quantile does; if
-    # the upper one is +inf the quantile is +inf (interpolating with inf would
-    # give nan).
-    upper_rank = int(np.ceil(quantile * (values.size - 1)))
-    if np.isinf(np.partition(values, upper_rank)[upper_rank]):
+    # np.quantile interpolates linearly between the order statistics around a
+    # fractional position; interpolating toward +inf gives nan even with zero
+    # weight. The position, computed exactly as np.quantile computes it, is the
+    # same quantile of the ranks 0, 1, ..., n - 1.
+    position = float(np.quantile(np.arange(values.size, dtype=float), quantile))
+    lower = int(np.floor(position))
+    if position == lower:
+        # An exact order statistic: no interpolation.
+        return float(np.partition(values, lower)[lower])
+    upper = lower + 1
+    if np.isinf(np.partition(values, upper)[upper]):
         return float(np.inf)
     return float(np.quantile(values, quantile))
 
