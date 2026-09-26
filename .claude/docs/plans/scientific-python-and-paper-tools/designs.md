@@ -84,15 +84,15 @@ This processes one batch of events. `state` has shape `(nb, n_bins)` and is the 
 # Unnormalized: the normalization cancels, and summing the row could overflow
 log_state = _safe_log(state)  # (nb, n_bins)
 log_norm = logsumexp(log_state + _safe_log(ground_flat), axis=1)  # log Σ Λ P
-observed_log_intensity = _evaluate_log_intensity(log_mark_intensity, marks, nb, shape)
+observed_log_intensity = _evaluate_log_intensity(model.log_intensity, marks, nb, shape)
 observed_sum = logsumexp(log_state + observed_log_intensity, axis=1)
 
 event_weighted = event_weighted_predictive(state, ground_flat).reshape(nb, n_bins)
 state_bins = _sample_state_bins(event_weighted, n_samples, rng)  # (nb, S)
-replicated_marks = sample_marks(state_bins.ravel(), rng)
-_check_leading_axis(replicated_marks, nb * n_samples, "sample_marks")
+replicated_marks = model.sample(state_bins.ravel(), rng)
+_check_leading_axis(replicated_marks, nb * n_samples, "model.sample")
 log_joint = _evaluate_log_intensity(
-    log_mark_intensity, replicated_marks, nb * n_samples, shape
+    model.log_intensity, replicated_marks, nb * n_samples, shape
 ).reshape(nb, n_samples, n_bins)
 log_joint += log_state[:, np.newaxis, :]  # in place: the evaluated array is new
 simulated_sum = logsumexp(log_joint, axis=2)  # -inf anywhere raises (see contracts)
@@ -140,7 +140,9 @@ Per batch:
 
 ```python
 predictive_batch = predictive_flat[time_ind[start:stop]]
-log_intensity = _evaluate_log_intensity(log_mark_intensity, event_marks[start:stop], nb, shape)
+log_intensity = _evaluate_log_intensity(
+    model.log_intensity, event_marks[start:stop], nb, shape
+)
 likelihood_batch = _normalize_log(log_intensity)  # event_likelihood's normalization
 event_hpd[start:stop] = hpd_overlap(predictive_batch, likelihood_batch, coverage=coverage)
 event_kl[start:stop] = kl_divergence(predictive_batch, likelihood_batch)
@@ -149,7 +151,7 @@ event_pvalue[start:stop] = _monte_carlo_batch(...)  # shared with monte_carlo_ma
 
 - Factor the per-batch Monte Carlo body out as `_monte_carlo_batch`, which both public functions call, so there is one implementation.
 - Factor `event_likelihood`'s log-space normalization (after its `np.log`) into a private `_normalize_log(log_intensity)` that both call. For discrete marks `np.log(rates[:, m].T)` gives the same log values `event_likelihood` computes, so the likelihood, HPD overlap and KL stay bit-identical to `event_diagnostics`.
-- Consume `rng` in the same order in both functions: batch by batch, the state draws, then `sample_marks`. With the same seed and batch size, `clusterless_event_diagnostics(...).predictive_pvalue` then equals `monte_carlo_mark_pvalue(predictive[time_ind], ...).pvalue` exactly. Test this.
+- Consume `rng` in the same order in both functions: batch by batch, the state draws, then `model.sample`. With the same seed and batch size, `clusterless_event_diagnostics(...).predictive_pvalue` then equals `monte_carlo_mark_pvalue(predictive[time_ind], ...).pvalue` exactly. Test this.
 
 ## Test models
 
@@ -158,8 +160,8 @@ Define these as fixtures in `tests/conftest.py` so phases 4a and 4b share them.
 ### Discrete model
 
 - Gaussian place fields: `x = linspace(0, 1, 50)`, `centers = rng.random(12)` with seed 0, `rates = 0.2 + 10 * exp(-0.5 ((x[:, None] - centers) / 0.1)^2)`, giving shape `(n_bins=50, n_marks=12)`.
-- `log_mark_intensity = lambda m: np.log(rates[:, m].T)`.
-- `sample_marks(bins, rng)` is an inverse-CDF categorical over `rates[bins] / rates[bins].sum(1)`, built with `(cum[bins] <= u[:, None]).sum(1)`.
+- The fixture returns `(rates, MarkModel(...))` with `log_intensity = lambda m: np.log(rates[:, m].T)`.
+- `sample(bins, rng)` is an inverse-CDF categorical over `rates[bins] / rates[bins].sum(1)`, built with `(cum[bins] <= u[:, None]).sum(1)`.
 
 ### Clusterless 1-D model
 

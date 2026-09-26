@@ -63,12 +63,17 @@ If any precondition fails, stop and tell the user.
 3. **Replace the Figure 2 Monte Carlo** (`figure02_panels.py:170-211`) with one call:
 
    ```python
+   model = ssc.MarkModel(
+       log_intensity=lambda y: norm.logpdf(
+           position_bins[np.newaxis, :], loc=y[:, :1], scale=like_std
+       ),
+       sample=lambda bins, g: g.normal(position_bins[bins], like_std)[:, np.newaxis],
+       ground_intensity=np.ones(n_bins),
+   )
    check = ssc.monte_carlo_mark_pvalue(
        predictive[np.newaxis, :],
-       lambda y: norm.logpdf(position_bins[np.newaxis, :], loc=y[:, :1], scale=like_std),
+       model,
        np.array([[like_mean]]),
-       ground_intensity=np.ones(n_bins),
-       sample_marks=lambda bins, g: g.normal(position_bins[bins], like_std)[:, np.newaxis],
        n_samples=n_mc_samples,
        rng=rng,
        return_samples=True,

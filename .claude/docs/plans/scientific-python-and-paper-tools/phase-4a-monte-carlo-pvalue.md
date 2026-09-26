@@ -56,7 +56,7 @@
 
    The `monte_carlo_mark_pvalue` docstring must include:
    - the p-value definition and the tie tolerance
-   - the caller's responsibility that `ground_intensity` matches the other two callables
+   - the caller's responsibility that the `MarkModel`'s `ground_intensity` matches its two callables
    - reproducibility: same integer seed and same `batch_size` give identical results
    - the memory note
    - a doctest on a 3-bin, 2-mark discrete model with `rng=0` and `n_samples=2000`, printing `pvalue.round(1)`. Print a coarse value so the doctest doesn't pin RNG bits.
@@ -66,14 +66,14 @@
 
 4. **Tests.**
    - New `tests/test_continuous_marks.py`, plus additions to `tests/test_events.py` for `event_weighted_predictive`.
-   - Put the discrete test model from [designs.md#test-models](designs.md#test-models) in `tests/conftest.py` as a fixture returning `(rates, log_mark_intensity, sample_marks)`. Phase 4b reuses it.
+   - Put the discrete test model from [designs.md#test-models](designs.md#test-models) in `tests/conftest.py` as a fixture returning `(rates, MarkModel(...))`. Phase 4b reuses it.
    - Cases are in the validation slice below.
 
 5. **User-facing docs.**
    - README: a "Continuous marks" subsection after "Per-Spike Diagnostics" (`README.md:156`). Show a 1-D Gaussian-mark example of `monte_carlo_mark_pvalue` in ~15 lines, modelled on the paper's Figure 2 setup:
      - `log λ(x, y) = log N(y; x, σ)` (`norm.logpdf`)
      - `Λ(x) = 1`
-     - `sample_marks = lambda b, rng: rng.normal(bins[b], σ)[:, None]`
+     - `sample = lambda b, rng: rng.normal(bins[b], σ)[:, None]`, all in a `MarkModel`
    - CHANGELOG `[Unreleased]` → `### Added`: `event_weighted_predictive()`, `monte_carlo_mark_pvalue()`, `MarkPredictiveCheck`, and the `LogMarkIntensity`/`MarkSampler` types.
    - CLAUDE.md "Core Modules": add `continuous_marks.py`. Also update the stale module list, which omits `events.py`, `periods.py`, `predictive_checks.py` and `viz.py`.
 
@@ -100,7 +100,7 @@
 | `test_monte_carlo_return_samples` | `simulated_log_density` shape `(n_events, n_samples)` when requested, `None` otherwise; `pvalue == mean(sim <= obs + tol)` recomputed from the returned samples |
 | `test_monte_carlo_batch_size_invariance_of_distribution` | `batch_size=1` vs `32`: p-values agree within MC error (not bitwise) |
 | `test_monte_carlo_impossible_observed_mark` | `λ(x, y_obs)=0` wherever `P>0`: `observed_log_density == -inf`, `pvalue == 0`, no warning raised |
-| `test_monte_carlo_validates_callables` | Wrong-shaped `log_mark_intensity` output, NaN or `+inf` log intensity, and `sample_marks` returning the wrong length each raise `ValueError` |
+| `test_monte_carlo_validates_callables` | Wrong-shaped `model.log_intensity` output, NaN or `+inf` log intensity, and `model.sample` returning the wrong length each raise `ValueError` |
 | `test_monte_carlo_validates_arguments` | `n_samples=0`, `batch_size=0` and a mismatched `observed_marks` length raise `ValueError` |
 | `test_monte_carlo_empty_events` | `n_events=0` gives empty outputs; the callables are not called (a sentinel callable raises if called) |
 | `test_monte_carlo_figure2_scenario` | Replicates `figure02_panels.py:130-211`: 200 bins on [0, 100], predictive N(35, 8), mark density N(y; x, 12), `y_obs=60`, `Λ=1`. Compute the reference p by quadrature: `f_pred(y) = Σ_x P(x) N(y; x, 12)` on a fine y-grid (e.g. 20 001 points over [-100, 200]), then `p = ∫ f_pred 1{f_pred ≤ f_pred(60)} dy`. With `n_samples=20_000`, the Monte Carlo p is within 4 binomial SE of the quadrature value |
@@ -111,8 +111,8 @@ Register a `slow` marker in `[tool.pytest.ini_options] markers` (required by `--
 
 ## Fixtures
 
-- `discrete_mark_model`, in `tests/conftest.py`: rates, `log_mark_intensity`, `sample_marks` ([designs.md#discrete-model](designs.md#discrete-model)).
-- `clusterless_1d_model`, in `tests/conftest.py`: place fields, waveform means, `log_mark_intensity`, `sample_marks` and `ground_intensity` ([designs.md#clusterless-1-d-model](designs.md#clusterless-1-d-model)). Phase 4b extends it with the simulated trajectory and filter.
+- `discrete_mark_model`, in `tests/conftest.py`: rates and a `MarkModel` ([designs.md#discrete-model](designs.md#discrete-model)).
+- `clusterless_1d_model`, in `tests/conftest.py`: place fields, waveform means and a `MarkModel` ([designs.md#clusterless-1-d-model](designs.md#clusterless-1-d-model)). Phase 4b extends it with the simulated trajectory and filter.
 - Real data: none in this phase. Phase 5 uses the paper's Figure 2 setup as a real-use smoke test.
 
 ## Review
