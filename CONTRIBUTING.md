@@ -376,9 +376,14 @@ git diff main
 
 ## Getting Help
 
-- **Issues**: [GitHub Issues](https://github.com/edeno/statespacecheck/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/edeno/statespacecheck/discussions)
+- **Issues**: [GitHub Issues](https://github.com/edeno/statespacecheck/issues) (bug
+  reports and feature requests have templates)
+- **Security problems**: report privately; see
+  [SECURITY.md](https://github.com/edeno/statespacecheck/blob/main/SECURITY.md)
 - **Email**: eric.denovellis@ucsf.edu
+
+This project follows the
+[Contributor Covenant Code of Conduct](https://github.com/edeno/statespacecheck/blob/main/CODE_OF_CONDUCT.md).
 
 ## License
 
