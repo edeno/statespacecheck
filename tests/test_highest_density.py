@@ -2,7 +2,7 @@
 
 import numpy as np
 import pytest
-from conftest import (
+from helpers import (
     make_bimodal_gaussian_1d,
     make_gaussian_1d,
     make_gaussian_2d,
@@ -187,7 +187,9 @@ class TestHighestDensityRegion:
 
         region = highest_density_region(distribution, coverage=0.95)
 
-        expected = np.array([[[True, False, True], [False, False, False], [True, False, True]]])
+        expected = np.array(
+            [[[True, False, True], [False, False, False], [True, False, True]]]
+        )
         assert np.array_equal(region, expected)
 
         # Test case 2: Two positions with different mass
@@ -198,7 +200,9 @@ class TestHighestDensityRegion:
 
         # Expected: both positions (0,0) and (1,1) (total 1.0 >= 0.95 * 1.0)
         # Cutoff is at 0.3, so all positions >= 0.3 are included
-        expected = np.array([[[True, False, False], [False, True, False], [False, False, False]]])
+        expected = np.array(
+            [[[True, False, False], [False, True, False], [False, False, False]]]
+        )
         assert np.array_equal(region, expected)
 
         # Test case 3: Center peak
@@ -207,7 +211,9 @@ class TestHighestDensityRegion:
         region = highest_density_region(distribution, coverage=0.95)
 
         # Expected: only center position (1,1)
-        expected = np.array([[[False, False, False], [False, True, False], [False, False, False]]])
+        expected = np.array(
+            [[[False, False, False], [False, True, False], [False, False, False]]]
+        )
         assert np.array_equal(region, expected)
 
     def test_fine_discretization_unimodal_gaussian(self) -> None:
@@ -274,7 +280,13 @@ class TestHighestDensityRegion:
         mean2, std2 = 140, 10
 
         distribution = make_bimodal_gaussian_1d(
-            n_time=1, n_bins=n_bins, mean1=mean1, std1=std1, mean2=mean2, std2=std2, weight1=0.5
+            n_time=1,
+            n_bins=n_bins,
+            mean1=mean1,
+            std1=std1,
+            mean2=mean2,
+            std2=std2,
+            weight1=0.5,
         )
 
         coverage = 0.95

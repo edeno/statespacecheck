@@ -18,12 +18,11 @@ Thank you for your interest in contributing to statespacecheck! This document pr
    cd statespacecheck
    ```
 
-2. **Create a virtual environment and install dependencies**
+2. **Create the environment**
    ```bash
-   # Using uv (recommended - much faster)
-   uv venv
-   source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-   uv pip install -e ".[dev]"
+   # Using uv (recommended): installs the package in editable mode plus the
+   # `dev` dependency group, at the versions pinned in uv.lock
+   uv sync
 
    # Or using pip
    python -m venv .venv
@@ -33,11 +32,12 @@ Thank you for your interest in contributing to statespacecheck! This document pr
 
 3. **Verify installation**
    ```bash
-   python -c "import statespacecheck; print(statespacecheck.__version__)"
-   pytest --version
-   ruff --version
-   mypy --version
+   uv run python -c "import statespacecheck; print(statespacecheck.__version__)"
    ```
+
+`uv run <command>` runs a command in the locked environment; it is the task
+runner. There is no nox or tox file, on purpose: every check below is a single
+`uv run` command, and CI runs the same checks.
 
 ## Development Workflow
 
@@ -45,10 +45,10 @@ Thank you for your interest in contributing to statespacecheck! This document pr
 
 This project follows strict code quality standards:
 
-- **Formatting**: [ruff format](https://docs.astral.sh/ruff/formatter/) (100 char line length)
+- **Formatting**: [ruff format](https://docs.astral.sh/ruff/formatter/) (wraps code at 95 characters)
 - **Linting**: [ruff check](https://docs.astral.sh/ruff/) (comprehensive rules including NumPy-specific)
 - **Type checking**: [mypy](https://mypy-lang.org/) in strict mode (no `# type: ignore` allowed)
-- **Testing**: [pytest](https://pytest.org/) with 100% coverage requirement
+- **Testing**: [pytest](https://pytest.org/) with coverage reporting; new code should be fully covered
 - **Docstrings**: [NumPy style](https://numpydoc.readthedocs.io/)
 
 ### Running Checks Locally
@@ -57,32 +57,41 @@ Before committing, run all quality checks:
 
 ```bash
 # Format code
-ruff format .
+uv run ruff format .
 
 # Check formatting (CI runs this)
-ruff format --check .
+uv run ruff format --check .
 
 # Lint code
-ruff check .
+uv run ruff check .
 
 # Fix auto-fixable linting issues
-ruff check --fix .
+uv run ruff check --fix .
 
-# Type check
-mypy src/
+# Type check (strict; the files to check are set in pyproject.toml)
+uv run mypy
 
-# Run tests with coverage
-pytest
+# Run the tests and the docstring examples, with coverage
+uv run pytest
 
 # Run tests without coverage report
-pytest --no-cov
+uv run pytest --no-cov
 
 # Run specific test file
-pytest tests/test_highest_density.py -v
+uv run pytest tests/test_highest_density.py -v
 
 # Run specific test
-pytest tests/test_highest_density.py::TestHighestDensityRegion::test_exact_hd_region_1d -xvs
+uv run pytest tests/test_highest_density.py::TestHighestDensityRegion::test_exact_hd_region_1d -xvs
+
+# Check that uv.lock matches pyproject.toml
+uv lock --check
+
+# Spell check (configured in pyproject.toml)
+uvx codespell
 ```
+
+Warnings are errors in the test suite (`filterwarnings = ["error"]`): a test
+that expects a warning says so with `pytest.warns`.
 
 ### Pre-commit Hooks
 
@@ -90,11 +99,9 @@ Pre-commit hooks automatically run code quality checks before every commit.
 
 **Setup (one-time):**
 ```bash
-# Install dependencies (includes pre-commit)
-uv pip install -e ".[dev]"
-
-# Install the git hooks
-uv run pre-commit install
+# Install the git hooks (uvx runs pre-commit without installing it;
+# with pip, `pip install pre-commit` and drop the `uvx`)
+uvx pre-commit install
 ```
 
 **Usage:**
@@ -102,13 +109,13 @@ uv run pre-commit install
 # Hooks run automatically on `git commit`
 
 # Run manually on all files
-uv run pre-commit run --all-files
+uvx pre-commit run --all-files
 
 # Run manually on staged files only
-uv run pre-commit run
+uvx pre-commit run
 
 # Update hook versions
-uv run pre-commit autoupdate
+uvx pre-commit autoupdate
 ```
 
 **What it checks:**
@@ -117,7 +124,8 @@ uv run pre-commit autoupdate
 - Type checking with mypy
 - All tests with pytest
 
-This matches exactly what CI runs, so commits that pass hooks will pass CI.
+CI runs the same tools, but the hook versions can lag behind the ones in
+`uv.lock`; CI is the final word.
 
 ## Continuous Integration
 
@@ -231,7 +239,8 @@ This project uses **VCS-based versioning** with `hatch-vcs`:
 ### Release Checklist
 
 - [ ] All tests pass on main branch
-- [ ] CHANGELOG updated (if you maintain one)
+- [ ] CHANGELOG updated: the `[Unreleased]` section renamed to the version and date
+- [ ] `CITATION.cff` `version` and `date-released` updated
 - [ ] Documentation is up to date
 - [ ] Version tag follows semantic versioning
 - [ ] Tag pushed to GitHub
@@ -288,6 +297,7 @@ Add approval gates for extra safety:
 ```
 tests/
 ├── conftest.py                      # Shared fixtures
+├── helpers.py                       # Shared test data generators
 ├── test_highest_density.py          # HPD region tests
 ├── test_state_consistency.py        # KL divergence, HPD overlap tests
 ├── test_predictive_density.py       # Predictive checks tests
@@ -299,29 +309,29 @@ tests/
 ### Running Tests
 
 ```bash
-# All tests with coverage
-pytest
+# All tests and docstring examples, with coverage
+uv run pytest
 
 # Verbose output
-pytest -v
+uv run pytest -v
 
 # Stop on first failure
-pytest -x
+uv run pytest -x
 
 # Show print statements
-pytest -s
+uv run pytest -s
 
 # Run specific test class
-pytest tests/test_highest_density.py::TestHighestDensityRegion -v
+uv run pytest tests/test_highest_density.py::TestHighestDensityRegion -v
 
 # Run specific test method
-pytest tests/test_highest_density.py::TestHighestDensityRegion::test_exact_hd_region_1d -xvs
+uv run pytest tests/test_highest_density.py::TestHighestDensityRegion::test_exact_hd_region_1d -xvs
 
 # Run tests matching pattern
-pytest -k "test_hpd" -v
+uv run pytest -k "test_hpd" -v
 
-# Run with coverage report
-pytest --cov=statespacecheck --cov-report=html
+# HTML coverage report
+uv run pytest --cov-report=html
 # Then open htmlcov/index.html
 ```
 
@@ -365,7 +375,7 @@ def test_highest_density_region_with_peaked_distribution() -> None:
 
 ### Python Style
 
-- **Line length**: 100 characters (ruff enforces this)
+- **Line length**: 95 characters (`ruff format` wraps code; long strings and comments are not checked)
 - **Imports**: Sorted and grouped (ruff handles this)
 - **Quotes**: Double quotes for strings (ruff enforces this)
 - **Naming**:

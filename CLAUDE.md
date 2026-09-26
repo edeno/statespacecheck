@@ -47,54 +47,40 @@ All distributions must be properly normalized. The time dimension is always firs
 
 ## Development Commands
 
+`uv run <command>` against the locked environment is the task runner. There is
+no nox or tox file, on purpose: each check is one `uv run` command, and CI runs
+the same checks. This is a deliberate departure from the Scientific Python
+development guide, the same choice ripple_detection made.
+
 **Environment setup:**
 
 ```bash
-uv venv
-source .venv/bin/activate  # or `.venv\Scripts\activate` on Windows
-uv pip install -e ".[dev]"  # Install package with dev dependencies
+uv sync  # editable install plus the dev dependency group, pinned by uv.lock
+uv sync --extra docs  # also the documentation tools
 ```
 
 **Code quality:**
 
 ```bash
-# Format code with ruff
-ruff format .
-
-# Lint code with ruff
-ruff check .
-
-# Fix auto-fixable lint issues
-ruff check --fix .
-
-# Type check with mypy
-mypy src/
+uv run ruff format .      # format
+uv run ruff check .       # lint
+uv run ruff check --fix . # fix auto-fixable lint issues
+uv run mypy               # strict type check (files set in pyproject.toml)
+uv lock --check           # uv.lock matches pyproject.toml
+uvx codespell             # spell check (configured in pyproject.toml)
+uvx pre-commit run --all-files
 ```
 
 **Testing:**
 
 ```bash
-# Run all tests with coverage
-pytest
-
-# Run tests without coverage report
-pytest --no-cov
-
-# Run a single test file
-pytest tests/test_filename.py
-
-# Run a specific test
-pytest tests/test_filename.py::test_function_name
-
-# Run tests with verbose output
-pytest -v
+uv run pytest             # tests and docstring examples, with coverage
+uv run pytest --no-cov    # without the coverage report
+uv run pytest tests/test_filename.py::test_function_name
 ```
 
-**Run the main script:**
-
-```bash
-python main.py
-```
+Every warning is a test error (`filterwarnings = ["error"]`); a test that
+expects a warning uses `pytest.warns`.
 
 ## Key Design Principles
 
@@ -109,9 +95,9 @@ python main.py
 This project follows scientific Python best practices:
 
 - **Package management**: Use `uv` for all dependency management and virtual environment operations
-- **Environment**: Always activate and work within `.venv` virtual environment
-- **Formatting**: Code is formatted with `ruff format` (100 character line length)
-- **Linting**: Code is linted with `ruff check` (pycodestyle, pyflakes, isort, pep8-naming, pyupgrade, flake8-bugbear, numpy-specific rules)
+- **Environment**: `uv sync` creates `.venv`; run tools with `uv run` (no activation needed)
+- **Formatting**: Code is formatted with `ruff format` (wraps code at 95 characters; long strings and comments are not checked)
+- **Linting**: Code is linted with `ruff check` using ripple_detection's rule set (a subset of the Scientific Python guide's; it leaves out PL, TRY and others) plus pydocstyle
 - **Type checking**: Code is type-checked with `mypy` in strict mode
   - **IMPORTANT**: Never use `# type: ignore` comments. If mypy complains, fix the underlying issue by refactoring code, improving type annotations, or adjusting mypy configuration
 - **Docstrings**: All public functions must have numpy-style docstrings with shape specifications in the format `Shape (n_time, n_position)` on a separate line after the parameter description

@@ -73,12 +73,13 @@ def plot_diagnostics(
     >>> import numpy as np
     >>> import matplotlib.pyplot as plt
     >>> from statespacecheck.viz import plot_diagnostics
+    >>> rng = np.random.default_rng(0)
     >>> time = np.arange(100)
-    >>> overlap = np.random.uniform(0.3, 0.9, 100)
-    >>> kl = np.random.uniform(0.1, 2.0, 100)
-    >>> pvals = np.random.uniform(0.1, 0.9, 100)
+    >>> overlap = rng.uniform(0.3, 0.9, 100)
+    >>> kl = rng.uniform(0.1, 2.0, 100)
+    >>> pvals = rng.uniform(0.1, 0.9, 100)
     >>> fig = plot_diagnostics(time, overlap, kl, pvals)
-    >>> plt.show()
+    >>> plt.close(fig)
     """
     time_arr = np.asarray(time)
     overlap_arr = np.asarray(overlap, dtype=float)
@@ -88,7 +89,8 @@ def plot_diagnostics(
     if flags is not None:
         flags_arr = np.asarray(flags, dtype=bool)
         if flags_arr.shape != overlap_arr.shape:
-            raise ValueError("flags must have same shape as metrics")
+            msg = "flags must have same shape as metrics"
+            raise ValueError(msg)
     else:
         flags_arr = None
 

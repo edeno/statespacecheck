@@ -27,12 +27,12 @@ jobs:
         with:
           fetch-depth: 0
 
-      # Match mypy's python_version (the minimum supported Python), so the
-      # installed NumPy stubs are ones that Python version can parse.
+      # Match mypy's python_version: scipy-stubs uses PEP 695 `type`
+      # statements and requires Python 3.12+.
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.10"
+          python-version: "3.12"
 
       - name: Install uv
         uses: astral-sh/setup-uv@v4
@@ -47,7 +47,7 @@ jobs:
         run: ruff check . --output-format=github
 
       - name: Run mypy type checking
-        run: mypy src/
+        run: mypy
 
   test:
     name: Test Python ${{ matrix.python-version }} on ${{ matrix.os }}
@@ -56,7 +56,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        python-version: ["3.10", "3.11", "3.12", "3.13"]
+        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -75,7 +75,7 @@ jobs:
         run: uv pip install --system -e .[dev]
 
       - name: Run tests with coverage
-        run: pytest --cov=statespacecheck --cov-report=xml --cov-report=term-missing
+        run: pytest --cov-report=xml
 
       - name: Upload coverage to Codecov
         if: matrix.python-version == '3.12' && matrix.os == 'ubuntu-latest'
@@ -139,7 +139,7 @@ jobs:
       fail-fast: false
       matrix:
         package: ['wheel', 'sdist']
-        python-version: ["3.10", "3.13"]
+        python-version: ["3.10", "3.14"]
     steps:
       - name: Download distribution artifacts
         uses: actions/download-artifact@v4

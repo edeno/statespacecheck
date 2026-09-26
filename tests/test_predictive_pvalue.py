@@ -57,7 +57,7 @@ class TestPredictivePValue:
 
         # Test that collected p-values are uniformly distributed
         # Using Kolmogorov-Smirnov test against uniform(0, 1)
-        ks_stat, ks_pvalue = kstest(p_values_collected, "uniform")
+        _, ks_pvalue = kstest(p_values_collected, "uniform")
 
         # We should NOT reject null hypothesis (p-values are uniform)
         # Using alpha=0.01 for robustness
@@ -191,7 +191,7 @@ class TestPredictivePValue:
         observed = np.array([1.0, 2.0, 3.0])
         not_callable = np.array([[1, 2, 3], [4, 5, 6]])
 
-        with pytest.raises(TypeError, match="sample_log_pred must be callable"):
+        with pytest.raises(TypeError, match="not callable"):
             predictive_pvalue(observed, not_callable)
 
     def test_sampler_wrong_output_shape_error(self):
@@ -225,3 +225,34 @@ class TestPredictivePValue:
         # Allow range [0.4, 0.6] with large n_samples
         assert np.all(p_values > 0.4)
         assert np.all(p_values < 0.6)
+
+    def test_nan_observed_propagates(self):
+        """A NaN observation gives a NaN p-value; the other time points are unaffected."""
+        observed = np.array([0.0, np.nan, 0.0])
+        p_vals = predictive_pvalue(observed, lambda n: np.zeros((n, 3)), n_samples=10)
+        assert np.isnan(p_vals[1])
+        np.testing.assert_array_equal(p_vals[[0, 2]], [1.0, 1.0])
+
+    def test_all_nan_observed_gives_all_nan(self):
+        """With every observation NaN, every p-value is NaN."""
+        observed = np.full(3, np.nan)
+        p_vals = predictive_pvalue(observed, lambda n: np.zeros((n, 3)), n_samples=10)
+        assert np.all(np.isnan(p_vals))
+
+    def test_infinite_observed_follows_the_comparison(self):
+        """-inf (impossible under the model) gives 0; +inf gives 1."""
+        observed = np.array([-np.inf, np.inf])
+        p_vals = predictive_pvalue(observed, lambda n: np.zeros((n, 2)), n_samples=10)
+        np.testing.assert_array_equal(p_vals, [0.0, 1.0])
+
+    def test_nan_in_samples_raises(self):
+        """NaN simulated values are a sampler error, not evidence of misfit."""
+        observed = np.zeros(2)
+
+        def sampler(n_samples):
+            simulated = np.zeros((n_samples, 2))
+            simulated[:, 1] = np.nan
+            return simulated
+
+        with pytest.raises(ValueError, match="sample_log_pred returned NaN"):
+            predictive_pvalue(observed, sampler, n_samples=10)

@@ -247,36 +247,35 @@ Compute boolean mask indicating highest density region membership.
 ### Setup
 
 ```bash
-# Create virtual environment and install dependencies
-uv venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-uv pip install -e ".[dev]"
+# Create the environment: the package in editable mode plus the dev tools,
+# at the versions pinned in uv.lock
+uv sync
 ```
+
+`uv run <command>` runs a command in that environment; there is no nox or tox
+file. See [CONTRIBUTING.md](CONTRIBUTING.md) for the full workflow.
 
 ### Running Tests
 
 ```bash
-# Run all tests with coverage
-pytest tests/ -v
+# Run the tests and the docstring examples, with coverage
+uv run pytest
 
-# Run specific test file
-pytest tests/test_posterior_consistency.py -v
-
-# Run with coverage report
-pytest tests/ --cov=src/statespacecheck --cov-report=html
+# Run a specific test file
+uv run pytest tests/test_state_consistency.py -v
 ```
 
 ### Code Quality
 
 ```bash
 # Check code style
-ruff check .
+uv run ruff check .
 
 # Format code
-ruff format .
+uv run ruff format .
 
-# Type checking
-mypy src/
+# Type checking (strict)
+uv run mypy
 ```
 
 ### Standards
@@ -285,7 +284,7 @@ mypy src/
 - **Dependencies**: numpy>=1.26.0, scipy>=1.11.0, matplotlib>=3.8.0
 - **Docstrings**: NumPy format with parameter types and return values
 - **Type hints**: Full mypy strict mode compliance
-- **Style**: ruff for formatting and linting (100 char line length)
+- **Style**: ruff for formatting and linting (95 char line length)
 - **No `# type: ignore`**: Fix type issues by refactoring, not suppressing
 
 ## Scientific Context

@@ -2,7 +2,7 @@
 
 import numpy as np
 import pytest
-from conftest import (
+from helpers import (
     make_gaussian_1d,
     make_gaussian_2d,
     make_random_distribution_1d,
@@ -36,7 +36,9 @@ class TestKLDivergence:
         kl_div = kl_divergence(state_dist, state_dist)
 
         # CRITICAL: Must return (n_time,) shape, not (n_time, n_x)
-        assert kl_div.shape == (n_time,), f"Expected shape (n_time,)={n_time}, got {kl_div.shape}"
+        assert kl_div.shape == (n_time,), (
+            f"Expected shape (n_time,)={n_time}, got {kl_div.shape}"
+        )
         assert np.allclose(kl_div, 0.0, atol=1e-10)
 
     def test_1d_spatial_different_distributions(self, rng) -> None:
@@ -137,7 +139,9 @@ class TestHPDOverlap:
         overlap = hpd_overlap(state_dist, state_dist, coverage=0.95)
 
         # CRITICAL: Must return (n_time,) shape
-        assert overlap.shape == (n_time,), f"Expected shape (n_time,)={n_time}, got {overlap.shape}"
+        assert overlap.shape == (n_time,), (
+            f"Expected shape (n_time,)={n_time}, got {overlap.shape}"
+        )
         assert np.allclose(overlap, 1.0)
 
     def test_1d_spatial_completely_different_distributions(self) -> None:
@@ -224,6 +228,16 @@ class TestHPDOverlap:
         assert overlap.shape == (n_time,)
         # When both regions are empty, overlap should be 0
         assert np.allclose(overlap, 0.0)
+
+    def test_one_empty_hpd_region_gives_zero(self) -> None:
+        """A row with no mass on one side has an empty HPD region; overlap is 0."""
+        dist = np.array([[0.2, 0.3, 0.5], [0.2, 0.3, 0.5]])
+        state_dist = dist.copy()
+        state_dist[1] = 0.0
+
+        overlap = hpd_overlap(state_dist, dist, coverage=0.95)
+
+        np.testing.assert_array_equal(overlap, [1.0, 0.0])
 
     def test_exact_overlap_calculation(self) -> None:
         """Test exact overlap with simple binary distributions."""

@@ -179,7 +179,9 @@ fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(14, 8), sharex=True)
 # KL divergence
 ax1.plot(time, kl_div, linewidth=2.5, color="#1f77b4")
 ax1.axhline(0.1, color="green", linestyle="--", alpha=0.5, linewidth=2, label="Low threshold")
-ax1.axhline(1.0, color="orange", linestyle="--", alpha=0.5, linewidth=2, label="High threshold")
+ax1.axhline(
+    1.0, color="orange", linestyle="--", alpha=0.5, linewidth=2, label="High threshold"
+)
 ax1.axvspan(misfit_start, misfit_end, alpha=0.2, color="red", label="True misfit period")
 ax1.fill_between(time, 0, 0.1, alpha=0.2, color="green", label="Good fit")
 ax1.fill_between(time, 1.0, ax1.get_ylim()[1], alpha=0.2, color="red", label="Poor fit")
@@ -274,7 +276,9 @@ for i, (start, end) in enumerate(intervals, 1):
 # Visualize intervals
 fig, ax = plt.subplots(figsize=(14, 5))
 ax.plot(time, overlap, linewidth=2.5, color="#ff7f0e", label="HPD Overlap")
-ax.axhline(0.3, color="orange", linestyle="--", alpha=0.5, linewidth=2, label="Detection threshold")
+ax.axhline(
+    0.3, color="orange", linestyle="--", alpha=0.5, linewidth=2, label="Detection threshold"
+)
 
 # Highlight detected intervals
 for start, end in intervals:
@@ -344,7 +348,9 @@ width = 0.6
 
 # KL divergence by period
 bars1 = ax1.bar(x, kl_by_period, width, color=["green", "red", "green"], alpha=0.7)
-ax1.axhline(1.0, color="orange", linestyle="--", alpha=0.5, linewidth=2, label="High threshold")
+ax1.axhline(
+    1.0, color="orange", linestyle="--", alpha=0.5, linewidth=2, label="High threshold"
+)
 ax1.set_ylabel("Mean KL Divergence")
 ax1.set_title("KL Divergence by Period")
 ax1.set_xticks(x)
@@ -385,7 +391,6 @@ good_data = generate_spatial_navigation_data(
     n_time=200,
     track_length=100.0,
     n_bins=50,
-    velocity=10.0,
     state_uncertainty=2.5,
     likelihood_uncertainty=3.0,
     drift=0.0,  # No systematic bias
@@ -402,7 +407,9 @@ fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(14, 8), sharex=True)
 # KL divergence
 ax1.plot(good_data["time"], kl_good, linewidth=2.5, color="#1f77b4", alpha=0.7)
 ax1.axhline(0.1, color="green", linestyle="--", alpha=0.5, linewidth=2, label="Low threshold")
-ax1.axhline(1.0, color="orange", linestyle="--", alpha=0.5, linewidth=2, label="High threshold")
+ax1.axhline(
+    1.0, color="orange", linestyle="--", alpha=0.5, linewidth=2, label="High threshold"
+)
 ax1.fill_between(good_data["time"], 0, 0.1, alpha=0.2, color="green", label="Good fit")
 ax1.set_ylabel("KL Divergence")
 ax1.set_title("Well-Specified Model: KL Divergence")

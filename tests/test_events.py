@@ -104,6 +104,31 @@ class TestPredictiveMarkProbabilities:
         with pytest.raises(ValueError, match="expected mark intensities are non-finite"):
             predictive_mark_probabilities(np.array([[1.0, 1.0]]), np.full((2, 1), 1e308))
 
+    @pytest.mark.parametrize("bad", [-0.5, np.nan, np.inf])
+    def test_invalid_state_values_raise(self, bad):
+        with pytest.raises(
+            ValueError, match="state_dist must contain only finite nonnegative"
+        ):
+            predictive_mark_probabilities(np.array([[1.5, bad]]), np.ones((2, 2)))
+
+    @pytest.mark.parametrize("bad", [-0.5, np.nan, np.inf])
+    def test_invalid_intensity_values_raise(self, bad):
+        intensities = np.array([[1.0, bad], [1.0, 1.0]])
+        with pytest.raises(
+            ValueError, match="mark_intensities must contain only finite nonnegative"
+        ):
+            predictive_mark_probabilities(np.full((1, 2), 0.5), intensities)
+
+    def test_no_marks_raises(self):
+        with pytest.raises(ValueError, match="at least one mark"):
+            predictive_mark_probabilities(np.full((1, 2), 0.5), np.ones((2, 0)))
+
+    def test_state_without_spatial_axis_raises(self):
+        with pytest.raises(
+            ValueError, match=r"state_dist must have shape \(n_events, \.\.\.\)"
+        ):
+            predictive_mark_probabilities(np.array([0.5, 0.5]), np.ones((2, 2)))
+
     def test_spatial_shape_mismatch_raises(self):
         with pytest.raises(ValueError, match="mark_intensities must have shape"):
             predictive_mark_probabilities(np.array([[0.5, 0.5]]), np.ones((3, 2)))
@@ -115,7 +140,9 @@ class TestMarkPredictivePvalue:
         p-value is 1/6, not 0.3."""
         state = np.array([[0.5, 0.5], [0.5, 0.5]])
         intensities = np.array([[9.0, 1.0], [1.0, 1.0]])
-        assert_allclose(mark_predictive_pvalue(state, intensities, np.array([0, 1])), [1, 1 / 6])
+        assert_allclose(
+            mark_predictive_pvalue(state, intensities, np.array([0, 1])), [1, 1 / 6]
+        )
 
     def test_zero_rate_state_carries_no_event_mass(self):
         state = np.array([[0.2, 0.5, 0.3]])
@@ -157,10 +184,14 @@ class TestMarkPredictivePvalue:
             slack = 3 * np.sqrt(alpha * (1 - alpha) / n_events)
             assert np.mean(pvalue <= alpha) <= alpha + slack
 
-    @pytest.mark.parametrize("marks", [np.array([0, 5]), np.array([-1, 0]), np.array([0.0, 1.0])])
-    def test_invalid_marks_raise(self, marks):
-        with pytest.raises(ValueError, match="observed_marks"):
+    @pytest.mark.parametrize("marks", [np.array([0, 5]), np.array([-1, 0])])
+    def test_out_of_range_marks_raise(self, marks):
+        with pytest.raises(ValueError, match=r"observed_marks must lie in \[0, 3\)"):
             mark_predictive_pvalue(np.full((2, 2), 0.5), np.ones((2, 3)), marks)
+
+    def test_non_integer_marks_raise(self):
+        with pytest.raises(ValueError, match="observed_marks must be a 1-D integer array"):
+            mark_predictive_pvalue(np.full((2, 2), 0.5), np.ones((2, 3)), np.array([0.0, 1.0]))
 
     def test_length_mismatch_raises(self):
         with pytest.raises(ValueError, match="one entry per event"):
@@ -178,7 +209,9 @@ class TestEventDiagnostics:
         assert_array_equal(
             result.hpd_overlap, hpd_overlap(predictive[time_ind], likelihood, coverage=0.9)
         )
-        assert_array_equal(result.kl_divergence, kl_divergence(predictive[time_ind], likelihood))
+        assert_array_equal(
+            result.kl_divergence, kl_divergence(predictive[time_ind], likelihood)
+        )
         assert_array_equal(
             result.predictive_pvalue,
             mark_predictive_pvalue(predictive[time_ind], intensities, marks),
@@ -203,7 +236,9 @@ class TestEventDiagnostics:
         predictive = rng.dirichlet(np.ones(12), size=5)
         intensities = rng.random((12, 3))
         time_ind, marks = np.array([0, 2, 4]), np.array([2, 0, 1])
-        flat = event_diagnostics(predictive, intensities, time_ind, marks, return_likelihood=True)
+        flat = event_diagnostics(
+            predictive, intensities, time_ind, marks, return_likelihood=True
+        )
         grid = event_diagnostics(
             predictive.reshape(5, 3, 4),
             intensities.reshape(3, 4, 3),
@@ -211,14 +246,18 @@ class TestEventDiagnostics:
             marks,
             return_likelihood=True,
         )
-        assert grid.likelihood is not None and grid.likelihood.shape == (3, 3, 4)
+        assert grid.likelihood is not None
+        assert grid.likelihood.shape == (3, 3, 4)
         assert_allclose(grid.likelihood.reshape(3, 12), flat.likelihood)
         for name in ("hpd_overlap", "kl_divergence", "predictive_pvalue"):
             assert_allclose(getattr(grid, name), getattr(flat, name))
 
     def test_no_events(self):
         result = event_diagnostics(
-            np.full((3, 2), 0.5), np.ones((2, 2)), np.array([], dtype=int), np.array([], dtype=int)
+            np.full((3, 2), 0.5),
+            np.ones((2, 2)),
+            np.array([], dtype=int),
+            np.array([], dtype=int),
         )
         assert result.hpd_overlap.shape == (0,)
 
@@ -228,9 +267,30 @@ class TestEventDiagnostics:
                 np.full((5, 3), 1 / 3), np.zeros((3, 2)), np.array([0]), np.array([0])
             )
 
+    @pytest.mark.parametrize("batch_size", [0, -3])
+    def test_invalid_batch_size_raises(self, batch_size):
+        # Without the check, a non-positive step would skip the batch loop and
+        # return uninitialized arrays.
+        with pytest.raises(ValueError, match="batch_size must be at least 1"):
+            event_diagnostics(
+                np.full((2, 2), 0.5),
+                np.ones((2, 2)),
+                np.array([0]),
+                np.array([0]),
+                batch_size=batch_size,
+            )
+
+    def test_predictive_without_spatial_axis_raises(self):
+        with pytest.raises(ValueError, match=r"predictive must have shape \(n_time, \.\.\.\)"):
+            event_diagnostics(
+                np.array([0.5, 0.5]), np.ones((2, 2)), np.array([0]), np.array([0])
+            )
+
     def test_out_of_range_time_index_raises(self):
         with pytest.raises(ValueError, match="event_time_ind"):
-            event_diagnostics(np.full((2, 2), 0.5), np.ones((2, 2)), np.array([2]), np.array([0]))
+            event_diagnostics(
+                np.full((2, 2), 0.5), np.ones((2, 2)), np.array([2]), np.array([0])
+            )
 
     def test_mismatched_event_arrays_raise(self):
         with pytest.raises(ValueError, match="same length"):

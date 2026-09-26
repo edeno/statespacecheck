@@ -128,14 +128,12 @@ def kl_divergence(
     --------
     >>> import numpy as np
     >>> from statespacecheck import kl_divergence
-    >>> # Identical distributions have zero divergence
-    >>> state = np.array([[0.3, 0.4, 0.3]])
-    >>> like = np.array([[0.3, 0.4, 0.3]])
-    >>> div = kl_divergence(state, like)
-    >>> div.shape
-    (1,)
-    >>> bool(np.isclose(div[0], 0.0))
-    True
+    >>> # Identical distributions have zero divergence; the likelihood in the
+    >>> # second time bin puts its mass where the state distribution does not
+    >>> state = np.array([[0.3, 0.4, 0.3], [0.3, 0.4, 0.3]])
+    >>> like = np.array([[0.3, 0.4, 0.3], [0.1, 0.2, 0.7]])
+    >>> kl_divergence(state, like).round(3)
+    array([0.   , 0.353])
 
     See Also
     --------
@@ -183,9 +181,7 @@ def kl_divergence(
     # Clip to non-negative values to handle floating point precision errors
     # scipy.stats.entropy can return tiny negative values (~1e-113) with subnormal numbers
     # KL divergence is mathematically always non-negative, so clip spurious negatives to 0
-    kl_div = np.maximum(kl_div, 0.0)
-
-    return kl_div
+    return np.maximum(kl_div, 0.0)
 
 
 def hpd_overlap(
@@ -235,14 +231,12 @@ def hpd_overlap(
     --------
     >>> import numpy as np
     >>> from statespacecheck import hpd_overlap
-    >>> # Identical distributions have perfect overlap
-    >>> state = np.array([[0.3, 0.4, 0.3]])
-    >>> like = np.array([[0.3, 0.4, 0.3]])
-    >>> overlap = hpd_overlap(state, like, coverage=0.9)
-    >>> overlap.shape
-    (1,)
-    >>> bool(overlap[0] >= 0.0 and overlap[0] <= 1.0)
-    True
+    >>> # 80% HPD regions: bins {0, 1} for the state distribution and {1, 2}
+    >>> # for the likelihood share one bin out of the smaller region's two
+    >>> state = np.array([[0.4, 0.4, 0.2, 0.0, 0.0]])
+    >>> like = np.array([[0.0, 0.4, 0.4, 0.2, 0.0]])
+    >>> hpd_overlap(state, like, coverage=0.8)
+    array([0.5])
 
     See Also
     --------
@@ -259,7 +253,9 @@ def hpd_overlap(
     - overlap = 0.0 when regions don't overlap at all
     - Values are comparable even when HPD regions have different sizes
 
-    When both HPD regions are empty (both sizes are 0), overlap is defined as 0.
+    When either HPD region is empty (a row with no probability mass), the
+    denominator is 0 and overlap is defined as 0, so such rows read as
+    disagreement. Check for all-zero rows separately if they can occur.
 
     Distributions are automatically normalized over valid (non-NaN) bins.
     NaN values mark invalid spatial bins (e.g., inaccessible locations)
@@ -287,10 +283,7 @@ def hpd_overlap(
     # Compute denominator (minimum of the two sizes)
     denom = np.minimum(size_state, size_like)
 
-    # Handle division by zero: when denom is 0, overlap is 0
-    # This matches the normalization pattern used elsewhere in the codebase
+    # An empty region on either side makes denom 0; overlap is then defined as 0
     with np.errstate(divide="ignore", invalid="ignore"):
         overlap: DistributionArray = intersection / denom
-    overlap = np.nan_to_num(overlap, nan=0.0, posinf=0.0, neginf=0.0)
-
-    return overlap
+    return np.nan_to_num(overlap, nan=0.0, posinf=0.0, neginf=0.0)

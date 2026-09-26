@@ -98,7 +98,9 @@ print("This value depends on the bin size and normalization.")
 
 # Visualize
 fig, ax = plt.subplots(figsize=(12, 5))
-ax.plot(position_bins, state_dist, linewidth=2.5, color="#1f77b4", label="State distribution p(x)")
+ax.plot(
+    position_bins, state_dist, linewidth=2.5, color="#1f77b4", label="State distribution p(x)"
+)
 ax.plot(
     position_bins,
     likelihood,
@@ -283,11 +285,16 @@ def create_sampler(state_dist_seq, true_means, position_bins):
         for i in range(n_samples):
             # Simulate likelihood from the model
             sim_likelihood = np.array(
-                [norm.pdf(position_bins, loc=m + rng.normal(0, 2), scale=3.0) for m in true_means]
+                [
+                    norm.pdf(position_bins, loc=m + rng.normal(0, 2), scale=3.0)
+                    for m in true_means
+                ]
             )
 
             # Compute predictive density for this simulation
-            log_pred_samples[i] = log_predictive_density(state_dist_seq, likelihood=sim_likelihood)
+            log_pred_samples[i] = log_predictive_density(
+                state_dist_seq, likelihood=sim_likelihood
+            )
 
         return log_pred_samples
 
@@ -316,7 +323,13 @@ fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
 
 # Time series of p-values
 ax1.plot(
-    np.arange(n_time), p_values, linewidth=2, marker="o", markersize=4, alpha=0.7, color="#1f77b4"
+    np.arange(n_time),
+    p_values,
+    linewidth=2,
+    marker="o",
+    markersize=4,
+    alpha=0.7,
+    color="#1f77b4",
 )
 ax1.axhline(0.5, color="green", linestyle="--", alpha=0.5, linewidth=2, label="Expected mean")
 ax1.fill_between(np.arange(n_time), 0.05, 0.95, alpha=0.2, color="green", label="90% range")
@@ -328,7 +341,9 @@ ax1.grid(True, alpha=0.3)
 
 # Histogram of p-values
 ax2.hist(p_values, bins=20, edgecolor="black", alpha=0.7, color="#1f77b4", density=True)
-ax2.axhline(1.0, color="red", linestyle="--", linewidth=2, alpha=0.5, label="Uniform distribution")
+ax2.axhline(
+    1.0, color="red", linestyle="--", linewidth=2, alpha=0.5, label="Uniform distribution"
+)
 ax2.set_xlabel("P-value")
 ax2.set_ylabel("Density")
 ax2.set_title("Distribution of P-values")
@@ -384,7 +399,9 @@ observed_log_pred_misspec = log_predictive_density(
 sampler_misspec = create_sampler(state_dist_misspec, model_means, position_bins)
 
 # Compute p-values
-p_values_misspec = predictive_pvalue(observed_log_pred_misspec, sampler_misspec, n_samples=1000)
+p_values_misspec = predictive_pvalue(
+    observed_log_pred_misspec, sampler_misspec, n_samples=1000
+)
 
 # Visualize
 fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(14, 10), sharex=True)
@@ -400,7 +417,9 @@ ax1.plot(
     color="#1f77b4",
 )
 ax1.axhline(0.5, color="green", linestyle="--", alpha=0.5, linewidth=2, label="Expected mean")
-ax1.axhline(0.05, color="red", linestyle="--", alpha=0.5, linewidth=2, label="Extreme thresholds")
+ax1.axhline(
+    0.05, color="red", linestyle="--", alpha=0.5, linewidth=2, label="Extreme thresholds"
+)
 ax1.axhline(0.95, color="red", linestyle="--", alpha=0.5, linewidth=2)
 ax1.axvspan(misfit_start, misfit_end, alpha=0.2, color="red", label="True misfit period")
 ax1.set_ylabel("P-value")
@@ -466,7 +485,9 @@ fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(14, 12), sharex=True)
 
 # KL divergence
 ax1.plot(np.arange(n_time), kl_div_misspec, linewidth=2.5, color="#1f77b4")
-ax1.axhline(1.0, color="orange", linestyle="--", alpha=0.5, linewidth=2, label="High threshold")
+ax1.axhline(
+    1.0, color="orange", linestyle="--", alpha=0.5, linewidth=2, label="High threshold"
+)
 ax1.axvspan(misfit_start, misfit_end, alpha=0.2, color="red", label="Misfit period")
 ax1.set_ylabel("KL Divergence")
 ax1.set_title("Multiple Diagnostic Views of Model Fit")
@@ -483,7 +504,9 @@ ax2.grid(True, alpha=0.3)
 
 # P-values
 ax3.plot(np.arange(n_time), p_values_misspec, linewidth=2.5, color="#2ca02c")
-ax3.axhline(0.05, color="red", linestyle="--", alpha=0.5, linewidth=2, label="Extreme thresholds")
+ax3.axhline(
+    0.05, color="red", linestyle="--", alpha=0.5, linewidth=2, label="Extreme thresholds"
+)
 ax3.axhline(0.95, color="red", linestyle="--", alpha=0.5, linewidth=2)
 ax3.axhline(0.5, color="green", linestyle="--", alpha=0.5, linewidth=2, label="Expected value")
 ax3.axvspan(misfit_start, misfit_end, alpha=0.2, color="red", label="Misfit period")

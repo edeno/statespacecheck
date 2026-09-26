@@ -91,7 +91,13 @@ ax.fill_between(
     position_bins, 0, dist_unimodal, where=hdr_mask, alpha=0.4, color="green", label="95% HDR"
 )
 ax.fill_between(
-    position_bins, 0, dist_unimodal, where=~hdr_mask, alpha=0.2, color="gray", label="Outside HDR"
+    position_bins,
+    0,
+    dist_unimodal,
+    where=~hdr_mask,
+    alpha=0.2,
+    color="gray",
+    label="Outside HDR",
 )
 ax.set_xlabel("Position (cm)")
 ax.set_ylabel("Probability Density")
@@ -133,9 +139,17 @@ for idx, cov in enumerate(coverages):
 
     axes[idx].plot(position_bins, dist_unimodal, linewidth=2.5, color="#1f77b4")
     axes[idx].fill_between(
-        position_bins, 0, dist_unimodal, where=hdr, alpha=0.4, color="green", label=f"{cov:.0%} HDR"
+        position_bins,
+        0,
+        dist_unimodal,
+        where=hdr,
+        alpha=0.4,
+        color="green",
+        label=f"{cov:.0%} HDR",
     )
-    axes[idx].fill_between(position_bins, 0, dist_unimodal, where=~hdr, alpha=0.2, color="gray")
+    axes[idx].fill_between(
+        position_bins, 0, dist_unimodal, where=~hdr, alpha=0.2, color="gray"
+    )
     axes[idx].set_xlabel("Position (cm)")
     axes[idx].set_ylabel("Probability Density")
     axes[idx].set_title(f"Coverage = {cov:.0%}")
@@ -180,7 +194,13 @@ hdr_bimodal = highest_density_region(dist_bimodal_2d, coverage=0.95)[0]
 fig, ax = plt.subplots(figsize=(12, 5))
 ax.plot(position_bins, dist_bimodal, linewidth=3, color="#1f77b4", label="Distribution")
 ax.fill_between(
-    position_bins, 0, dist_bimodal, where=hdr_bimodal, alpha=0.4, color="green", label="95% HDR"
+    position_bins,
+    0,
+    dist_bimodal,
+    where=hdr_bimodal,
+    alpha=0.4,
+    color="green",
+    label="95% HDR",
 )
 ax.fill_between(
     position_bins,

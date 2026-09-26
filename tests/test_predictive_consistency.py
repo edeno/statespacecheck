@@ -76,7 +76,9 @@ class TestPredictiveConsistency:
         log_pred_base = log_predictive_density(state, log_likelihood=log_likelihood)
 
         # Compute with scaled log_likelihood (adding log(c))
-        log_pred_scaled = log_predictive_density(state, log_likelihood=log_likelihood + log_scale)
+        log_pred_scaled = log_predictive_density(
+            state, log_likelihood=log_likelihood + log_scale
+        )
 
         # Should differ by log(scale_factor)
         np.testing.assert_allclose(log_pred_scaled, log_pred_base + log_scale, rtol=1e-10)

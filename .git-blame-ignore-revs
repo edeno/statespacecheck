@@ -1,0 +1,6 @@
+# Formatting-only commits: git blame skips these with
+# git config blame.ignoreRevsFile .git-blame-ignore-revs (GitHub reads it automatically).
+# The SHAs must be on main: merge branches that add one without squashing or rebasing.
+
+# Reformat to line length 95
+e4b95c61c7f91724afd67ea77854f32ec0fa641e

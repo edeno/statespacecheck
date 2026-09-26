@@ -217,7 +217,8 @@ def log_predictive_density(
     """
     # Validate that exactly one of likelihood or log_likelihood is provided
     if (likelihood is None) == (log_likelihood is None):
-        raise ValueError("Exactly one of 'likelihood' or 'log_likelihood' must be provided")
+        msg = "Exactly one of 'likelihood' or 'log_likelihood' must be provided"
+        raise ValueError(msg)
 
     # Convert likelihood to log_likelihood if needed
     if likelihood is not None:
@@ -237,22 +238,23 @@ def log_predictive_density(
         log_like = np.asarray(log_likelihood, dtype=float)
 
         if log_like.ndim < 2:
-            raise ValueError(
+            msg = (
                 f"log_likelihood must be at least 2D with shape (n_time, ...), "
                 f"got shape {log_like.shape}"
             )
+            raise ValueError(msg)
 
         if log_like.shape != state.shape:
-            raise ValueError(
+            msg = (
                 f"state_dist and log_likelihood must have same shape, "
                 f"got {state.shape} vs {log_like.shape}"
             )
+            raise ValueError(msg)
 
         # Check for +inf in log_likelihood (indicates upstream bug or overflow)
         if np.isposinf(log_like).any():
-            raise ValueError(
-                "log_likelihood contains +inf; this indicates an upstream bug or overflow"
-            )
+            msg = "log_likelihood contains +inf; this indicates an upstream bug or overflow"
+            raise ValueError(msg)
 
         # Handle non-finite values: NaN → -inf (makes sense in log-space)
         # Note: We do NOT check for negative values (negative is expected in log-space!)
@@ -285,7 +287,9 @@ def log_predictive_density(
 
     # Convert normalized state to log-space
     with np.errstate(divide="ignore"):
-        log_state_normalized = np.where(state_normalized > 0, np.log(state_normalized), -np.inf)
+        log_state_normalized = np.where(
+            state_normalized > 0, np.log(state_normalized), -np.inf
+        )
 
     # Compute log predictive density using logsumexp
     # log ∑_x p(x) * p(y|x) = logsumexp(log p(x) + log p(y|x))
@@ -337,13 +341,14 @@ def predictive_pvalue(
     p_values : np.ndarray, shape (n_time,)
         P-value at each time point, computed as the proportion of simulated
         log predictive densities <= observed value.
-        Values range from 0 to 1.
+        Values range from 0 to 1; NaN where ``observed_log_pred`` is NaN.
 
     Raises
     ------
     ValueError
         If observed_log_pred is not 1-dimensional, if n_samples <= 0,
-        or if sample_log_pred returns array with wrong shape.
+        or if sample_log_pred returns an array with the wrong shape or
+        containing NaN.
     TypeError
         If sample_log_pred is not callable.
 
@@ -357,11 +362,9 @@ def predictive_pvalue(
     >>> def sampler(n_samples):
     ...     rng = np.random.default_rng(42)  # Fixed seed for reproducibility
     ...     return rng.normal(loc=-1.5, scale=0.5, size=(n_samples, 3))
-    >>> p_vals = predictive_pvalue(observed, sampler, n_samples=100)
-    >>> p_vals.shape
-    (3,)
-    >>> np.all((p_vals >= 0) & (p_vals <= 1))
-    True
+    >>> # Monte Carlo estimates of the exact values 0.16, 0.5 and 0.84
+    >>> predictive_pvalue(observed, sampler, n_samples=1000).round(2)
+    array([0.16, 0.5 , 0.86])
 
     See Also
     --------
@@ -405,11 +408,6 @@ def predictive_pvalue(
         msg = f"n_samples must be positive, got {n_samples}"
         raise ValueError(msg)
 
-    # Validate sample_log_pred is callable
-    if not callable(sample_log_pred):
-        msg = f"sample_log_pred must be callable, got {type(sample_log_pred).__name__}"
-        raise TypeError(msg)
-
     # Generate samples
     simulated = sample_log_pred(n_samples)
 
@@ -421,12 +419,18 @@ def predictive_pvalue(
             f"({n_samples}, {n_time}), got shape {simulated_arr.shape}"
         )
         raise ValueError(msg)
+    # A NaN sample compares False, which would silently pull the p-value toward 0
+    # and read as misfit; it is a sampler error.
+    nan_times = np.isnan(simulated_arr).any(axis=0)
+    if nan_times.any():
+        bad = np.flatnonzero(nan_times)
+        msg = f"sample_log_pred returned NaN at time indices: {bad[:10].tolist()}"
+        raise ValueError(msg)
 
-    # Compute p-values: proportion of samples <= observed
-    # Broadcasting: observed_arr has shape (n_time,), simulated_arr has shape (n_samples, n_time)
-    # Comparison broadcasts to (n_samples, n_time), then mean over axis=0 gives (n_time,)
-    # Handle NaN in observed: propagate NaN rather than returning 0.0
-    mask = np.isfinite(observed_arr)
+    # Proportion of samples <= observed at each time: (n_samples, n_time) -> (n_time,).
+    # A NaN observation gives a NaN p-value; +-inf follow the comparison
+    # (-inf, impossible under the model, gives 0).
+    mask = ~np.isnan(observed_arr)
     p_values: DistributionArray = np.full(n_time, np.nan)
     if np.any(mask):
         p_values[mask] = np.mean(simulated_arr[:, mask] <= observed_arr[mask], axis=0)

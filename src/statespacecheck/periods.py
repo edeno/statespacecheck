@@ -49,7 +49,8 @@ def aggregate_over_period(
     -------
     aggregated_value : float
         Aggregated metric value (scalar float).
-        Returns NaN if no time points are selected (all-false mask).
+        Returns NaN if no time points are selected (all-false mask), or if
+        reduction='mean' and every selected weight is zero.
 
     Raises
     ------
@@ -111,35 +112,41 @@ def aggregate_over_period(
     # Validate metric_values is 1D
     metric_arr = np.asarray(metric_values, dtype=float)
     if metric_arr.ndim != 1:
-        raise ValueError(
+        msg = (
             f"metric_values must be 1-dimensional, "
             f"got {metric_arr.ndim}D array with shape {metric_arr.shape}"
         )
+        raise ValueError(msg)
 
     # Validate time_mask
     mask_arr = np.asarray(time_mask, dtype=bool)
     if mask_arr.shape != metric_arr.shape:
-        raise ValueError(
+        msg = (
             f"time_mask must have same length as metric_values, "
             f"got {mask_arr.shape} vs {metric_arr.shape}"
         )
+        raise ValueError(msg)
 
     # Validate reduction parameter
     if reduction not in ("mean", "sum"):
-        raise ValueError(f"reduction must be 'mean' or 'sum', got '{reduction}'")
+        msg = f"reduction must be 'mean' or 'sum', got '{reduction}'"
+        raise ValueError(msg)
 
     # Validate weights if provided
     if weights is not None:
         weights_arr = np.asarray(weights, dtype=float)
         if weights_arr.shape != metric_arr.shape:
-            raise ValueError(
+            msg = (
                 f"weights must have same length as metric_values, "
                 f"got {weights_arr.shape} vs {metric_arr.shape}"
             )
+            raise ValueError(msg)
         if not np.isfinite(weights_arr).all():
-            raise ValueError("weights must be finite (no NaN or inf values)")
+            msg = "weights must be finite (no NaN or inf values)"
+            raise ValueError(msg)
         if np.any(weights_arr < 0):
-            raise ValueError("weights must be non-negative")
+            msg = "weights must be non-negative"
+            raise ValueError(msg)
 
         # Warn if weights provided with sum reduction
         if reduction == "sum":
@@ -159,17 +166,16 @@ def aggregate_over_period(
     # Perform aggregation
     if reduction == "sum":
         return float(np.sum(selected_values))
-    else:  # reduction == "mean"
-        if weights is None:
-            return float(np.mean(selected_values))
-        else:
-            # Weighted mean
-            selected_weights = weights_arr[mask_arr]
-            weight_sum = np.sum(selected_weights)
-            if weight_sum == 0:
-                # All weights are zero -> return NaN
-                return np.nan
-            return float(np.sum(selected_values * selected_weights) / weight_sum)
+    # reduction == "mean"
+    if weights is None:
+        return float(np.mean(selected_values))
+    # Weighted mean
+    selected_weights = weights_arr[mask_arr]
+    weight_sum = np.sum(selected_weights)
+    if weight_sum == 0:
+        # All weights are zero -> return NaN
+        return np.nan
+    return float(np.sum(selected_values * selected_weights) / weight_sum)
 
 
 # ---------- Helper functions for period detection ----------
@@ -195,7 +201,8 @@ def _contiguous_runs(mask: NDArray[np.bool_]) -> list[tuple[int, int]]:
     """
     mask_arr = np.asarray(mask, dtype=bool)
     if mask_arr.ndim != 1:
-        raise ValueError("mask must be 1D")
+        msg = "mask must be 1D"
+        raise ValueError(msg)
     # Pad with False on both ends so diff catches edges
     padded = np.concatenate(([False], mask_arr, [False]))
     changes = np.flatnonzero(padded[1:] != padded[:-1])
@@ -304,14 +311,11 @@ def flag_low_overlap(
     Examples
     --------
     >>> import numpy as np
-    >>> from statespacecheck.periods import flag_low_overlap, combine_flags
+    >>> from statespacecheck.periods import flag_low_overlap
     >>> overlap = np.array([0.8, 0.8, 0.3, 0.3, 0.3, 0.3, 0.3, 0.8])
     >>> flags = flag_low_overlap(overlap, threshold=0.4, min_len=5)
     >>> flags
     array([False, False,  True,  True,  True,  True,  True, False])
-    >>> # Combine with other diagnostics
-    >>> kl_flags = flag_extreme_kl(kl_values, z_thresh=3.0, min_len=5)
-    >>> combined = combine_flags(flags, kl_flags, min_votes=2, min_len=5)
 
     See Also
     --------
@@ -357,11 +361,10 @@ def find_low_overlap_intervals(
     >>> intervals = find_low_overlap_intervals(overlap, threshold=0.4, min_len=5)
     >>> intervals
     [(2, 7)]
-    >>> # Extract first problematic interval
-    >>> if intervals:
-    >>>     start, stop = intervals[0]
-    >>>     problem_overlap = overlap[start:stop]  # Correct: excludes stop
-    >>>     print(f"Problem period: timepoints {start}-{stop-1}")
+    >>> # Extract the first problematic interval; stop is exclusive
+    >>> start, stop = intervals[0]
+    >>> print(f"Problem period: timepoints {start}-{stop - 1}")
+    Problem period: timepoints 2-6
 
     See Also
     --------
@@ -417,8 +420,8 @@ def flag_extreme_kl(
     >>> kl = np.ones(20)
     >>> kl[5:10] = 100.0  # Extreme spike
     >>> flags = flag_extreme_kl(kl, z_thresh=3.0, min_len=5)
-    >>> np.sum(flags[5:10])
-    5
+    >>> np.flatnonzero(flags).tolist()
+    [5, 6, 7, 8, 9]
 
     See Also
     --------
@@ -464,11 +467,8 @@ def flag_extreme_pvalues(
     >>> pvalues = np.ones(20) * 0.5
     >>> pvalues[5:10] = 0.01  # Very low p-values
     >>> flags = flag_extreme_pvalues(pvalues, alpha=0.05, min_len=5)
-    >>> np.sum(flags[5:10])
-    5
-    >>> # Combine with KL-based flags
-    >>> kl_flags = flag_extreme_kl(kl, z_thresh=3.0, min_len=5)
-    >>> combined = combine_flags(flags, kl_flags, min_votes=2, min_len=5)
+    >>> np.flatnonzero(flags).tolist()
+    [5, 6, 7, 8, 9]
 
     See Also
     --------
@@ -516,24 +516,19 @@ def combine_flags(
     Examples
     --------
     >>> import numpy as np
-    >>> from statespacecheck.periods import (
-    >>>     flag_extreme_kl, flag_extreme_pvalues, flag_low_overlap, combine_flags
-    >>> )
-    >>> # Combine two diagnostic methods (require both to agree)
-    >>> kl_flags = flag_extreme_kl(kl, z_thresh=3.0, min_len=5)
-    >>> overlap_flags = flag_low_overlap(overlap, tau=0.4, min_len=5)
-    >>> strict = combine_flags(kl_flags, overlap_flags, min_votes=2, min_len=5)
-    >>>
-    >>> # Combine three methods (require any 2 to agree)
-    >>> pval_flags = flag_extreme_pvalues(pvals, alpha=0.05, min_len=5)
-    >>> moderate = combine_flags(
-    >>>     kl_flags, overlap_flags, pval_flags, min_votes=2, min_len=5
-    >>> )
-    >>>
+    >>> from statespacecheck.periods import combine_flags
+    >>> kl_flags = np.array([False, True, True, True, True, True, False, False])
+    >>> overlap_flags = np.array([False, False, True, True, True, True, True, False])
+    >>> pval_flags = np.array([False, False, False, True, True, True, True, True])
+    >>> # Require both of two methods to agree
+    >>> combine_flags(kl_flags, overlap_flags, min_votes=2, min_len=3)
+    array([False, False,  True,  True,  True,  True, False, False])
+    >>> # Require any two of three methods to agree
+    >>> combine_flags(kl_flags, overlap_flags, pval_flags, min_votes=2, min_len=3)
+    array([False, False,  True,  True,  True,  True,  True, False])
     >>> # Require all three methods to agree (strict consensus)
-    >>> consensus = combine_flags(
-    >>>     kl_flags, overlap_flags, pval_flags, min_votes=3, min_len=5
-    >>> )
+    >>> combine_flags(kl_flags, overlap_flags, pval_flags, min_votes=3, min_len=3)
+    array([False, False, False,  True,  True,  True, False, False])
 
     See Also
     --------
@@ -542,17 +537,18 @@ def combine_flags(
     flag_low_overlap : Flag low HPD overlap periods
     """
     if len(flags) == 0:
-        raise ValueError(
+        msg = (
             "Error: No flag arrays provided.\n\n"
             "What went wrong: combine_flags() requires at least one flag array.\n"
             "How to fix: Pass one or more boolean flag arrays as arguments, e.g.:\n"
             "    combined = combine_flags(kl_flags, overlap_flags, min_votes=2)"
         )
+        raise ValueError(msg)
     flag_arrays = [np.asarray(flag_arr, dtype=bool) for flag_arr in flags]
     n_time = flag_arrays[0].shape[0]
     if any(flag_arr.shape != (n_time,) for flag_arr in flag_arrays):
         shapes = [flag_arr.shape for flag_arr in flag_arrays]
-        raise ValueError(
+        msg = (
             f"Error: All flag arrays must be 1D with matching length.\n\n"
             f"What went wrong: Flag arrays have mismatched shapes: {shapes}\n"
             f"Why: combine_flags() performs element-wise majority voting across time,\n"
@@ -562,6 +558,7 @@ def combine_flags(
             f"  2. Verify arrays come from same dataset with same time axis\n"
             f"  3. Ensure no accidental transposition or subsetting"
         )
+        raise ValueError(msg)
     votes = np.sum(np.stack(flag_arrays, axis=0), axis=0)
     combined = votes >= int(min_votes)
     return _enforce_min_len(combined, min_len)

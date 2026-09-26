@@ -49,7 +49,9 @@ class TestAggregateOverPeriod:
         time_mask = np.array([True, True, True])
         weights = np.array([1.0, 2.0, 1.0])  # Weight middle value more
 
-        result = aggregate_over_period(metric_values, time_mask, reduction="mean", weights=weights)
+        result = aggregate_over_period(
+            metric_values, time_mask, reduction="mean", weights=weights
+        )
 
         # Weighted mean: (1*1 + 2*2 + 3*1) / (1 + 2 + 1) = 8/4 = 2.0
         assert isinstance(result, float)
@@ -174,7 +176,9 @@ class TestAggregateOverPeriod:
         time_mask = np.array([True, True, True])
         weights = np.array([0.0, 0.0, 0.0])  # All zeros
 
-        result = aggregate_over_period(metric_values, time_mask, reduction="mean", weights=weights)
+        result = aggregate_over_period(
+            metric_values, time_mask, reduction="mean", weights=weights
+        )
 
         # All-zero weights should return NaN (undefined weighted mean)
         assert np.isnan(result)
@@ -294,7 +298,8 @@ class TestRobustZscore:
         z = _robust_zscore(x)
         # With only one value, z-score should be 0
         assert z[1] == 0.0
-        assert np.isnan(z[0]) and np.isnan(z[2])
+        assert np.isnan(z[0])
+        assert np.isnan(z[2])
 
 
 class TestFlagLowOverlap:

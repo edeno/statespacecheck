@@ -21,12 +21,13 @@ def validate_coverage(coverage: float) -> None:
         If coverage is not in (0, 1)
     """
     if not (0.0 < coverage < 1.0):
-        raise ValueError(
+        msg = (
             f"coverage must be in (0, 1), got {coverage}. "
             f"Coverage represents the probability mass of the highest density region "
             f"and must be a value between 0 and 1 (exclusive). "
             f"For example, use 0.95 for a 95% credible region."
         )
+        raise ValueError(msg)
 
 
 def validate_distribution(
@@ -67,7 +68,7 @@ def validate_distribution(
             expected_shape = "(n_time, n_position)"
         else:
             expected_shape = f"{min_ndim}D"
-        raise ValueError(
+        msg = (
             f"{name} must be at least {min_ndim}D with shape {expected_shape}, "
             f"got shape {arr.shape}. "
             f"State space diagnostics require time-series data where the first "
@@ -76,6 +77,7 @@ def validate_distribution(
             f"for 2D spatial data use shape (n_time, n_x_bins, n_y_bins). "
             f"Did you forget to add the time dimension?"
         )
+        raise ValueError(msg)
 
     # Handle non-finite values
     clean: DistributionArray
@@ -85,23 +87,25 @@ def validate_distribution(
     else:
         clean = arr.copy()
         if not np.all(np.isfinite(clean)):
-            raise ValueError(
+            msg = (
                 f"{name} contains non-finite values (NaN or inf). "
                 f"Probability distributions must have finite values. "
                 f"If you have invalid spatial bins (e.g., inaccessible locations), "
                 f"consider setting them to 0 instead of NaN, or ensure "
                 f"allow_nan=True in the validation."
             )
+            raise ValueError(msg)
 
     # Check for negative values
     finite_mask = np.isfinite(arr)
     if np.any(clean[finite_mask] < 0):
-        raise ValueError(
+        msg = (
             f"{name} must be non-negative (probability or weight). "
             f"Found negative values in the distribution. "
             f"Probability distributions and weights must be >= 0. "
             f"Check your data for errors or ensure proper normalization."
         )
+        raise ValueError(msg)
 
     return clean
 
@@ -162,13 +166,14 @@ def validate_paired_distributions(
     clean2 = validate_distribution(dist2, name2, min_ndim=min_ndim)
 
     if clean1.shape != clean2.shape:
-        raise ValueError(
+        msg = (
             f"{name1} and {name2} must have same shape, got {clean1.shape} vs {clean2.shape}. "
             f"Both distributions must cover the same time points and spatial bins. "
             f"Common causes: different spatial discretization, mismatched time periods, "
             f"or one distribution missing time/spatial dimensions. "
             f"Ensure both arrays use consistent binning and time indexing."
         )
+        raise ValueError(msg)
 
     return clean1, clean2
 

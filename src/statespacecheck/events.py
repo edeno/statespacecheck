@@ -71,27 +71,34 @@ def _flatten_mark_intensities(
     """Validate a ``(..., n_marks)`` table and flatten it to ``(n_bins, n_marks)``."""
     mark_intensities = np.asarray(mark_intensities)
     if mark_intensities.shape[:-1] != spatial_shape or mark_intensities.ndim < 2:
-        raise ValueError(
+        msg = (
             f"mark_intensities must have shape {(*spatial_shape, 'n_marks')} to match the "
             f"state distribution's spatial axes; got {mark_intensities.shape}"
         )
+        raise ValueError(msg)
     if mark_intensities.shape[-1] == 0:
-        raise ValueError("mark_intensities must contain at least one mark")
+        msg = "mark_intensities must contain at least one mark"
+        raise ValueError(msg)
     if not np.all(np.isfinite(mark_intensities)) or np.any(mark_intensities < 0.0):
-        raise ValueError("mark_intensities must contain only finite nonnegative values")
+        msg = "mark_intensities must contain only finite nonnegative values"
+        raise ValueError(msg)
     return mark_intensities.reshape(-1, mark_intensities.shape[-1])
 
 
-def _validate_state_distribution(state_dist: DistributionArray, name: str) -> DistributionArray:
+def _validate_state_distribution(
+    state_dist: DistributionArray, name: str
+) -> DistributionArray:
     """Validate a ``(n_events, ...)`` distribution and flatten it to ``(n_events, n_bins)``."""
     state_dist = np.asarray(state_dist)
     if state_dist.ndim < 2:
-        raise ValueError(
+        msg = (
             f"{name} must have shape (n_events, ...) with at least one spatial axis; "
             f"got shape {state_dist.shape}"
         )
+        raise ValueError(msg)
     if not np.all(np.isfinite(state_dist)) or np.any(state_dist < 0.0):
-        raise ValueError(f"{name} must contain only finite nonnegative values")
+        msg = f"{name} must contain only finite nonnegative values"
+        raise ValueError(msg)
     return state_dist.reshape(state_dist.shape[0], -1)
 
 
@@ -99,9 +106,11 @@ def _validate_marks(marks: NDArray[np.integer], n_marks: int, name: str) -> NDAr
     """Check that ``marks`` is a 1-D integer array of valid mark indices."""
     marks = np.asarray(marks)
     if marks.ndim != 1 or not np.issubdtype(marks.dtype, np.integer):
-        raise ValueError(f"{name} must be a 1-D integer array")
+        msg = f"{name} must be a 1-D integer array"
+        raise ValueError(msg)
     if marks.size and (marks.min() < 0 or marks.max() >= n_marks):
-        raise ValueError(f"{name} must lie in [0, {n_marks}); got values outside that range")
+        msg = f"{name} must lie in [0, {n_marks}); got values outside that range"
+        raise ValueError(msg)
     return marks.astype(np.intp, copy=False)
 
 
@@ -152,12 +161,14 @@ def event_likelihood(event_intensities: NDArray[np.floating]) -> DistributionArr
     """
     event_intensities = np.asarray(event_intensities)
     if event_intensities.ndim < 2 or event_intensities[0].size == 0:
-        raise ValueError(
+        msg = (
             "event_intensities must have shape (n_events, ...) with a non-empty spatial "
             f"axis; got shape {event_intensities.shape}"
         )
+        raise ValueError(msg)
     if not np.all(np.isfinite(event_intensities)) or np.any(event_intensities < 0.0):
-        raise ValueError("event_intensities must contain only finite nonnegative values")
+        msg = "event_intensities must contain only finite nonnegative values"
+        raise ValueError(msg)
     flat = event_intensities.reshape(event_intensities.shape[0], -1)
     with np.errstate(divide="ignore"):
         log_intensity = np.log(flat)
@@ -165,10 +176,11 @@ def event_likelihood(event_intensities: NDArray[np.floating]) -> DistributionArr
     degenerate = np.isneginf(log_norm[:, 0])
     if np.any(degenerate):
         bad = np.flatnonzero(degenerate)
-        raise ValueError(
+        msg = (
             "Cannot compute an event likelihood for rows that are zero everywhere; "
             f"row indices: {bad[:10].tolist()}"
         )
+        raise ValueError(msg)
     likelihood: DistributionArray = np.exp(log_intensity - log_norm)
     return likelihood.reshape(event_intensities.shape)
 
@@ -221,25 +233,28 @@ def predictive_mark_probabilities(
     rates = _flatten_mark_intensities(mark_intensities, np.shape(state_dist)[1:])
 
     # Finite inputs can still overflow in the product or the sum across marks;
-    # report that as a contract error rather than dividing by infinity.
-    with np.errstate(over="ignore", invalid="ignore"):
+    # report that as a contract error rather than dividing by infinity. The
+    # product never divides, but NumPy < 2.3 on macOS (Accelerate) raises a
+    # spurious divide-by-zero flag here, so that flag is ignored too.
+    with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
         expected_intensities: NDArray[np.floating] = state @ rates
         total_intensity = expected_intensities.sum(axis=1, keepdims=True)
     if not np.all(np.isfinite(expected_intensities)):
-        raise ValueError("Predictive expected mark intensities are non-finite after integration")
+        msg = "Predictive expected mark intensities are non-finite after integration"
+        raise ValueError(msg)
     nonfinite_total = ~np.isfinite(total_intensity[:, 0])
     if nonfinite_total.any():
         bad = np.flatnonzero(nonfinite_total)
-        raise ValueError(
-            f"Predictive total event intensity is non-finite for row indices: {bad[:10].tolist()}"
-        )
+        msg = f"Predictive total event intensity is non-finite for row indices: {bad[:10].tolist()}"
+        raise ValueError(msg)
     zero_total = total_intensity[:, 0] == 0.0
     if zero_total.any():
         bad = np.flatnonzero(zero_total)
-        raise ValueError(
+        msg = (
             "Predictive mark distribution is undefined for rows with zero total "
             f"event intensity; row indices: {bad[:10].tolist()}"
         )
+        raise ValueError(msg)
     mark_probabilities: NDArray[np.floating] = expected_intensities / total_intensity
     return mark_probabilities
 
@@ -298,9 +313,10 @@ def mark_predictive_pvalue(
     n_events, n_marks = mark_probabilities.shape
     marks = _validate_marks(observed_marks, n_marks, "observed_marks")
     if marks.shape[0] != n_events:
-        raise ValueError(
+        msg = (
             f"observed_marks must have one entry per event ({n_events}); got {marks.shape[0]}"
         )
+        raise ValueError(msg)
     n_bins = int(np.prod(np.shape(state_dist)[1:]))
     observed = mark_probabilities[np.arange(n_events), marks]
     atol = (
@@ -374,29 +390,34 @@ def event_diagnostics(
     >>> from statespacecheck import event_diagnostics
     >>> predictive = np.array([[0.7, 0.2, 0.1], [0.1, 0.2, 0.7]])  # (n_time, n_bins)
     >>> place_fields = np.array([[5.0, 0.1], [1.0, 1.0], [0.1, 5.0]])  # (n_bins, n_marks)
-    >>> result = event_diagnostics(predictive, place_fields, np.array([0, 1]), np.array([0, 0]))
+    >>> result = event_diagnostics(
+    ...     predictive, place_fields, np.array([0, 1]), np.array([0, 0])
+    ... )
     >>> result.predictive_pvalue.round(3)
     array([1.   , 0.172])
     """
     validate_coverage(coverage)
     if batch_size < 1:
-        raise ValueError(f"batch_size must be at least 1; got {batch_size}")
+        msg = f"batch_size must be at least 1; got {batch_size}"
+        raise ValueError(msg)
     predictive = np.asarray(predictive)
     if predictive.ndim < 2:
-        raise ValueError(
+        msg = (
             "predictive must have shape (n_time, ...) with at least one spatial axis; "
             f"got shape {predictive.shape}"
         )
+        raise ValueError(msg)
     spatial_shape = predictive.shape[1:]
     rates = _flatten_mark_intensities(mark_intensities, spatial_shape)
     n_time = predictive.shape[0]
     time_ind = _validate_marks(event_time_ind, n_time, "event_time_ind")
     marks = _validate_marks(event_marks, rates.shape[1], "event_marks")
     if time_ind.shape != marks.shape:
-        raise ValueError(
+        msg = (
             "event_time_ind and event_marks must have the same length; got "
             f"{time_ind.shape[0]} and {marks.shape[0]}"
         )
+        raise ValueError(msg)
     predictive_flat = predictive.reshape(n_time, -1)
 
     n_events = time_ind.shape[0]
@@ -413,7 +434,9 @@ def event_diagnostics(
         predictive_batch = predictive_flat[time_ind[start:stop]]
         likelihood_batch = event_likelihood(rates[:, batch_marks].T)
 
-        event_hpd[start:stop] = hpd_overlap(predictive_batch, likelihood_batch, coverage=coverage)
+        event_hpd[start:stop] = hpd_overlap(
+            predictive_batch, likelihood_batch, coverage=coverage
+        )
         event_kl[start:stop] = kl_divergence(predictive_batch, likelihood_batch)
         event_pvalue[start:stop] = mark_predictive_pvalue(predictive_batch, rates, batch_marks)
         if likelihood is not None:
@@ -423,7 +446,9 @@ def event_diagnostics(
         hpd_overlap=event_hpd,
         kl_divergence=event_kl,
         predictive_pvalue=event_pvalue,
-        likelihood=None if likelihood is None else likelihood.reshape(n_events, *spatial_shape),
+        likelihood=None
+        if likelihood is None
+        else likelihood.reshape(n_events, *spatial_shape),
     )
 
 
@@ -462,12 +487,13 @@ def baseline_threshold(baseline_values: NDArray[np.floating], quantile: float) -
     99.0
     """
     if not 0.0 <= quantile <= 1.0:
-        raise ValueError(f"quantile must lie in [0, 1]; got {quantile}")
+        msg = f"quantile must lie in [0, 1]; got {quantile}"
+        raise ValueError(msg)
     values = np.asarray(baseline_values, dtype=float).ravel()
     if np.any(np.isinf(values)):
-        raise ValueError(
-            "baseline_values contains infinity; a finite threshold cannot be estimated"
-        )
+        msg = "baseline_values contains infinity; a finite threshold cannot be estimated"
+        raise ValueError(msg)
     if not np.any(np.isfinite(values)):
-        raise ValueError("baseline_values contains no finite values; the threshold would be NaN")
+        msg = "baseline_values contains no finite values; the threshold would be NaN"
+        raise ValueError(msg)
     return float(np.nanquantile(values, quantile))
