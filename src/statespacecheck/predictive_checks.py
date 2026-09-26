@@ -24,8 +24,6 @@ from ._validation import (
     validate_paired_distributions,
 )
 
-# Note: aggregate_over_period has been moved to periods.py as a generic utility
-
 
 def predictive_density(
     state_dist: ArrayLike,
@@ -48,7 +46,8 @@ def predictive_density(
         Will be normalized over spatial dimensions (everything except time).
     observation_likelihood : np.ndarray, shape (n_time, ...)
         Observation likelihood p(y|x) of the observed data at each position.
-        Non-negative values (NaN allowed to mark invalid bins).
+        Non-negative values; a NaN bin is excluded from both inputs (the state
+        is renormalized over the other bins).
         Not normalized over positions (unlike the ``likelihood`` of
         :func:`~statespacecheck.kl_divergence`): it is a function of x, not a
         distribution. Must have same shape as state_dist.
@@ -61,8 +60,9 @@ def predictive_density(
     Raises
     ------
     ValueError
-        If state_dist and observation_likelihood have different shapes, or if
-        they contain negative values.
+        If state_dist and observation_likelihood have different shapes, if
+        they contain negative values, or if observation_likelihood contains
+        +inf.
 
     Examples
     --------
@@ -91,7 +91,8 @@ def predictive_density(
     - p(y_k | x_k) is the observation likelihood (NOT normalized)
 
     Distributions are validated using validate_paired_distributions:
-    - NaN/inf values in input are converted to 0.0
+    - A bin that is NaN in the likelihood is excluded from the state too
+    - Other NaN/inf values are converted to 0.0 (+inf in the likelihood raises)
     - Shape and non-negativity are checked
     - State distribution is normalized after validation
     - Likelihood is NOT normalized (critical for correct results)
@@ -144,13 +145,15 @@ def log_predictive_density(
         Will be normalized over spatial dimensions (everything except time).
     observation_likelihood : np.ndarray, shape (n_time, ...), optional
         Observation likelihood p(y|x) of the observed data at each position.
-        Non-negative values (NaN allowed to mark invalid bins). Not normalized
-        over positions. Must have same shape as state_dist.
+        Non-negative values; a NaN bin is excluded from both inputs (the state
+        is renormalized over the other bins). Not normalized over positions.
+        Must have same shape as state_dist.
         Exactly one of `observation_likelihood` or `log_observation_likelihood`
         must be provided.
     log_observation_likelihood : np.ndarray, shape (n_time, ...), optional
         Log observation likelihood log p(y|x), keyword-only. Passing it avoids
-        an exp/log round-trip. Must have same shape as state_dist.
+        an exp/log round-trip. -inf is a zero likelihood; a NaN bin is excluded
+        from both inputs. Must have same shape as state_dist.
 
     Returns
     -------
@@ -161,7 +164,8 @@ def log_predictive_density(
     ------
     ValueError
         If neither or both of the likelihood arguments are provided,
-        if shapes don't match, or if distributions contain negative values.
+        if shapes don't match, if distributions contain negative values, or if
+        the (log) observation likelihood contains +inf.
 
     Examples
     --------
@@ -231,13 +235,6 @@ def log_predictive_density(
             msg = (
                 f"state_dist and log_observation_likelihood must have same shape, "
                 f"got {state.shape} vs {like.shape}"
-            )
-            raise ValueError(msg)
-        # +inf in the log likelihood indicates an upstream bug or overflow
-        if np.isposinf(like).any():
-            msg = (
-                "log_observation_likelihood contains +inf; this indicates an upstream "
-                "bug or overflow"
             )
             raise ValueError(msg)
 
@@ -399,10 +396,30 @@ def predictive_pvalue(
     return p_values
 
 
+def _exclude_bins_with_nan_likelihood(
+    state_dist: DistributionArray, likelihood: DistributionArray, name: str
+) -> DistributionArray:
+    """Mark state bins NaN where the likelihood is NaN, so both exclude them.
+
+    Raises if the likelihood contains +inf, which indicates an upstream bug or
+    overflow.
+    """
+    if np.isposinf(likelihood).any():
+        msg = f"{name} contains +inf; this indicates an upstream bug or overflow"
+        raise ValueError(msg)
+    nan_bins = np.isnan(likelihood)
+    if nan_bins.any():
+        return np.where(nan_bins, np.nan, state_dist)
+    return state_dist
+
+
 def _predictive_density_rows(
     state_dist: DistributionArray, observation_likelihood: DistributionArray
 ) -> tuple[DistributionArray, bool]:
     """Compute :func:`predictive_density` for one chunk; also report zero-sum rows."""
+    state_dist = _exclude_bins_with_nan_likelihood(
+        state_dist, observation_likelihood, "observation_likelihood"
+    )
     # Validate both distributions (converts NaN/inf to 0, checks shapes)
     state, like = validate_paired_distributions(
         state_dist,
@@ -449,6 +466,11 @@ def _log_predictive_density_rows(
 
     ``likelihood`` is the observation likelihood, or its log if ``is_log``.
     """
+    state_dist = _exclude_bins_with_nan_likelihood(
+        state_dist,
+        likelihood,
+        "log_observation_likelihood" if is_log else "observation_likelihood",
+    )
     if not is_log:
         # Validate state distribution (a probability) and likelihood (a function, not a dist)
         state, like = validate_paired_distributions(
@@ -464,7 +486,8 @@ def _log_predictive_density_rows(
             log_like_flat = np.where(like_flat > 0, np.log(like_flat), -np.inf)
     else:
         state = validate_distribution(state_dist, name="state_dist", min_ndim=2)
-        # NaN -> -inf (zero likelihood); negative values are expected in log-space
+        # NaN bins are excluded from the state above; -inf is a zero likelihood.
+        # Negative values are expected in log-space.
         log_like = np.nan_to_num(likelihood, nan=-np.inf, neginf=-np.inf)
         log_like_flat = flatten_time_spatial(log_like)
 

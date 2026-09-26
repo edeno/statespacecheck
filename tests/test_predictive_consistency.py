@@ -131,23 +131,17 @@ class TestPredictiveConsistency:
         # Result should be finite (the -inf term contributes 0 to sum)
         assert np.isfinite(log_pred[0])
 
-    def test_nan_in_log_likelihood_treated_as_neginf(self):
-        """Test that NaN in log_likelihood is treated as -inf (zero probability)."""
+    def test_nan_in_likelihood_excluded_by_both_methods(self):
+        """A NaN likelihood bin is excluded from the state in both methods."""
         state = np.array([[1.0, 2.0, 3.0]])
+        likelihood = np.array([[0.5, np.nan, 0.8]])
 
-        # Create two versions: one with NaN, one with -inf
-        log_likelihood_nan = np.array([[0.5, np.nan, 0.8]])
-        log_likelihood_neginf = np.array([[0.5, -np.inf, 0.8]])
+        log_pred = log_predictive_density(state, log_observation_likelihood=np.log(likelihood))
+        pred = predictive_density(state, likelihood)
 
-        log_pred_nan = log_predictive_density(
-            state, log_observation_likelihood=log_likelihood_nan
-        )
-        log_pred_neginf = log_predictive_density(
-            state, log_observation_likelihood=log_likelihood_neginf
-        )
-
-        # Should produce same result
-        np.testing.assert_allclose(log_pred_nan, log_pred_neginf, rtol=1e-10)
+        np.testing.assert_allclose(log_pred, np.log(pred), rtol=1e-10)
+        # Renormalized over the two valid bins: (1 * 0.5 + 3 * 0.8) / 4
+        np.testing.assert_allclose(pred, [(0.5 + 2.4) / 4])
 
     def test_both_methods_handle_zero_sum_consistently(self):
         """Test that both methods handle zero-sum state consistently."""

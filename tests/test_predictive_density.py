@@ -316,3 +316,33 @@ class TestArgumentNames:
     def test_log_observation_likelihood_is_keyword_only(self) -> None:
         with pytest.raises(TypeError):
             log_predictive_density(np.array([[0.5, 0.5]]), None, np.log([[2.0, 4.0]]))
+
+
+class TestInvalidLikelihoodBins:
+    """A NaN likelihood bin is excluded from both inputs; +inf is an error."""
+
+    @pytest.mark.parametrize(
+        "compute",
+        [
+            lambda s, like: predictive_density(s, like),
+            lambda s, like: np.exp(log_predictive_density(s, like)),
+            lambda s, like: np.exp(
+                log_predictive_density(s, log_observation_likelihood=np.log(like))
+            ),
+        ],
+        ids=["linear", "log", "log-likelihood"],
+    )
+    def test_nan_bin_is_excluded_from_both(self, compute):
+        state = np.array([[0.5, 0.25, 0.25]])
+        like = np.array([[np.nan, 2.0, 4.0]])
+        # The state is renormalized over the two valid bins: 0.5 * 2 + 0.5 * 4
+        np.testing.assert_allclose(compute(state, like), [3.0])
+
+    @pytest.mark.parametrize(
+        "compute",
+        [predictive_density, log_predictive_density],
+        ids=["linear", "log"],
+    )
+    def test_positive_infinity_raises(self, compute):
+        with pytest.raises(ValueError, match=r"observation_likelihood contains \+inf"):
+            compute(np.array([[0.5, 0.5]]), np.array([[np.inf, 1.0]]))
