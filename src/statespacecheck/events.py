@@ -159,6 +159,50 @@ def _first(indices: NDArray[np.intp]) -> list[int]:
     return [int(i) for i in indices[:10]]
 
 
+def _validate_time_indices(event_time_ind: ArrayLike, n_time: int) -> NDArray[np.intp]:
+    """Check that ``event_time_ind`` holds time-bin indices in ``[0, n_time)``."""
+    # An empty list is a float array too; empty event lists are accepted
+    time_values = np.asarray(event_time_ind)
+    if time_values.size and np.issubdtype(time_values.dtype, np.floating):
+        msg = (
+            "event_time_ind must be a 1-D integer array of time-bin indices, not times: "
+            "convert event times with, e.g., np.digitize(event_times, time_bin_edges) - 1"
+        )
+        raise ValueError(msg)
+    return _validate_marks(event_time_ind, n_time, "event_time_ind")
+
+
+def _used_time_bins(n_time: int, time_ind: NDArray[np.intp]) -> NDArray[np.bool_]:
+    """Mask of the time bins that events use, shape ``(n_time,)``."""
+    used_time = np.zeros(n_time, dtype=bool)
+    used_time[time_ind] = True
+    return used_time
+
+
+def _check_predictive_rows(
+    predictive_flat: NDArray[np.floating],
+    used_time: NDArray[np.bool_],
+    time_ind: NDArray[np.intp],
+) -> None:
+    """Check that the time bins events use are finite and nonnegative.
+
+    ``predictive_flat`` is ``(n_time, n_bins)``. Only rows referenced by an
+    event are checked, as only those enter the diagnostics; errors report
+    absolute time-bin and event indices.
+    """
+    invalid_row = ~np.isfinite(predictive_flat).all(axis=1) | (predictive_flat < 0.0).any(
+        axis=1
+    )
+    bad_time = np.flatnonzero(invalid_row & used_time)
+    if bad_time.size:
+        events = np.flatnonzero(np.isin(time_ind, bad_time))
+        msg = (
+            "predictive must contain only finite nonnegative values; "
+            f"time bins {_first(bad_time)} do not (used by events {_first(events)})"
+        )
+        raise ValueError(msg)
+
+
 def _check_event_inputs(
     predictive_flat: DistributionArray,
     rates: NDArray[np.floating],
@@ -171,21 +215,8 @@ def _check_event_inputs(
     ``(n_bins, n_marks)``. Only rows and marks referenced by an event are
     checked, as only those enter the diagnostics.
     """
-    n_time = predictive_flat.shape[0]
-    used_time = np.zeros(n_time, dtype=bool)
-    used_time[time_ind] = True
-
-    invalid_row = ~np.isfinite(predictive_flat).all(axis=1) | (predictive_flat < 0.0).any(
-        axis=1
-    )
-    bad_time = np.flatnonzero(invalid_row & used_time)
-    if bad_time.size:
-        events = np.flatnonzero(np.isin(time_ind, bad_time))
-        msg = (
-            "predictive must contain only finite nonnegative values; "
-            f"time bins {_first(bad_time)} do not (used by events {_first(events)})"
-        )
-        raise ValueError(msg)
+    used_time = _used_time_bins(predictive_flat.shape[0], time_ind)
+    _check_predictive_rows(predictive_flat, used_time, time_ind)
 
     # Marks that events use and whose intensity is zero everywhere
     bad_marks = np.intersect1d(np.flatnonzero(~(rates > 0.0).any(axis=0)), marks)
@@ -613,16 +644,7 @@ def event_diagnostics(
         raise ValueError(msg)
     spatial_shape = predictive.shape[1:]
     rates = _flatten_mark_intensities(mark_intensities, spatial_shape)
-    n_time = predictive.shape[0]
-    # An empty list is a float array too; empty event lists are accepted
-    time_values = np.asarray(event_time_ind)
-    if time_values.size and np.issubdtype(time_values.dtype, np.floating):
-        msg = (
-            "event_time_ind must be a 1-D integer array of time-bin indices, not times: "
-            "convert event times with, e.g., np.digitize(event_times, time_bin_edges) - 1"
-        )
-        raise ValueError(msg)
-    time_ind = _validate_marks(event_time_ind, n_time, "event_time_ind")
+    time_ind = _validate_time_indices(event_time_ind, predictive.shape[0])
     marks = _validate_marks(event_marks, rates.shape[1], "event_marks")
     if time_ind.shape != marks.shape:
         msg = (
