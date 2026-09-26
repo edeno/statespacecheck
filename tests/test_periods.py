@@ -592,3 +592,24 @@ class TestCombineFlags:
         combined3 = combine_flags(flag1, flag2, flag3, min_votes=3, min_len=3)
         np.testing.assert_array_equal(combined2, flag1)
         np.testing.assert_array_equal(combined3, np.zeros(5, dtype=bool))
+
+
+class TestInputErrorsNameTheArgument:
+    def test_index_array_as_time_mask_raises(self) -> None:
+        """An index array is not a mask: casting it to bool would select everything."""
+        values = np.array([10.0, 20.0, 30.0, 40.0, 50.0])
+        with pytest.raises(ValueError, match="time_mask must be a boolean array"):
+            aggregate_over_period(values, np.array([0, 1, 2, 3]))
+
+    @pytest.mark.parametrize(
+        ("func", "name"),
+        [
+            (flag_low_overlap, "overlap"),
+            (find_low_overlap_intervals, "overlap"),
+            (flag_extreme_kl, "kl"),
+            (flag_extreme_pvalues, "pvalues"),
+        ],
+    )
+    def test_two_dimensional_series_raises(self, func, name) -> None:
+        with pytest.raises(ValueError, match=rf"{name} must be 1-D"):
+            func(np.ones((3, 4)))

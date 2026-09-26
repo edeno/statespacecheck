@@ -55,8 +55,8 @@ def aggregate_over_period(
     Raises
     ------
     ValueError
-        If metric_values is not 1-dimensional, if shapes don't match,
-        if reduction is invalid, or if weights are negative.
+        If metric_values is not 1-dimensional, time_mask is not boolean, the
+        shapes don't match, reduction is invalid, or weights are negative.
 
     Warns
     -----
@@ -117,8 +117,15 @@ def aggregate_over_period(
         )
         raise ValueError(msg)
 
-    # Validate time_mask
-    mask_arr = np.asarray(time_mask, dtype=bool)
+    # Validate time_mask: casting an index array to bool would select everything
+    mask_arr = np.asarray(time_mask)
+    if mask_arr.dtype != np.bool_:
+        msg = (
+            "time_mask must be a boolean array (True where a time point is included); "
+            f"got dtype {mask_arr.dtype}. To select time points by index, build a "
+            "mask: mask = np.zeros(n_time, dtype=bool); mask[indices] = True"
+        )
+        raise ValueError(msg)
     if mask_arr.shape != metric_arr.shape:
         msg = (
             f"time_mask must have same length as metric_values, "
@@ -278,6 +285,15 @@ def _robust_zscore(values: NDArray[np.floating]) -> NDArray[np.floating]:
 # ---------- Public API for period detection ----------
 
 
+def _as_series(values: NDArray[np.floating], name: str) -> NDArray[np.floating]:
+    """Return ``values`` as a 1-D float array, or raise naming the argument."""
+    series = np.asarray(values, dtype=float)
+    if series.ndim != 1:
+        msg = f"{name} must be 1-D, shape (n_time,); got shape {series.shape}"
+        raise ValueError(msg)
+    return series
+
+
 def flag_low_overlap(
     overlap: NDArray[np.floating],
     *,
@@ -323,7 +339,7 @@ def flag_low_overlap(
     find_low_overlap_intervals : Returns interval boundaries instead of boolean mask
     combine_flags : Combine multiple diagnostic flag arrays
     """
-    overlap_arr = np.asarray(overlap, dtype=float)
+    overlap_arr = _as_series(overlap, "overlap")
     flags = (overlap_arr <= threshold) & np.isfinite(overlap_arr)
     return _enforce_min_len(flags, min_len)
 
@@ -373,7 +389,7 @@ def find_low_overlap_intervals(
     --------
     flag_low_overlap : Returns boolean mask instead of interval boundaries
     """
-    overlap_arr = np.asarray(overlap, dtype=float)
+    overlap_arr = _as_series(overlap, "overlap")
     bad = (overlap_arr <= threshold) & np.isfinite(overlap_arr)
     bad = _enforce_min_len(bad, min_len)
     return _contiguous_runs(bad)
@@ -447,7 +463,7 @@ def flag_extreme_kl(
     flag_extreme_pvalues : Flag extreme predictive p-values
     combine_flags : Combine multiple diagnostic methods
     """
-    kl_arr = np.asarray(kl, dtype=float)
+    kl_arr = _as_series(kl, "kl")
     zscores = _robust_zscore(kl_arr)
     flags = (np.isfinite(zscores) & (zscores > z_thresh)) | np.isposinf(kl_arr)
     return _enforce_min_len(flags, min_len)
@@ -500,7 +516,7 @@ def flag_extreme_pvalues(
     flag_low_overlap : Flag low HPD overlap periods
     combine_flags : Combine multiple diagnostic methods
     """
-    pvalues_arr = np.asarray(pvalues, dtype=float)
+    pvalues_arr = _as_series(pvalues, "pvalues")
     flags = np.isfinite(pvalues_arr) & (pvalues_arr <= alpha)
     return _enforce_min_len(flags, min_len)
 
