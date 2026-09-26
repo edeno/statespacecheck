@@ -4,6 +4,9 @@ ci:
   autoupdate_schedule: monthly
   autofix_commit_msg: "pre-commit: apply automatic fixes"
   autoupdate_commit_msg: "pre-commit: update hook versions"
+  # pre-commit.ci has no uv environment for the local mypy hook; CI's quality
+  # job runs mypy instead.
+  skip: [mypy]
 
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
