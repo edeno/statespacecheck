@@ -53,7 +53,8 @@ def test_results_do_not_depend_on_chunk_size(monkeypatch, pair, name):
             return compute(*pair)
 
     whole = run()
-    monkeypatch.setattr(statespacecheck._validation, "_CHUNK_ELEMENTS", 25)  # 2 rows
+    # 3 rows per chunk, so the last of the 40 rows is a partial chunk of one row
+    monkeypatch.setattr(statespacecheck._validation, "_CHUNK_ELEMENTS", 36)
     np.testing.assert_array_equal(run(), whole)
 
 

@@ -344,6 +344,8 @@ class TestBaselineThreshold:
         values = np.r_[np.arange(100.0), np.inf]
         assert baseline_threshold(values, 0.5) == np.quantile(np.arange(101.0), 0.5)
         assert baseline_threshold(values, 0.0) == 0.0
+        # Between two finite values: interpolated, as np.quantile would without the inf
+        assert baseline_threshold(values, 0.505) == 50.5
 
     @pytest.mark.parametrize(
         ("values", "quantile", "expected"),
@@ -469,6 +471,20 @@ class TestEventDiagnosticsErrors:
         marks = np.array([0, 1, 2, 0, 1, 2, 3])
         with pytest.raises(ValueError, match=r"zero everywhere.*marks \[3\].*events \[6\]"):
             event_diagnostics(predictive, fields, np.arange(7), marks, batch_size=2)
+
+    def test_bins_and_marks_without_events_are_not_checked(self, model):
+        """Decoder output often has invalid time bins and silent units where no event
+        falls; only the time bins and marks that events use must be valid."""
+        predictive, fields = model
+        time_ind, marks = np.array([0, 2, 4]), np.array([0, 1, 2])
+        clean = event_diagnostics(predictive, fields[:, :3], time_ind, marks)
+        predictive[1] = np.nan
+        predictive[3] = 0.0
+        fields[:, 3] = 0.0  # a unit with zero rate everywhere, which never fires
+        result = event_diagnostics(predictive, fields, time_ind, marks)
+        for field in ("hpd_overlap", "kl_divergence", "predictive_pvalue"):
+            # The extra all-zero column can change the matrix product in the last bit
+            assert_allclose(getattr(result, field), getattr(clean, field), rtol=1e-12)
 
     def test_transposed_mark_intensities_suggests_transpose(self, model):
         predictive, fields = model

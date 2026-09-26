@@ -362,3 +362,18 @@ class TestNanBinsInOneInput:
         np.testing.assert_array_equal(
             hpd_overlap(state, like_nan), hpd_overlap(state_nan, like_nan)
         )
+
+    @pytest.mark.parametrize("value", [np.inf, -np.inf])
+    def test_infinite_bin_in_one_input_is_excluded_from_both(self, pair, value):
+        state, like = pair
+        like_inf = like.copy()
+        like_inf[:, 1] = value
+        state_nan, like_nan = state.copy(), like.copy()
+        state_nan[:, 1] = np.nan
+        like_nan[:, 1] = np.nan
+        np.testing.assert_allclose(
+            kl_divergence(state, like_inf), kl_divergence(state_nan, like_nan), rtol=1e-12
+        )
+        np.testing.assert_array_equal(
+            hpd_overlap(state, like_inf), hpd_overlap(state_nan, like_nan)
+        )
