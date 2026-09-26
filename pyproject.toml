@@ -1,7 +1,7 @@
 [project]
 name = "statespacecheck"
 dynamic = ["version"]
-description = "Goodness-of-fit diagnostics for state space models"
+description = "Local goodness-of-fit diagnostics for state space models, down to individual spikes"
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
@@ -14,10 +14,14 @@ authors = [
 keywords = [
     "neuroscience",
     "state-space-models",
+    "neural-decoding",
     "goodness-of-fit",
+    "model-checking",
+    "predictive-checks",
+    "point-process",
+    "spike-trains",
     "bayesian",
     "diagnostics",
-    "kalman-filter",
 ]
 dependencies = ["numpy>=1.26.0", "scipy>=1.11.1", "matplotlib>=3.8.0"]
 classifiers = [
@@ -41,7 +45,9 @@ Homepage = "https://edeno.github.io/statespacecheck"
 Documentation = "https://edeno.github.io/statespacecheck"
 Repository = "https://github.com/edeno/statespacecheck"
 Issues = "https://github.com/edeno/statespacecheck/issues"
-Changelog = "https://github.com/edeno/statespacecheck/releases"
+Changelog = "https://github.com/edeno/statespacecheck/blob/main/CHANGELOG.md"
+"Paper code" = "https://github.com/edeno/statespacecheck-paper"
+"Paper website" = "https://edeno.github.io/statespacecheck-paper/"
 
 [project.optional-dependencies]
 # `pip install -e .[dev]`. Keep `dev` identical to the `dev` dependency group
