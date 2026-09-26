@@ -462,6 +462,12 @@ class TestBaselineThreshold:
         with pytest.raises(ValueError, match="quantile"):
             baseline_threshold(np.arange(3.0), quantile)
 
+    @pytest.mark.parametrize("values", [np.array([1.0 + 2.0j, 3.0]), [1.0, 2.0j]])
+    def test_complex_values_raise(self, values):
+        # Converting to float would drop the imaginary part with only a warning
+        with pytest.raises(TypeError, match="complex"):
+            baseline_threshold(values, 0.5)
+
 
 @pytest.fixture
 def small_diagnostics() -> EventDiagnostics:

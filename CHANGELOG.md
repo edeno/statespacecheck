@@ -41,6 +41,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `baseline_threshold()` raises `TypeError` for complex values; converting them to float dropped the imaginary part with only a warning.
 - `predictive_mark_probabilities()`, `mark_predictive_pvalue()` and `event_diagnostics()` raise `ValueError` for a masked state distribution; converting it dropped the mask and used the values under it.
 - `event_likelihood()`, `predictive_mark_probabilities()` and `mark_predictive_pvalue()` return empty results for zero events, and `event_diagnostics()` for zero time bins, instead of raising `IndexError` or a reshape error.
 - `predictive_density()` and `log_predictive_density()` exclude a bin whose observation likelihood is NaN from the state as well, as `kl_divergence()` and `hpd_overlap()` do; they treated it as zero likelihood while the state kept its mass there, lowering the predictive density. A `+inf` observation likelihood raises `ValueError` (it was read as zero in linear space; the log path already raised).
