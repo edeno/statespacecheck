@@ -101,6 +101,31 @@ jobs:
         continue-on-error: true
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
+      - name: Execute the tutorial notebooks
+        if: matrix.python-version == '3.12' && matrix.os == 'ubuntu-latest'
+        run: |
+          pip install nbconvert ipykernel jupytext
+          for nb in examples/[0-9][0-9]_*.ipynb; do
+            jupyter nbconvert --to notebook --execute \
+              --ExecutePreprocessor.kernel_name=python3 --output-dir "$RUNNER_TEMP" "$nb"
+          done
+      - name: Check each tutorial's .py and .ipynb agree
+        if: matrix.python-version == '3.12' && matrix.os == 'ubuntu-latest'
+        run: |
+          python - <<'EOF'
+          import pathlib
+
+          import jupytext
+
+          for script in sorted(pathlib.Path("examples").glob("[0-9][0-9]_*.py")):
+              notebook = script.with_suffix(".ipynb")
+              cells = [(c.cell_type, c.source) for c in jupytext.read(script).cells]
+              nb_cells = [(c.cell_type, c.source) for c in jupytext.read(notebook).cells]
+              assert cells == nb_cells, (
+                  f"{script} and {notebook} differ; run: jupytext --sync {script}"
+              )
+          print("all tutorial pairs agree")
+          EOF
 
   test-minimum-pins:
     # The matrix above tests with whatever pip resolves, usually the newest

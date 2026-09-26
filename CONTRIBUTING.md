@@ -239,6 +239,23 @@ def test_highest_density_region_with_peaked_distribution() -> None:
     assert region.shape == distribution.shape
 ```
 
+## Documentation
+
+The documentation site is built with [MkDocs](https://www.mkdocs.org/) from
+`docs/` and the docstrings:
+
+```bash
+uv run --extra docs mkdocs serve          # live preview at http://127.0.0.1:8000
+uv run --extra docs mkdocs build --strict # what CI runs
+```
+
+Tutorials are edited in `examples/`: each is a jupytext pair, a `.py` script
+and a `.ipynb` notebook with its outputs. `docs/tutorials/` only holds symlinks
+to the notebooks. After editing a `.py` file, update its notebook with
+`uv run --extra docs jupytext --sync examples/NN_name.py` and re-run it so the
+outputs are current; CI executes every notebook and checks that each pair
+agrees.
+
 ## Code Style Guidelines
 
 ### General Principles

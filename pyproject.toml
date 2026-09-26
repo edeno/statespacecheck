@@ -63,6 +63,8 @@ docs = [
     "mkdocs-section-index>=0.3.0",
     "mkdocs-jupyter>=0.25.0",
     "jupytext>=1.16.0",
+    "nbconvert>=7.0",  # execute the tutorials, as CI does
+    "ipykernel>=6.0",
 ]
 
 [dependency-groups]
