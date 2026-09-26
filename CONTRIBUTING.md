@@ -148,8 +148,10 @@ pull requests and updates their versions monthly.
 6. **Publish** and **GitHub release**: on `v*` tags only; see below.
 
 `.github/workflows/docs.yml` runs on every pull request and push to `main`: it
-executes the tutorial notebooks, checks each tutorial's jupytext pair, builds the
-site with `mkdocs build --strict`, and deploys it to GitHub Pages from `main`.
+executes the tutorial notebooks, checks that their committed text outputs match
+the fresh run and that the run does not warn, checks each tutorial's jupytext
+pair, builds the site with `mkdocs build --strict`, and deploys it to GitHub
+Pages from `main`.
 
 Every action is pinned to a commit SHA; Dependabot proposes updates monthly.
 
@@ -270,8 +272,9 @@ uv run --extra docs jupyter nbconvert --to notebook --execute --inplace examples
 `docs/tutorials/` holds the tutorials' index page and symlinks to the
 notebooks; a new tutorial needs a symlink there, a line in that index, and a
 `nav` entry in `mkdocs.yml`. The docs workflow (`.github/workflows/docs.yml`)
-executes every notebook and checks that each pair has the same cells on every
-pull request, but it does not compare outputs: re-running is up to you.
+executes every notebook on every pull request, and fails if a committed text
+output differs from the fresh run, if the run warns, or if a pair's cells differ.
+Figures are not compared.
 
 ## Code Style Guidelines
 

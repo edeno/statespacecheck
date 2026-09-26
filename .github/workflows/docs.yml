@@ -45,10 +45,53 @@ jobs:
           uv pip install --system -e ".[docs]"
 
       - name: Execute the tutorial notebooks
-        # The site shows the notebooks' committed outputs; this proves they run.
         run: >-
-          jupyter nbconvert --to notebook --execute --output-dir "$RUNNER_TEMP"
+          jupyter nbconvert --to notebook --execute --output-dir "$RUNNER_TEMP/executed"
           examples/[0-9][0-9]_*.ipynb
+
+      - name: Check the committed notebook outputs are current
+        # The site shows the committed outputs; their text must match a fresh run
+        # (figures are not compared), and a fresh run must not warn.
+        run: |
+          python - "$RUNNER_TEMP/executed" <<'EOF'
+          import sys
+          from pathlib import Path
+
+          import nbformat
+
+
+          def text_outputs(path):
+              cells = []
+              for cell in nbformat.read(path, as_version=4).cells:
+                  if cell.cell_type == "code":
+                      cells.append([
+                          (out.name, out.text) if out.output_type == "stream"
+                          else ("result", out.data["text/plain"])
+                          for out in cell.outputs
+                          if out.output_type == "stream"
+                          or ("text/plain" in out.get("data", {})
+                              and not any(k.startswith("image/") for k in out.data))
+                      ])
+              return cells
+
+
+          failures = []
+          for committed in sorted(Path("examples").glob("[0-9][0-9]_*.ipynb")):
+              executed = text_outputs(Path(sys.argv[1]) / committed.name)
+              for index, outputs in enumerate(executed):
+                  failures += [
+                      f"{committed.name}, code cell {index}, warns: {text[:300]}"
+                      for name, text in outputs if name == "stderr"
+                  ]
+              for index, (old, new) in enumerate(zip(text_outputs(committed), executed)):
+                  if old != new:
+                      failures.append(
+                          f"{committed.name}, code cell {index}: committed output differs "
+                          f"from a fresh run; re-execute the notebook\n{old}\n{new}"
+                      )
+          print("\n".join(failures) or "committed notebook outputs are current")
+          sys.exit(bool(failures))
+          EOF
 
       - name: Check each tutorial's .py and .ipynb agree
         run: |
