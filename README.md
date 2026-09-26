@@ -281,7 +281,7 @@ uv run mypy
 ### Standards
 
 - **Python**: 3.10+ (following [SPEC 0](https://scientific-python.org/specs/spec-0000/))
-- **Dependencies**: numpy>=1.26.0, scipy>=1.11.0, matplotlib>=3.8.0
+- **Dependencies**: numpy>=1.26.0, scipy>=1.11.1, matplotlib>=3.8.0
 - **Docstrings**: NumPy format with parameter types and return values
 - **Type hints**: Full mypy strict mode compliance
 - **Style**: ruff for formatting and linting (95 char line length)
