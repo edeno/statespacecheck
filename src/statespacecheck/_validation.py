@@ -29,10 +29,9 @@ def rescale_subnormal_rows(
 ) -> tuple[DistributionArray, DistributionArray]:
     """Scale rows whose total is subnormal by 2**1000 before they are normalized.
 
-    Dividing by a subnormal total overflows on some NumPy versions (1.26 divides
-    by multiplying with the reciprocal), turning the row into zeros. Scaling by a
-    power of two is exact, so the normalized row is unchanged; other rows are not
-    touched.
+    Dividing by a subnormal total raises a spurious "overflow encountered in
+    divide" RuntimeWarning on NumPy 1.26. Scaling by a power of two is exact, so
+    the normalized row is unchanged; other rows are not touched.
 
     Parameters
     ----------
