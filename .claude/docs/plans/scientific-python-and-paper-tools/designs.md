@@ -123,8 +123,8 @@ Edge cases, each with a test:
 
 ## Memory and batching
 
-- The temporaries over every replicated mark at every state are `batch × n_samples × n_bins × 8 B` each, and peak memory is about six of them, because `logsumexp` copies its input. Measured in phase 4a at 1,000 samples × 512 bins: 101, 201, 403 and 805 MB at batch sizes 4, 8, 16 and 32, at the same speed (6.6–7.5 ms per event).
-- So `DEFAULT_MONTE_CARLO_BATCH_SIZE = 8` (about 200 MB), not the 32 first planned. The comment next to the constant gives the arithmetic.
+- The temporaries over every replicated mark at every state are `batch × n_samples × n_bins × 8 B` each. `logsumexp` copies its input several times, so it runs one event at a time; the peak is then about two such arrays plus the model's own temporaries. Measured in phase 4a at 1,000 samples × 512 bins: 54, 87, 153 and 285 MB at batch sizes 4, 8, 16 and 32 (before the per-event `logsumexp`: 101, 201, 403 and 805 MB), at the same speed (6.3–7.0 ms per event).
+- `DEFAULT_MONTE_CARLO_BATCH_SIZE = 8` (about 90 MB), not the 32 first planned. The comment next to the constant gives the arithmetic.
 - The docstring gives the peak-memory formula and says how to lower `batch_size` for large grids.
 
 ## Clusterless diagnostics

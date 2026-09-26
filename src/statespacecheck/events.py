@@ -103,12 +103,16 @@ def _flatten_mark_intensities(
     return table.reshape(-1, table.shape[-1])
 
 
-def _reject_masked(values: ArrayLike, name: str) -> None:
+def _reject_masked(
+    values: object,
+    name: str,
+    hint: str = "Pass an ndarray (zero where a state has no mass or intensity)",
+) -> None:
     """Raise for a masked array, whose mask conversion to ndarray would drop."""
     if isinstance(values, np.ma.MaskedArray):
         msg = (
             f"{name} is a masked array; converting it would drop the mask and use the "
-            "values under it. Pass an ndarray (zero where a state has no mass or intensity)"
+            f"values under it. {hint}"
         )
         raise ValueError(msg)
 
@@ -366,6 +370,14 @@ def _validate_ground_intensity(
     return ground.ravel()
 
 
+def _no_event_intensity_message(rows: NDArray[np.intp]) -> str:
+    """Error message for rows whose total event intensity under the state is zero."""
+    return (
+        "Event-weighted predictive distribution is undefined for rows with zero total "
+        f"event intensity; row indices: {_first(rows)}"
+    )
+
+
 def event_weighted_predictive(
     state_dist: ArrayLike, ground_intensity: ArrayLike
 ) -> DistributionArray:
@@ -422,11 +434,7 @@ def event_weighted_predictive(
     log_total = logsumexp(log_weighted, axis=1, keepdims=True)
     zero_total = np.isneginf(log_total[:, 0])
     if zero_total.any():
-        msg = (
-            "Event-weighted predictive distribution is undefined for rows with zero "
-            f"total event intensity; row indices: {_first(np.flatnonzero(zero_total))}"
-        )
-        raise ValueError(msg)
+        raise ValueError(_no_event_intensity_message(np.flatnonzero(zero_total)))
     event_weighted: DistributionArray = np.exp(log_weighted - log_total).reshape(
         np.shape(state_dist)
     )

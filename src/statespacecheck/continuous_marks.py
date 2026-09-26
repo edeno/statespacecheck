@@ -29,11 +29,13 @@ import numpy as np
 from numpy.typing import ArrayLike, NDArray
 from scipy.special import logsumexp
 
-from ._validation import DistributionArray
+from ._validation import DistributionArray, flatten_time_spatial
 from .events import (
+    _first,
+    _no_event_intensity_message,
+    _reject_masked,
     _validate_ground_intensity,
     _validate_state_distribution,
-    event_weighted_predictive,
 )
 
 LogMarkIntensity: TypeAlias = Callable[[NDArray[Any]], NDArray[np.floating]]
@@ -81,8 +83,9 @@ class MarkModel(NamedTuple):
 
 # Events processed per batch in :func:`monte_carlo_mark_pvalue`. Memory is
 # dominated by arrays over every replicated mark at every state, batch x
-# n_samples x n_bins x 8 B (8 x 1000 x 512 x 8 B ~ 33 MB); the peak is about six
-# of them (logsumexp copies its input), ~200 MB. Larger batches are not faster.
+# n_samples x n_bins x 8 B (8 x 1000 x 512 x 8 B ~ 33 MB); the peak is about two
+# of them plus what the model's log_intensity allocates, ~90 MB in a measured
+# example. Larger batches are not faster.
 DEFAULT_MONTE_CARLO_BATCH_SIZE = 8
 
 
@@ -112,29 +115,22 @@ def _safe_log(values: NDArray[np.floating]) -> DistributionArray:
     return log_values
 
 
-def _check_leading_axis(values: ArrayLike, n: int, name: str) -> None:
-    """Raise unless ``values`` has ``n`` entries along its first axis."""
-    shape = np.shape(values)
-    if not shape or shape[0] != n:
-        msg = f"{name} must return one mark per state bin ({n}); got shape {shape}"
-        raise ValueError(msg)
-
-
 def _evaluate_log_intensity(
     log_intensity: LogMarkIntensity,
     marks: NDArray[Any],
     n: int,
     spatial_shape: tuple[int, ...],
 ) -> DistributionArray:
-    """Evaluate ``log_intensity`` at ``n`` marks, checked, as a new ``(n, n_bins)`` array."""
+    """Evaluate ``log_intensity`` at ``n`` marks, checked, as a float64 ``(n, n_bins)`` array.
+
+    The result may share memory with the callable's output; do not modify it.
+    """
     returned = log_intensity(marks)
-    if isinstance(returned, np.ma.MaskedArray):
-        msg = (
-            "model.log_intensity returned a masked array, whose masked entries would be "
-            "read as the values stored under them; return an ndarray with -inf where the "
-            "intensity is zero"
-        )
-        raise ValueError(msg)
+    _reject_masked(
+        returned,
+        "model.log_intensity's output",
+        "Return an ndarray with -inf where the intensity is zero",
+    )
     dtype = np.asarray(returned).dtype
     if np.issubdtype(dtype, np.floating) and dtype.itemsize < 8:
         msg = (
@@ -142,14 +138,15 @@ def _evaluate_log_intensity(
             "rounding (about 1e-7 for float32) splits marks of equal predictive density"
         )
         raise ValueError(msg)
-    values = np.array(returned, dtype=np.float64)
+    values = np.asarray(returned, dtype=np.float64)
     if values.shape != (n, *spatial_shape):
         msg = (
             f"model.log_intensity must return shape {(n, *spatial_shape)}, the log "
             f"intensity of each of the {n} marks at every state bin; got {values.shape}"
         )
         raise ValueError(msg)
-    if np.any(np.isnan(values)) or np.any(np.isposinf(values)):
+    largest = values.max(initial=-np.inf)  # NaN if any value is NaN
+    if np.isnan(largest) or largest == np.inf:
         msg = "model.log_intensity must return finite values, or -inf for zero intensity"
         raise ValueError(msg)
     return values.reshape(n, -1)
@@ -194,7 +191,8 @@ def _sample_state_bins(
 def _monte_carlo_batch(
     state: DistributionArray,
     ground: DistributionArray,
-    observed_marks: NDArray[Any],
+    observed_log_intensity: DistributionArray,
+    mark_shape: tuple[int, ...],
     log_intensity: LogMarkIntensity,
     sample: MarkSampler,
     spatial_shape: tuple[int, ...],
@@ -210,7 +208,11 @@ def _monte_carlo_batch(
         Flattened predictive state distributions.
     ground : np.ndarray, shape (n_bins,)
         Flattened ground intensity.
-    observed_marks : np.ndarray, shape (n_batch, *mark_shape)
+    observed_log_intensity : np.ndarray, shape (n_batch, n_bins)
+        Log intensity of each observed mark at every state bin, from
+        :func:`_evaluate_log_intensity`.
+    mark_shape : tuple of int
+        Shape of one mark, which ``sample`` must return per state bin.
     log_intensity, sample
         The model's functions (:class:`MarkModel`).
     spatial_shape : tuple of int
@@ -232,48 +234,44 @@ def _monte_carlo_batch(
     # where the state has mass, a finite log intensity would count toward the
     # density but not toward its normalizer
     no_events = (ground == 0.0) & (state > 0.0)
+    _check_zero_ground(np.isfinite(observed_log_intensity) & no_events, first_event)
     # The state's normalization cancels in the density ratio, so it is left out:
     # summing the row could overflow
     log_state = _safe_log(state)
-    # log sum_x Lambda(x) P(x), the normalizer of the predictive mark density
+    # log sum_x Lambda(x) P(x), the normalizer of the predictive mark density, and
+    # the event-weighted distribution the replicates' states are drawn from
     norm_terms = log_state + _safe_log(ground)
     log_norm = logsumexp(norm_terms, axis=1)
     no_intensity = np.flatnonzero(np.isneginf(log_norm))
     if no_intensity.size:
-        msg = (
-            "Event-weighted predictive distribution is undefined for rows with zero "
-            f"total event intensity; row indices: {(first_event + no_intensity)[:10].tolist()}"
-        )
-        raise ValueError(msg)
-    event_weighted = event_weighted_predictive(state, ground)
+        raise ValueError(_no_event_intensity_message(first_event + no_intensity))
+    event_weighted = np.exp(norm_terms - log_norm[:, np.newaxis])
 
-    observed_log_intensity = _evaluate_log_intensity(
-        log_intensity, observed_marks, n_batch, spatial_shape
-    )
-    _check_zero_ground(np.isfinite(observed_log_intensity) & no_events, first_event)
     observed_terms = log_state + observed_log_intensity
     observed_sum = logsumexp(observed_terms, axis=1)
 
     state_bins = _sample_state_bins(event_weighted, n_samples, rng)
-    replicated_marks = sample(state_bins.ravel(), rng)
-    _check_leading_axis(replicated_marks, n_batch * n_samples, "model.sample")
-    if np.shape(replicated_marks)[1:] != observed_marks.shape[1:]:
+    replicated_marks = np.asarray(sample(state_bins.ravel(), rng))
+    if replicated_marks.shape != (n_batch * n_samples, *mark_shape):
         msg = (
-            f"model.sample must return marks of shape (n, *{observed_marks.shape[1:]}), "
-            f"like observed_marks; got {np.shape(replicated_marks)}"
+            f"model.sample must return marks of shape {(n_batch * n_samples, *mark_shape)}, "
+            f"one per state bin, like observed_marks; got {replicated_marks.shape}"
         )
         raise ValueError(msg)
-    # The (n_batch, n_samples, n_bins) arrays dominate memory; the evaluated log
-    # intensities are a new array, so the state term is added in place
-    log_joint = _evaluate_log_intensity(
-        log_intensity, np.asarray(replicated_marks), n_batch * n_samples, spatial_shape
+    replicated_log_intensity = _evaluate_log_intensity(
+        log_intensity, replicated_marks, n_batch * n_samples, spatial_shape
     ).reshape(n_batch, n_samples, n_bins)
     if no_events.any():
         _check_zero_ground(
-            (np.isfinite(log_joint) & no_events[:, np.newaxis, :]).any(axis=1), first_event
+            (np.isfinite(replicated_log_intensity) & no_events[:, np.newaxis, :]).any(axis=1),
+            first_event,
         )
-    log_joint += log_state[:, np.newaxis, :]
-    simulated_sum = logsumexp(log_joint, axis=2)
+    # The (n_batch, n_samples, n_bins) arrays dominate memory: logsumexp copies its
+    # input several times, so it is applied one event at a time
+    log_joint = replicated_log_intensity + log_state[:, np.newaxis, :]
+    simulated_sum = np.empty((n_batch, n_samples))
+    for row in range(n_batch):
+        simulated_sum[row] = logsumexp(log_joint[row], axis=1)
     # A replicate drawn at a state has positive intensity there, so its density
     # cannot be zero unless the intensity underflowed or the sampler draws marks
     # the intensity function says are impossible
@@ -283,10 +281,9 @@ def _monte_carlo_batch(
         msg = (
             f"{int(impossible.sum())} of {impossible.size} marks drawn by model.sample have "
             "zero intensity (model.log_intensity -inf) at every state with predictive "
-            "mass, including the state they were drawn at (events "
-            f"{events[:10].tolist()}). model.sample must draw from the model "
-            "model.log_intensity describes, and model.log_intensity must be computed in "
-            "log space"
+            f"mass, including the state they were drawn at (events {_first(events)}). "
+            "model.sample must draw from the model model.log_intensity describes, and "
+            "model.log_intensity must be computed in log space"
         )
         raise ValueError(msg)
 
@@ -316,7 +313,7 @@ def _check_zero_ground(finite_at_zero_ground: NDArray[np.bool_], first_event: in
     if events.size:
         msg = (
             "model.log_intensity is finite at state bins where model.ground_intensity is "
-            f"zero (events {(first_event + events)[:10].tolist()}); the ground intensity "
+            f"zero (events {_first(first_event + events)}); the ground intensity "
             "must be the integral of the intensity over marks"
         )
         raise ValueError(msg)
@@ -418,9 +415,9 @@ def monte_carlo_mark_pvalue(
         Default is False.
     batch_size : int, optional
         Events processed at a time. Peak memory is about
-        ``6 * batch_size * n_samples * n_bins * 8`` bytes (about 200 MB at the
-        default 8 with 1000 samples and 512 bins); lower it for larger grids or
-        more samples.
+        ``2 * batch_size * n_samples * n_bins * 8`` bytes plus what
+        ``model.log_intensity`` allocates (about 90 MB at the default 8 with 1000
+        samples and 512 bins); lower it for larger grids or more samples.
 
     Returns
     -------
@@ -498,10 +495,9 @@ def monte_carlo_mark_pvalue(
         )
         raise ValueError(msg)
     if np.issubdtype(marks.dtype, np.number):
-        per_event = marks.reshape(n_events, int(np.prod(marks.shape[1:])))
-        not_finite = np.flatnonzero(~np.isfinite(per_event).all(axis=1))
+        not_finite = np.flatnonzero(~np.isfinite(flatten_time_spatial(marks)).all(axis=1))
         if not_finite.size:
-            msg = f"observed_marks must be finite; events {not_finite[:10].tolist()} are not"
+            msg = f"observed_marks must be finite; events {_first(not_finite)} are not"
             raise ValueError(msg)
 
     generator = np.random.default_rng(rng)
@@ -513,7 +509,10 @@ def monte_carlo_mark_pvalue(
         batch_pvalue, batch_observed, batch_simulated = _monte_carlo_batch(
             state[start:stop],
             ground,
-            marks[start:stop],
+            _evaluate_log_intensity(
+                model.log_intensity, marks[start:stop], stop - start, spatial_shape
+            ),
+            marks.shape[1:],
             model.log_intensity,
             model.sample,
             spatial_shape,
