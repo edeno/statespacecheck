@@ -118,13 +118,20 @@ extra_javascript:
   - javascripts/mathjax.js
   - https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js
 
+# The reference generator is a build script, not a page
+exclude_docs: |
+  gen_ref_pages.py
+
 nav:
   - Home: index.md
   - Tutorials:
     - tutorials/index.md
+    - "Per-spike diagnostics: the paper's workflow": tutorials/05_per_event_diagnostics.ipynb
     - Introduction: tutorials/01_introduction.ipynb
     - Highest Density Regions: tutorials/02_highest_density_regions.ipynb
     - Time-Resolved Diagnostics: tutorials/03_time_resolved_diagnostics.ipynb
     - Predictive Checks: tutorials/04_predictive_checks.ipynb
+  - Interpreting the diagnostics: interpretation.md
+  - Using your decoder: decoders.md
   - API Reference: reference/
   - Contributing: contributing.md

@@ -1,120 +1,64 @@
 # Tutorials
 
-Welcome to the `statespacecheck` tutorials! These interactive Jupyter notebooks guide you through the core concepts and practical applications of goodness-of-fit diagnostics for state space models.
+These notebooks are rendered with their outputs, so they can be read without running
+anything.
 
-## Tutorial Overview
+## Start here
+
+### [5. Per-spike diagnostics: the paper's workflow](05_per_event_diagnostics.ipynb)
+
+The workflow of *Local goodness-of-fit measures for neural decoding*, at small scale:
+decode position from simulated place cells, compute HPD overlap, the predictive
+p-value and KL divergence for every spike, set thresholds from a baseline period, find
+when and for which units the model fails, and check whether a revised model fixes it.
+Needs only `pip install statespacecheck matplotlib`.
+
+## Background and extensions
+
+These tutorials explain the building blocks and the package's tools beyond the paper.
+They work with whole time bins rather than individual spikes.
 
 ### [1. Introduction](01_introduction.ipynb)
 
-Get started with the fundamentals of model checking for state space models. This tutorial covers:
+What a state space model's prediction and an observation's likelihood are, and how KL
+divergence and HPD overlap compare them, on simple Gaussian examples.
 
-- What are state space models and why do we need goodness-of-fit diagnostics?
-- Understanding posterior-likelihood consistency
-- Basic usage of KL divergence and HPD overlap metrics
-- Interpreting diagnostic results
+### [2. Highest density regions](02_highest_density_regions.ipynb)
 
-**Duration**: 20-25 minutes
-**Prerequisites**: Basic understanding of probability distributions and state space models
+How highest-density regions are computed, including for multimodal and 2-D
+distributions, and how coverage affects them.
 
----
+### [3. Time-resolved diagnostics](03_time_resolved_diagnostics.ipynb)
 
-### [2. Highest Density Regions](02_highest_density_regions.ipynb)
+Diagnostics over the time bins of a session, with the run-based flagging functions of
+`statespacecheck.periods` (an extension beyond the paper).
 
-Deep dive into highest posterior density (HPD) regions and their role in model diagnostics. Topics include:
+### [4. Predictive checks](04_predictive_checks.ipynb)
 
-- Computing HPD regions for univariate and multivariate distributions
-- Handling multimodal distributions
-- Visualizing HPD regions in 1D and 2D
-- Understanding coverage probabilities
+Monte Carlo predictive checks of whole time bins with `log_predictive_density` and
+`predictive_pvalue` (an extension beyond the paper, whose p-value is per spike).
 
-**Duration**: 25-30 minutes
-**Prerequisites**:
-- Tutorial 1 (understanding of posterior-likelihood consistency)
-- Familiarity with probability density functions
+## Running the tutorials
 
----
+Each tutorial is a pair of files in the repository's
+[`examples/`](https://github.com/edeno/statespacecheck/tree/main/examples) directory:
+a notebook (`.ipynb`) with its outputs and the same code as a script (`.py`).
 
-### [3. Time-Resolved Diagnostics](03_time_resolved_diagnostics.ipynb)
+- **Tutorial 5** is self-contained: download the notebook and run it anywhere with
+  `statespacecheck` and `matplotlib` installed, for example in
+  [Google Colab](https://colab.research.google.com/) after
+  `!pip install statespacecheck`.
+- **Tutorials 1–4** import helpers from `examples/utils.py`, so run them from a clone
+  of the repository:
 
-Learn how to identify *when* and *where* your model fails using time-resolved metrics. This tutorial demonstrates:
+  ```bash
+  git clone https://github.com/edeno/statespacecheck.git
+  cd statespacecheck
+  uv sync --extra docs
+  uv run --extra docs jupyter nbconvert --to notebook --execute examples/01_introduction.ipynb
+  ```
 
-- Computing diagnostics across time series
-- Detecting periods of model-data mismatch
-- Visualizing temporal patterns in model fit
-- Identifying systematic biases vs. random errors
+  or open the notebooks in any Jupyter front end (JupyterLab, VS Code) using that
+  environment.
 
-**Duration**: 25-30 minutes
-**Prerequisites**:
-- Tutorial 1 (KL divergence and HPD overlap basics)
-- Tutorial 2 (HPD region computation)
-- Understanding of time-series data
-
----
-
-### [4. Predictive Checks](04_predictive_checks.ipynb)
-
-Advanced techniques for comprehensive model evaluation. Covers:
-
-- Posterior predictive checks for state space models
-- Comparing observed vs. predicted data patterns
-- Detecting model misspecification
-- Iterative model refinement workflows
-
-**Duration**: 30-35 minutes
-**Prerequisites**:
-- Tutorials 1-3 (core diagnostic methods)
-- Experience with Bayesian inference
-- Familiarity with posterior predictive distributions
-
----
-
-## Running the Tutorials
-
-All tutorials are provided as Jupyter notebooks with pre-computed outputs for quick reference. To run them interactively:
-
-### Which option should I choose?
-
-- **Local Installation**: Best for exploring code, modifying examples, and integrating with your own data. Requires Python setup but gives full control.
-- **Google Colab**: Quick start in the cloud with no installation needed. Requires a Google account. Good for trying out examples.
-- **Binder**: Fully reproducible environment in the browser. No account needed, but slower to launch (~2-3 minutes). Best for workshops or teaching.
-
-### Option 1: Local Installation
-
-```bash
-# Clone the repository
-git clone https://github.com/edeno/statespacecheck.git
-cd statespacecheck
-
-# Install with notebook dependencies
-uv pip install -e ".[dev,docs]"
-
-# Launch Jupyter
-jupyter lab examples/
-```
-
-### Option 2: Google Colab
-
-Open any tutorial notebook on GitHub and click the "Open in Colab" badge at the top (if available), or manually upload the notebook to [Google Colab](https://colab.research.google.com/).
-
-### Option 3: Binder
-
-Launch an interactive environment with all dependencies pre-installed:
-
-[![Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/edeno/statespacecheck/main?labpath=examples)
-
----
-
-## Learning Path
-
-We recommend following the tutorials in order, as each builds on concepts from the previous ones. However, if you're already familiar with state space models and want to jump to specific topics:
-
-- **Quick start**: Tutorial 1
-- **Understanding HPD metrics**: Tutorial 2
-- **Time series analysis**: Tutorial 3
-- **Advanced diagnostics**: Tutorial 4
-
-## Feedback and Questions
-
-Found an issue or have a question? Please [open an issue](https://github.com/edeno/statespacecheck/issues) on GitHub.
-
-Happy learning!
+Found a problem? Please [open an issue](https://github.com/edeno/statespacecheck/issues).
