@@ -17,6 +17,9 @@ updates:
     directory: "/"
     schedule:
       interval: "monthly"
+    # Update only uv.lock: the lower bounds in pyproject.toml are the supported
+    # minimums (tested by the CI floors job) and must not rise with each release.
+    versioning-strategy: "lockfile-only"
     cooldown:
       default-days: 7
     groups:
