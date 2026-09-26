@@ -128,14 +128,12 @@ def kl_divergence(
     --------
     >>> import numpy as np
     >>> from statespacecheck import kl_divergence
-    >>> # Identical distributions have zero divergence
-    >>> state = np.array([[0.3, 0.4, 0.3]])
-    >>> like = np.array([[0.3, 0.4, 0.3]])
-    >>> div = kl_divergence(state, like)
-    >>> div.shape
-    (1,)
-    >>> bool(np.isclose(div[0], 0.0))
-    True
+    >>> # Identical distributions have zero divergence; the likelihood in the
+    >>> # second time bin puts its mass where the state distribution does not
+    >>> state = np.array([[0.3, 0.4, 0.3], [0.3, 0.4, 0.3]])
+    >>> like = np.array([[0.3, 0.4, 0.3], [0.1, 0.2, 0.7]])
+    >>> kl_divergence(state, like).round(3)
+    array([0.   , 0.353])
 
     See Also
     --------
@@ -233,14 +231,12 @@ def hpd_overlap(
     --------
     >>> import numpy as np
     >>> from statespacecheck import hpd_overlap
-    >>> # Identical distributions have perfect overlap
-    >>> state = np.array([[0.3, 0.4, 0.3]])
-    >>> like = np.array([[0.3, 0.4, 0.3]])
-    >>> overlap = hpd_overlap(state, like, coverage=0.9)
-    >>> overlap.shape
-    (1,)
-    >>> bool(overlap[0] >= 0.0 and overlap[0] <= 1.0)
-    True
+    >>> # 80% HPD regions: bins {0, 1} for the state distribution and {1, 2}
+    >>> # for the likelihood share one bin out of the smaller region's two
+    >>> state = np.array([[0.4, 0.4, 0.2, 0.0, 0.0]])
+    >>> like = np.array([[0.0, 0.4, 0.4, 0.2, 0.0]])
+    >>> hpd_overlap(state, like, coverage=0.8)
+    array([0.5])
 
     See Also
     --------

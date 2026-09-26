@@ -420,8 +420,8 @@ def flag_extreme_kl(
     >>> kl = np.ones(20)
     >>> kl[5:10] = 100.0  # Extreme spike
     >>> flags = flag_extreme_kl(kl, z_thresh=3.0, min_len=5)
-    >>> int(np.sum(flags[5:10]))
-    5
+    >>> np.flatnonzero(flags).tolist()
+    [5, 6, 7, 8, 9]
 
     See Also
     --------
@@ -467,8 +467,8 @@ def flag_extreme_pvalues(
     >>> pvalues = np.ones(20) * 0.5
     >>> pvalues[5:10] = 0.01  # Very low p-values
     >>> flags = flag_extreme_pvalues(pvalues, alpha=0.05, min_len=5)
-    >>> int(np.sum(flags[5:10]))
-    5
+    >>> np.flatnonzero(flags).tolist()
+    [5, 6, 7, 8, 9]
 
     See Also
     --------
