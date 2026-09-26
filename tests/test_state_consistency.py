@@ -229,6 +229,16 @@ class TestHPDOverlap:
         # When both regions are empty, overlap should be 0
         assert np.allclose(overlap, 0.0)
 
+    def test_one_empty_hpd_region_gives_zero(self) -> None:
+        """A row with no mass on one side has an empty HPD region; overlap is 0."""
+        dist = np.array([[0.2, 0.3, 0.5], [0.2, 0.3, 0.5]])
+        state_dist = dist.copy()
+        state_dist[1] = 0.0
+
+        overlap = hpd_overlap(state_dist, dist, coverage=0.95)
+
+        np.testing.assert_array_equal(overlap, [1.0, 0.0])
+
     def test_exact_overlap_calculation(self) -> None:
         """Test exact overlap with simple binary distributions."""
         # Single time point for clarity

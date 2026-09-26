@@ -49,7 +49,8 @@ def aggregate_over_period(
     -------
     aggregated_value : float
         Aggregated metric value (scalar float).
-        Returns NaN if no time points are selected (all-false mask).
+        Returns NaN if no time points are selected (all-false mask), or if
+        reduction='mean' and every selected weight is zero.
 
     Raises
     ------

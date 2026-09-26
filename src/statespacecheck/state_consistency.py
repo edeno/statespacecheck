@@ -257,7 +257,9 @@ def hpd_overlap(
     - overlap = 0.0 when regions don't overlap at all
     - Values are comparable even when HPD regions have different sizes
 
-    When both HPD regions are empty (both sizes are 0), overlap is defined as 0.
+    When either HPD region is empty (a row with no probability mass), the
+    denominator is 0 and overlap is defined as 0, so such rows read as
+    disagreement. Check for all-zero rows separately if they can occur.
 
     Distributions are automatically normalized over valid (non-NaN) bins.
     NaN values mark invalid spatial bins (e.g., inaccessible locations)
@@ -285,8 +287,7 @@ def hpd_overlap(
     # Compute denominator (minimum of the two sizes)
     denom = np.minimum(size_state, size_like)
 
-    # Handle division by zero: when denom is 0, overlap is 0
-    # This matches the normalization pattern used elsewhere in the codebase
+    # An empty region on either side makes denom 0; overlap is then defined as 0
     with np.errstate(divide="ignore", invalid="ignore"):
         overlap: DistributionArray = intersection / denom
     return np.nan_to_num(overlap, nan=0.0, posinf=0.0, neginf=0.0)
