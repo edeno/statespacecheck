@@ -2,8 +2,7 @@
 
 import numpy as np
 import pytest
-
-from conftest import (
+from helpers import (
     make_bimodal_gaussian_1d,
     make_gaussian_1d,
     make_gaussian_2d,
@@ -11,6 +10,7 @@ from conftest import (
     make_random_distribution_2d,
     sum_over_spatial,
 )
+
 from statespacecheck.highest_density import (
     highest_density_region,
 )

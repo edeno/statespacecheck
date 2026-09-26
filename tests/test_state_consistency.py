@@ -2,13 +2,13 @@
 
 import numpy as np
 import pytest
-
-from conftest import (
+from helpers import (
     make_gaussian_1d,
     make_gaussian_2d,
     make_random_distribution_1d,
     make_random_distribution_2d,
 )
+
 from statespacecheck.state_consistency import (
     hpd_overlap,
     kl_divergence,

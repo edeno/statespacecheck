@@ -172,6 +172,7 @@ docstring-code-format = true
 minversion = "8"
 # src/ for the docstring examples
 testpaths = ["tests", "src"]
+pythonpath = ["tests"]  # test modules import the shared helpers module
 addopts = [
     "-ra",
     "--doctest-modules",
