@@ -260,6 +260,22 @@ class TestScale:
         check = _two_mark_check(np.array([[1e-100, 1.0]] * 2), np.diag([1.1e100, 1.1]), [0, 1])
         assert_array_equal(check.pvalue, [1.0, 1.0])
 
+    @pytest.mark.parametrize("far_probability", [0.0, 1e-300])
+    def test_states_that_do_not_contribute_do_not_loosen_ties(self, far_probability):
+        """A state far from the observed mark (log intensity about -5e15) with no or
+        negligible predictive mass must not change the p-value (0 without it)."""
+        means = np.array([0.0, 1e8])
+        check = monte_carlo_mark_pvalue(
+            np.array([[1.0, far_probability]]),
+            lambda m: norm.logpdf(np.asarray(m)[:, :1], means, 1.0),
+            np.array([[5.0]]),
+            ground_intensity=np.ones(2),
+            sample_marks=lambda bins, rng: rng.normal(means[bins], 1.0)[:, None],
+            n_samples=1000,
+            rng=0,
+        )
+        assert check.pvalue[0] == 0.0
+
     def test_state_and_intensity_far_apart_in_scale(self):
         """Expected intensities 1e300 * 1e-300 = 1 and 1e-100 * 3e100 = 3: the
         observed mark 0 has predictive probability 0.25, so p = 0.25."""

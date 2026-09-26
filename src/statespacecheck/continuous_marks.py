@@ -189,12 +189,13 @@ def _monte_carlo_batch(
     # summing the row could overflow
     log_state = _safe_log(state)
     # log sum_x Lambda(x) P(x), the normalizer of the predictive mark density
-    log_norm = logsumexp(log_state + _safe_log(ground), axis=1)
+    norm_terms = log_state + _safe_log(ground)
+    log_norm = logsumexp(norm_terms, axis=1)
 
-    observed_log_intensity = _evaluate_log_intensity(
+    observed_terms = log_state + _evaluate_log_intensity(
         log_mark_intensity, observed_marks, n_batch, spatial_shape
     )
-    observed_sum = logsumexp(log_state + observed_log_intensity, axis=1)
+    observed_sum = logsumexp(observed_terms, axis=1)
 
     state_bins = _sample_state_bins(event_weighted, n_samples, rng)
     replicated_marks = sample_marks(state_bins.ravel(), rng)
@@ -204,7 +205,6 @@ def _monte_carlo_batch(
     log_joint = _evaluate_log_intensity(
         log_mark_intensity, np.asarray(replicated_marks), n_batch * n_samples, spatial_shape
     ).reshape(n_batch, n_samples, n_bins)
-    replicated_magnitude = _largest_finite_magnitude(log_joint)
     log_joint += log_state[:, np.newaxis, :]
     simulated_sum = logsumexp(log_joint, axis=2)
     # A replicate drawn at a state has positive intensity there, so its density
@@ -226,28 +226,49 @@ def _monte_carlo_batch(
     # Marks of equal predictive density must tie. Each log density sums terms
     # log P(x) + log lambda(x, y) (and log P + log Lambda for the normalizer),
     # each rounded to about eps times its magnitude before any cancellation, so
-    # the tolerance bounds the largest magnitudes of those terms, plus eps per
-    # bin summed.
-    state_magnitude = _largest_finite_magnitude(log_state)
-    ground_magnitude = _largest_finite_magnitude(_safe_log(ground))
+    # the tolerance bounds those magnitudes over the terms that affect each sum,
+    # plus eps per bin summed.
     magnitude = (
-        (4 * state_magnitude + _largest_finite_magnitude(observed_log_intensity))[
-            :, np.newaxis
-        ]
-        + replicated_magnitude
-        + 2 * ground_magnitude
+        _rounding_magnitude(observed_terms, log_state, observed_sum)[:, np.newaxis]
+        + _rounding_magnitude(log_joint, log_state[:, np.newaxis, :], simulated_sum)
+        + 2 * _rounding_magnitude(norm_terms, log_state, log_norm)[:, np.newaxis]
     )
     tolerance = 16 * np.finfo(np.float64).eps * (n_bins + magnitude)
     pvalue = np.mean(simulated_log <= observed_log[:, np.newaxis] + tolerance, axis=1)
     return pvalue, observed_log, simulated_log
 
 
-def _largest_finite_magnitude(values: DistributionArray) -> DistributionArray:
-    """Largest ``|value|`` along the last axis, ignoring ``-inf`` (log of zero); 0 if none."""
-    finite = np.isfinite(values)
-    largest = np.max(values, axis=-1, where=finite, initial=0.0)
-    smallest = np.min(values, axis=-1, where=finite, initial=0.0)
-    magnitude: DistributionArray = np.maximum(np.abs(largest), np.abs(smallest))
+# A term more than this far below a log sum changes it by less than exp(-40), about
+# 4e-18 relative, so its own rounding does not matter
+_NEGLIGIBLE_LOG_TERM = 40.0
+
+
+def _rounding_magnitude(
+    terms: DistributionArray, log_state: DistributionArray, total: DistributionArray
+) -> DistributionArray:
+    """Bound ``|log P| + |log lambda|`` over the terms that affect each log sum.
+
+    ``terms`` are ``log P + log lambda`` along the last axis and ``total`` their
+    ``logsumexp``. Terms more than ``_NEGLIGIBLE_LOG_TERM`` below the total, and
+    states with no predictive mass, do not affect the sum and are left out. The
+    rest lie in ``[total - 40, total]``, so ``|term| <= |total| + 40``, and
+    ``|log lambda| <= |term| + |log P|``.
+    """
+    finite_total = np.isfinite(total)
+    significant = (
+        terms >= np.where(finite_total, total - _NEGLIGIBLE_LOG_TERM, np.inf)[..., np.newaxis]
+    )
+    largest_log_state = np.max(
+        np.broadcast_to(np.abs(log_state), terms.shape),
+        axis=-1,
+        where=significant,
+        initial=0.0,
+    )
+    magnitude: DistributionArray = (
+        np.where(finite_total, np.abs(total), 0.0)
+        + _NEGLIGIBLE_LOG_TERM
+        + 2 * largest_log_state
+    )
     return magnitude
 
 
