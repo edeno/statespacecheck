@@ -8,7 +8,7 @@
 
 **Precondition (hard):**
 
-- The paper's `statespacecheck-boundary` branch is merged to `main`. On 2026-09-25 it had uncommitted changes in 10 files, including `diagnostics.py`, `site/js/metrics.js` and `main.tex`.
+- The paper's `statespacecheck-boundary` branch (unpushed, `df887f2..cbc7bfd` on 2026-09-25) and `shorten-fig-captions` branch are merged to `main`. Both change `manuscript/main.pdf`; after merging, rebuild it rather than resolving that conflict by hand.
 - `git status` on the paper's `main` is clean.
 - statespacecheck 0.3.0 is on PyPI (phase 4b).
 
@@ -17,8 +17,8 @@ If any precondition fails, stop and tell the user.
 **Inputs to read first** (all paths relative to the paper repo):
 
 - `CLAUDE.md`:
-  - the package boundary (lines 29-35)
-  - regeneration commands (lines 75-86): `emit_reported_values.py` → `make -C manuscript` → `export_site_data.py`
+  - the package boundary (lines 29-34)
+  - regeneration commands (lines 81-87): `emit_reported_values.py` → `make -C manuscript` → `export_site_data.py`
   - site parity (lines 67-70)
 - `pyproject.toml:34`: `"statespacecheck>=0.2.0"`.
 - `src/statespacecheck_paper/figure02_panels.py`:
@@ -31,6 +31,10 @@ If any precondition fails, stop and tell the user.
 - `tests/test_figures.py:75-122`: Figure 2 data checks, which read `p_value` and `simulated_log_pred`.
 - `tests/test_plotting.py:48-102`: `compute_hpd_region` tests (`TestComputeHpdRegion`).
 - `src/statespacecheck_paper/figure04_cache.py:260-261`: the version in the diagnostics cache fingerprint.
+- `src/statespacecheck_paper/diagnostics.py`:
+  - `compute_baseline_diagnostic_thresholds` (542-628)
+  - the `float()` around `ssc.baseline_threshold` (610-611), there only because 0.2.0 shipped no `py.typed`
+- `src/statespacecheck_paper/reported_values.py`: `_software_versions`, which emits `\StatespacecheckVersion` and checks the recorded versions agree.
 - `manuscript/main.tex`:
   - :350 is the package paragraph
   - :375 is the red DOI TODO
@@ -90,22 +94,26 @@ If any precondition fails, stop and tell the user.
      - `plotting.py:244-245`
    - Delete `compute_hpd_region` (`plotting.py:77-116`), its module-doctest mention (`plotting.py:9-12`) and its tests (`tests/test_plotting.py:48-102`, `TestComputeHpdRegion`; keep the `gaussian_pdf` fixture if other tests still use it). The package tests `highest_density_region`.
 
-5. **Regenerate and compare** against the baseline from task 1:
+5. **Drop the typing workaround and check `baseline_end_index`.** From the review of the paper's move to 0.2.0.
+   - `diagnostics.py:610-611`: remove the `float()` and its comment. statespacecheck 0.3.0 ships `py.typed` (phase 1), so mypy now sees the package's real types. Run `uv run mypy src/` and fix whatever the real types expose, without `# type: ignore`.
+   - `compute_baseline_diagnostic_thresholds`: raise `ValueError` unless `0 < baseline_end_index <= n_time` for the arrays passed in. Today an index past the end silently uses the whole recording, and a negative one silently drops the last rows. Add a test for each case. Current callers pass valid indices, so outputs don't change.
+
+6. **Regenerate and compare** against the baseline from task 1:
    - `uv run python scripts/generate_all_figures.py`. The Figure 4 diagnostics recompute because the version in the cache fingerprint changed; the decode does not recompute.
    - `uv run python scripts/emit_reported_values.py`.
-   - Diff `reported_values.tex`. The **only** allowed change is `\RecStatespacecheckVersion{0.2.0}` → `{0.3.0}`.
-   - Diff the Figure 3/4 summary JSONs. They must be identical apart from the version provenance field, because `event_diagnostics` is unchanged.
+   - Diff `reported_values.tex`. The **only** allowed changes are `\StatespacecheckVersion{0.2.0}` → `{0.3.0}` and the source-hash comment line.
+   - Diff the Figure 3/4 summary JSONs. They must be identical apart from provenance, because `event_diagnostics` is unchanged. The allowed provenance changes are `source.statespacecheck_version`, `source.source_tree_sha256` and `source.uv_lock_sha256` in both, plus `figure04_decode_cache.statespacecheck_version` and `figure04_decode_cache.diagnostics_fingerprint_sha256`.
+   - Compare figures through the summaries, not PNG bytes. `figure04.png` can differ by one pixel (1/255) between a run that recomputes the diagnostics in-process and one that loads them from cache.
    - Figure 2's `p_value` must be within 4 binomial SE of the baseline (`n=1000`; SE = `sqrt(p(1-p)/1000)`). Report both values.
-   - `make -C manuscript`.
-   - `uv run python scripts/export_site_data.py`, then regenerate the JS parity fixture and run `make -C site test`, per `CLAUDE.md:67-70`. The fixture must be unchanged because the sorted diagnostics are unchanged.
+   - `make -C manuscript`. After a `git stash` or `checkout` restores files, it can skip the rebuild and leave a stale `main.pdf` and `main.log`. Before trusting either, force a rebuild with `cd manuscript && latexmk -g -pdf main.tex` and grep the PDF (`pdftotext`) for changed text.
+   - `uv run python scripts/export_site_data.py`, then regenerate the JS parity fixture and run `make -C site test`, per `CLAUDE.md:67-70` (needs Node; it isn't installed on the author's machine as of 2026-09-25, so run it in CI or install Node first). The fixture must be unchanged because the sorted diagnostics are unchanged.
 
-6. **Manuscript text.** This is the user's prose: draft it and **ask for approval before committing**.
+7. **Manuscript text.** This is the user's prose: draft it and **ask for approval before committing**.
    - `main.tex:375`: replace the red TODO with the Zenodo concept DOI minted in phase 4b. Whether the paper repo itself also needs a DOI is [overview Open Question 3](overview.md#open-questions); ask.
    - `main.tex:350`: propose one sentence after the spike-sorted description. Draft: "For clusterless decoders, the package evaluates the same three diagnostics from the joint mark intensity, computing the predictive $p$-value by the Monte Carlo construction above."
 
-7. **Paper docs.**
-   - Paper `CLAUDE.md` package boundary: add `monte_carlo_mark_pvalue` and `highest_density_region` to the list of package-owned computations.
-   - `README.md:165-174`: same.
+8. **Paper docs.**
+   - `README.md:165-174`, the package boundary: add `monte_carlo_mark_pvalue` and `highest_density_region` to the package-owned computations. The paper `CLAUDE.md` bullet deliberately lists no function names, so leave it.
    - `docs/figure-pipeline.md`: if it describes Figure 2's Monte Carlo, point it at the package.
 
 ## Deliberately not in this phase
@@ -120,11 +128,13 @@ If any precondition fails, stop and tell the user.
 | Test | Asserts |
 | --- | --- |
 | `uv run pytest` (paper) | Whole suite green, including `tests/test_figures.py` Figure 2 checks and `tests/test_import_boundaries.py` |
-| `reported_values.tex` diff | Only `\RecStatespacecheckVersion` changes |
-| Figure 3/4 summary JSON diff | Identical apart from the package-version provenance field |
+| `reported_values.tex` diff | Only `\StatespacecheckVersion` (and the source-hash comment) changes |
+| Figure 3/4 summary JSON diff | Identical apart from the provenance fields listed in task 6 |
+| `uv run mypy src/` | Clean with the package's real types and no `float()` workaround |
+| `test_baseline_end_index_out_of_range_raises` (parametrized) | An index past the end, zero and negative indices each raise `ValueError` |
 | Figure 2 p-value | Within 4 binomial SE of the baseline; both values in the PR description |
 | `observed_log_pred` | Equal to the baseline to rtol 1e-12 |
-| `make -C manuscript` | PDF builds; no red TODO remains at the Code availability section (after user approval of task 6) |
+| `make -C manuscript` | PDF builds; no red TODO remains at the Code availability section (after user approval of task 7) |
 | `make -C site test` | JS parity passes; fixture unchanged |
 | `grep -rn compute_hpd_region src tests` | No matches |
 | Figure regeneration (**slow**, ~1 min for Figure 4 diagnostics) | Record wall-clock time in the PR description |
@@ -132,7 +142,7 @@ If any precondition fails, stop and tell the user.
 ## Fixtures
 
 - Baseline copies from task 1, kept outside the repo.
-- Real data: the Figure 4 recording (DANDI 001942) through the existing cache, used by the real-data smoke test (task 5).
+- Real data: the Figure 4 recording (DANDI 001942) through the existing cache, used by the real-data smoke test (task 6).
 
 ## Review
 

@@ -80,7 +80,7 @@
 ## Deliberately not in this phase
 
 - `clusterless_event_diagnostics` and the clusterless tutorial (phase 4b).
-- Any change to `event_diagnostics`, `predictive_mark_probabilities` or `mark_predictive_pvalue`.
+- Any change to `event_diagnostics`, `predictive_mark_probabilities` or `mark_predictive_pvalue`. Their error-message and validation hardening is [phase 4b task 1](phase-4b-clusterless-diagnostics.md#tasks).
 - Changing the generic `predictive_pvalue` (`predictive_checks.py:300`) to use the new sampler. It stays a user-supplied-sampler helper.
 - Releasing (phase 4b tags v0.3.0).
 
