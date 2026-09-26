@@ -117,24 +117,16 @@ def aggregate_over_period(
     When no time points are selected (all-false mask), returns NaN to indicate
     an undefined aggregation.
     """
-    # Validate metric_values is 1D
-    metric_arr = np.asarray(metric_values, dtype=float)
-    if metric_arr.ndim != 1:
-        msg = (
-            f"metric_values must be 1-dimensional, "
-            f"got {metric_arr.ndim}D array with shape {metric_arr.shape}"
-        )
-        raise ValueError(msg)
-
-    # Validate time_mask: casting an index array to bool would select everything
-    mask_arr = np.asarray(time_mask)
-    if mask_arr.dtype != np.bool_:
-        msg = (
-            "time_mask must be a boolean array (True where a time point is included); "
-            f"got dtype {mask_arr.dtype}. To select time points by index, build a "
-            "mask: mask = np.zeros(n_time, dtype=bool); mask[indices] = True"
-        )
-        raise ValueError(msg)
+    metric_arr = _as_series(metric_values, "metric_values")
+    # Casting an index array to bool would select every time point
+    mask_arr = _as_flags(
+        time_mask,
+        "time_mask",
+        hint=(
+            "To select time points by index, build a mask: "
+            "mask = np.zeros(n_time, dtype=bool); mask[indices] = True"
+        ),
+    )
     if mask_arr.shape != metric_arr.shape:
         msg = (
             f"time_mask must have same length as metric_values, "
@@ -262,13 +254,12 @@ def _enforce_min_len(mask: NDArray[np.bool_], min_len: int) -> NDArray[np.bool_]
     return out
 
 
-def _robust_zscore(values: ArrayLike, *, warn_no_spread: bool = False) -> DistributionArray:
+def _robust_zscore(values: ArrayLike) -> tuple[DistributionArray, bool]:
     """Median/MAD-based z-score; returns NaN where values is NaN/Inf.
 
     Uses scipy's median_abs_deviation with Gaussian scaling factor. When more
     than half the finite values are tied the MAD is zero, and the scale falls
-    back to the interquartile range / 1.349; when that is zero too, to 1 (with
-    a warning if ``warn_no_spread``).
+    back to the interquartile range / 1.349; when that is zero too, to 1.
 
     Parameters
     ----------
@@ -279,52 +270,49 @@ def _robust_zscore(values: ArrayLike, *, warn_no_spread: bool = False) -> Distri
     -------
     zscores : np.ndarray, shape (n_time,)
         Robust z-scores.
+    unit_scale : bool
+        Whether the values had no robust spread, so the scale fell back to 1.
     """
     values_arr = np.asarray(values, dtype=float)
     zscores = np.full_like(values_arr, np.nan)
     finite = np.isfinite(values_arr)
     if not np.any(finite):
-        return zscores
+        return zscores, False
     finite_vals = values_arr[finite]
     median = np.median(finite_vals)
     # Use scipy's median_abs_deviation with scale='normal' for 1.4826 factor
     mad = median_abs_deviation(finite_vals, scale="normal", nan_policy="propagate")
+    unit_scale = False
     if mad == 0.0:
         # Fall back to IQR-based scale if MAD is zero (all equal or extremely tied)
         q75, q25 = np.percentile(finite_vals, [75, 25])
         if q75 > q25:
             scale = (q75 - q25) / 1.349
         else:
-            if warn_no_spread:
-                warnings.warn(
-                    "More than 3/4 of the finite values are tied, so they have no robust "
-                    "spread; the z-scores use a scale of 1 (values above the median by "
-                    "more than the threshold, in the values' own units)",
-                    UserWarning,
-                    stacklevel=3,
-                )
-            scale = 1.0
+            scale, unit_scale = 1.0, True
     else:
         scale = mad
     zscores[finite] = (finite_vals - median) / scale
-    return zscores
+    return zscores, unit_scale
 
 
 # ---------- Public API for period detection ----------
 
 
-def _as_flags(values: ArrayLike, name: str) -> NDArray[np.bool_]:
+def _as_flags(
+    values: ArrayLike,
+    name: str,
+    hint: str = (
+        "Pass the output of a flag function, or a comparison such as overlap <= threshold"
+    ),
+) -> NDArray[np.bool_]:
     """Return ``values`` as a boolean array, or raise naming the argument.
 
     Casting other values to bool would flag every nonzero (and NaN) value.
     """
     flags = np.asarray(values)
     if flags.dtype != np.bool_:
-        msg = (
-            f"{name} must be a boolean array (True where flagged); got dtype "
-            f"{flags.dtype}. Pass the output of a flag function, or a comparison such "
-            "as overlap <= threshold"
-        )
+        msg = f"{name} must be a boolean array; got dtype {flags.dtype}. {hint}"
         raise ValueError(msg)
     return flags
 
@@ -447,11 +435,7 @@ def find_low_overlap_intervals(
     --------
     flag_low_overlap : Returns boolean mask instead of interval boundaries
     """
-    overlap_arr = _as_series(overlap, "overlap")
-    check_threshold_not_nan(threshold, "threshold")
-    bad = (overlap_arr <= threshold) & np.isfinite(overlap_arr)
-    bad = _enforce_min_len(bad, min_len)
-    return _contiguous_runs(bad)
+    return _contiguous_runs(flag_low_overlap(overlap, threshold=threshold, min_len=min_len))
 
 
 def flag_extreme_kl(
@@ -535,7 +519,15 @@ def flag_extreme_kl(
     """
     kl_arr = _as_series(kl, "kl")
     check_threshold_not_nan(z_thresh, "z_thresh")
-    zscores = _robust_zscore(kl_arr, warn_no_spread=True)
+    zscores, unit_scale = _robust_zscore(kl_arr)
+    if unit_scale:
+        warnings.warn(
+            "More than 3/4 of the finite KL values are tied, so they have no robust "
+            "spread; the z-scores use a scale of 1 (KL above the median by more than "
+            "z_thresh)",
+            UserWarning,
+            stacklevel=2,
+        )
     flags = (np.isfinite(zscores) & (zscores > z_thresh)) | np.isposinf(kl_arr)
     return _enforce_min_len(flags, min_len)
 

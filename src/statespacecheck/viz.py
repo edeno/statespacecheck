@@ -146,7 +146,7 @@ def plot_diagnostics(
     ax.set_ylabel("KL divergence")
     ax.grid(True, alpha=0.3)
     z_ax = ax.twinx()
-    z_ax.plot(time_arr, _robust_zscore(kl_arr), linewidth=0.8, alpha=0.6)
+    z_ax.plot(time_arr, _robust_zscore(kl_arr)[0], linewidth=0.8, alpha=0.6)
     z_ax.axhline(kl_z_threshold, linestyle="--", linewidth=1)
     z_ax.set_ylabel("robust z(KL)")
 
