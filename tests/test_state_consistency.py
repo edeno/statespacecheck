@@ -324,56 +324,24 @@ class TestHPDOverlap:
         assert np.allclose(overlap, 0.5)
 
 
-class TestNanBinsInOneInput:
-    """A bin marked NaN in either input is excluded from both."""
+class TestInvalidBinInOneInput:
+    """A bin that is NaN or infinite in either input is excluded from both."""
 
-    @pytest.fixture
-    def pair(self) -> tuple[np.ndarray, np.ndarray]:
+    @pytest.mark.parametrize("value", [np.nan, np.inf, -np.inf])
+    @pytest.mark.parametrize("bad_input", ["state", "likelihood"])
+    def test_matches_nan_in_both(self, value, bad_input):
         rng = np.random.default_rng(7)
-        return rng.dirichlet(np.ones(8), size=5), rng.dirichlet(np.ones(8), size=5)
-
-    def test_kl_nan_in_likelihood_only(self, pair):
-        state, like = pair
-        like_nan = like.copy()
-        like_nan[:, [0, 3]] = np.nan
-        both_nan = state.copy(), like_nan.copy()
-        both_nan[0][:, [0, 3]] = np.nan
-        np.testing.assert_allclose(
-            kl_divergence(state, like_nan), kl_divergence(*both_nan), rtol=1e-12
-        )
-        assert np.all(np.isfinite(kl_divergence(state, like_nan)))
-
-    def test_kl_nan_in_state_only(self, pair):
-        state, like = pair
-        state_nan = state.copy()
-        state_nan[:, 2] = np.nan
-        like_nan = like.copy()
-        like_nan[:, 2] = np.nan
-        np.testing.assert_allclose(
-            kl_divergence(state_nan, like), kl_divergence(state_nan, like_nan), rtol=1e-12
-        )
-
-    def test_hpd_overlap_nan_in_likelihood_only(self, pair):
-        state, like = pair
-        like_nan = like.copy()
-        like_nan[:, [0, 3]] = np.nan
-        state_nan = state.copy()
-        state_nan[:, [0, 3]] = np.nan
-        np.testing.assert_array_equal(
-            hpd_overlap(state, like_nan), hpd_overlap(state_nan, like_nan)
-        )
-
-    @pytest.mark.parametrize("value", [np.inf, -np.inf])
-    def test_infinite_bin_in_one_input_is_excluded_from_both(self, pair, value):
-        state, like = pair
-        like_inf = like.copy()
-        like_inf[:, 1] = value
+        state = make_random_distribution_1d(rng, 5, 8)
+        like = make_random_distribution_1d(rng, 5, 8)
+        bad = {"state": state.copy(), "likelihood": like.copy()}
+        bad[bad_input][:, [0, 3]] = value
         state_nan, like_nan = state.copy(), like.copy()
-        state_nan[:, 1] = np.nan
-        like_nan[:, 1] = np.nan
-        np.testing.assert_allclose(
-            kl_divergence(state, like_inf), kl_divergence(state_nan, like_nan), rtol=1e-12
-        )
+        state_nan[:, [0, 3]] = np.nan
+        like_nan[:, [0, 3]] = np.nan
+
+        kl = kl_divergence(bad["state"], bad["likelihood"])
+        assert np.all(np.isfinite(kl))
+        np.testing.assert_allclose(kl, kl_divergence(state_nan, like_nan), rtol=1e-12)
         np.testing.assert_array_equal(
-            hpd_overlap(state, like_inf), hpd_overlap(state_nan, like_nan)
+            hpd_overlap(bad["state"], bad["likelihood"]), hpd_overlap(state_nan, like_nan)
         )

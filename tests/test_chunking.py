@@ -27,11 +27,11 @@ def pair() -> tuple[np.ndarray, np.ndarray]:
 
 # (computation, whether it warns about the zero-mass row)
 COMPUTATIONS = {
-    "kl_divergence": (lambda s, lk: kl_divergence(s, lk), False),
-    "hpd_overlap": (lambda s, lk: hpd_overlap(s, lk), False),
+    "kl_divergence": (kl_divergence, False),
+    "hpd_overlap": (hpd_overlap, False),
     "highest_density_region": (lambda s, _: highest_density_region(s), False),
-    "predictive_density": (lambda s, lk: predictive_density(s, lk), True),
-    "log_predictive_density": (lambda s, lk: log_predictive_density(s, lk), True),
+    "predictive_density": (predictive_density, True),
+    "log_predictive_density": (log_predictive_density, True),
     "log_predictive_density_log": (
         lambda s, lk: log_predictive_density(s, log_observation_likelihood=np.log(lk)),
         True,

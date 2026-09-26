@@ -20,7 +20,7 @@ BLOCK = re.compile(
 OUTPUT = re.compile(r"\A\s*```text\n(?P<text>.*?)```", re.DOTALL)
 
 
-def _examples() -> list[tuple[str, str, str | None]]:
+def _examples() -> list:
     examples = []
     for path in DOCUMENTS:
         content = path.read_text()
@@ -28,15 +28,14 @@ def _examples() -> list[tuple[str, str, str | None]]:
             if match["marker"]:
                 continue
             output = OUTPUT.match(content[match.end() :])
+            name = f"{path.name}:{number}"
             examples.append(
-                (f"{path.name}:{number}", match["code"], output["text"] if output else None)
+                pytest.param(name, match["code"], output["text"] if output else None, id=name)
             )
     return examples
 
 
-@pytest.mark.parametrize(
-    ("name", "code", "expected"), _examples(), ids=[example[0] for example in _examples()]
-)
+@pytest.mark.parametrize(("name", "code", "expected"), _examples())
 def test_example_runs(name, code, expected):
     stdout = io.StringIO()
     with contextlib.redirect_stdout(stdout):
