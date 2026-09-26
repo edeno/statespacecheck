@@ -183,12 +183,7 @@ addopts = [
 xfail_strict = true
 log_level = "INFO"
 # every warning is an error: a test that expects one says so with pytest.warns
-filterwarnings = [
-    "error",
-    # NumPy < 2.3 wheels on macOS use Accelerate, whose matmul raises spurious
-    # floating-point flags for finite, nonnegative inputs
-    "ignore:divide by zero encountered in matmul:RuntimeWarning",
-]
+filterwarnings = ["error"]
 
 [tool.coverage.run]
 branch = true

@@ -233,8 +233,10 @@ def predictive_mark_probabilities(
     rates = _flatten_mark_intensities(mark_intensities, np.shape(state_dist)[1:])
 
     # Finite inputs can still overflow in the product or the sum across marks;
-    # report that as a contract error rather than dividing by infinity.
-    with np.errstate(over="ignore", invalid="ignore"):
+    # report that as a contract error rather than dividing by infinity. The
+    # product never divides, but NumPy < 2.3 on macOS (Accelerate) raises a
+    # spurious divide-by-zero flag here, so that flag is ignored too.
+    with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
         expected_intensities: NDArray[np.floating] = state @ rates
         total_intensity = expected_intensities.sum(axis=1, keepdims=True)
     if not np.all(np.isfinite(expected_intensities)):
