@@ -271,6 +271,10 @@ def hpd_overlap(
     The overlap is computed as:
         overlap = intersection(HPD_state, HPD_like) / min(size(HPD_state), size(HPD_like))
 
+    where a region's size is its number of bins. This equals the paper's
+    region volume when all bins have the same volume; on a nonuniform grid,
+    resample to a uniform one first.
+
     This normalization ensures that:
     - overlap = 1.0 when one region completely contains the other
     - overlap = 0.0 when regions don't overlap at all

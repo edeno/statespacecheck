@@ -276,8 +276,9 @@ def mark_predictive_pvalue(
     ``p = sum_c q[c] * 1{q[c] <= q[observed]}``.
 
     Small values mean the observed mark was unexpected given the predictive
-    state distribution. A relative tolerance on the ``<=`` comparison absorbs
-    floating-point reduction-order noise, so marks with equal predictive
+    state distribution. A small absolute tolerance on the ``<=`` comparison,
+    ``16 * eps * n_bins`` times the largest predictive probability in the call,
+    absorbs floating-point reduction-order noise, so marks with equal predictive
     probability receive equal p-values across platforms.
 
     Parameters
@@ -362,7 +363,9 @@ def event_diagnostics(
         state, for example each unit's place field.
     event_time_ind : np.ndarray, shape (n_events,)
         Time-bin index of each event. If several events share a time bin, list
-        each one separately; they receive identical diagnostics.
+        each one separately; all are compared with that bin's predictive
+        distribution, so events of the same mark in the same bin receive
+        identical diagnostics.
     event_marks : np.ndarray, shape (n_events,)
         Mark index of each event (for spike-sorted data, the unit that fired).
     coverage : float, default 0.95

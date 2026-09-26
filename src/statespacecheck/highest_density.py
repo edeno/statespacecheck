@@ -66,6 +66,8 @@ def highest_density_region(
     - If total mass at time t <= 0 or not finite, returns all-False for that t.
     - Works in unnormalized space to avoid numerical issues.
     - Fully vectorized with no Python loops for efficiency.
+    - The input is probability mass per bin, so the region is the highest
+      probability-density region only when all bins have the same volume.
     - Uses `>=` threshold: all bins with value equal to cutoff are included.
     - Due to ties, actual coverage may slightly exceed requested coverage.
     - This ensures consistent behavior across equivalent distributions.
