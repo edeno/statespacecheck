@@ -180,6 +180,8 @@ class TestEventWeightedPredictive:
             (np.ones((2, 3)), np.array([1.0, np.inf, 1.0]), "ground_intensity must contain"),
             (-np.ones((2, 3)), np.ones(3), "state_dist must contain only finite"),
             (np.ones(3), np.ones(3), "state_dist must have shape"),
+            # transposed on a non-square grid: the same size, the axes swapped
+            (np.ones((2, 4, 3)), np.ones((3, 4)), "ground_intensity must have shape"),
         ],
     )
     def test_invalid_input_raises(self, state, ground, match):

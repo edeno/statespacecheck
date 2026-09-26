@@ -84,6 +84,30 @@ class TestAgainstExactDiscreteMarks:
         )
 
 
+def test_two_dimensional_grid_matches_exact():
+    """States on a (4, 3) grid, flattened in C order for the sampler: the observed log
+    density is exact and the p-values agree with mark_predictive_pvalue."""
+    rng = np.random.default_rng(6)
+    rates = rng.gamma(2.0, size=(4, 3, 5))  # (n_x, n_y, n_marks)
+    flat_rates = rates.reshape(-1, 5)
+    cumulative = np.cumsum(flat_rates / flat_rates.sum(axis=1, keepdims=True), axis=1)
+    model = MarkModel(
+        lambda m: np.log(np.moveaxis(rates[:, :, np.asarray(m)], -1, 0)),  # (n, 4, 3)
+        lambda bins, g: np.minimum(
+            (cumulative[bins] <= g.random(len(bins))[:, None]).sum(1), 4
+        ),
+        rates.sum(axis=-1),
+    )
+    state = rng.dirichlet(np.full(12, 0.5), size=8).reshape(8, 4, 3)
+    marks = rng.integers(0, 5, 8)
+    n_samples = 20_000
+    check = monte_carlo_mark_pvalue(state, model, marks, n_samples=n_samples, rng=7)
+    q = predictive_mark_probabilities(state, rates)
+    assert_allclose(check.observed_log_density, np.log(q[np.arange(8), marks]), rtol=1e-12)
+    exact = mark_predictive_pvalue(state, rates, marks)
+    assert np.all(np.abs(check.pvalue - exact) <= 4 * _binomial_se(exact, n_samples) + 1e-4)
+
+
 @pytest.mark.slow
 def test_calibrated_under_the_true_model(clusterless_1d_model):
     """Marks drawn from the model's own predictive give uniform p-values."""
@@ -345,6 +369,24 @@ class TestValidation:
             monte_carlo_mark_pvalue(
                 np.full((2, 3), 1 / 3), _uniform_model(log_intensity), np.zeros(2, dtype=int)
             )
+
+    def test_transposed_log_intensity_raises(self):
+        """rates[:, marks] without .T has the same size but the axes swapped."""
+        rates = np.array([[1.0, 2.0], [1.0, 1.0], [2.0, 1.0]])
+        model = _uniform_model(lambda m: np.log(rates[:, np.asarray(m)]))
+        with pytest.raises(ValueError, match=r"model\.log_intensity must return shape"):
+            monte_carlo_mark_pvalue(np.full((2, 3), 1 / 3), model, np.zeros(2, dtype=int))
+
+    def test_read_only_log_intensity_is_not_modified(self):
+        """The state term is added in place to a copy, not to the caller's array."""
+        table = np.zeros((1000, 3))
+        table.flags.writeable = False
+        model = _uniform_model(lambda m: table[: len(m)])
+        check = monte_carlo_mark_pvalue(
+            np.full((2, 3), 1 / 3), model, np.zeros(2, dtype=int), n_samples=10, rng=0
+        )
+        assert_array_equal(check.pvalue, 1.0)
+        assert_array_equal(table, 0.0)
 
     def test_sampler_with_wrong_length_raises(self):
         model = _uniform_model(sample=lambda bins, _rng: np.zeros(len(bins) + 1, dtype=int))
