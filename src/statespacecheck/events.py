@@ -635,10 +635,11 @@ def flag_events(
     diagnostic is flagged separately; NaN values are never flagged.
 
     Thresholds for HPD overlap and KL divergence depend on the model and the
-    data, so they have no default. The paper sets them from a period where the
-    model is believed to fit, with :func:`baseline_threshold` (1st percentile
-    of HPD overlap, 99th percentile of KL divergence), and flags p-values at a
-    fixed 0.05. It recommends HPD overlap and the predictive p-value as the
+    data, so they have no default. In its simulation the paper sets them from a
+    period where the model is believed to fit, with :func:`baseline_threshold`
+    (1st percentile of HPD overlap, 99th percentile of KL divergence); for real
+    data without such a period it flags HPD overlap at a fixed 0.05 and sets no
+    KL divergence cutoff. It flags p-values at a fixed 0.05. It recommends HPD overlap and the predictive p-value as the
     primary diagnostics and KL divergence as a reference, because KL
     divergence is also large for consistent events when the prediction is
     broad.

@@ -135,8 +135,9 @@ a baseline period account for this.)
 - **A unit with zero rate at every position**: such a unit cannot have spikes, so its
   spikes have no likelihood; the error names the unit and its spikes.
 - **Which distribution to compare**: the paper uses the one-step predictive
-  distribution. A filter or smoother distribution already includes the current
-  spike's information, so comparing it with that spike is not an independent check
-  and will flag less.
+  distribution, which does not include the current spike. A filter or smoother
+  distribution already includes that spike's information, so the comparison is no
+  longer with an independent prediction; the paper discusses a smoother, which also
+  uses future observations, as an extension that could add statistical power.
 - **Nonuniform bins**: the HPD overlap counts bins, which matches the paper's region
   volume only when bins have equal size. Resample to a uniform grid if they do not.

@@ -41,12 +41,14 @@ only a few distinct values, so it is conservative (flagging at `p <= 0.05` flags
 A diagnostic's typical values depend on the data and the model, so there is no
 universal cutoff for HPD overlap or KL divergence. The paper uses two approaches:
 
-- **From a baseline period** in which the model is believed to fit (in a simulation, a
-  well-specified period; in data, for example, a period of running when decoding is
-  reliable): flag HPD overlap at or below the baseline's 1st percentile and KL
-  divergence at or above its 99th percentile. `baseline_threshold` computes these.
-- **Fixed cutoffs**: the predictive p-value at or below 0.05; in the paper's real data,
-  also HPD overlap at or below 0.05.
+- **From a baseline period** in which the model is believed to fit: flag HPD overlap
+  at or below the baseline's 1st percentile and KL divergence at or above its 99th
+  percentile. `baseline_threshold` computes these. The paper's simulation used its
+  opening, well-specified period; in real data, a period such as running, when
+  decoding is reliable, could serve.
+- **Fixed cutoffs**: the predictive p-value at or below 0.05 throughout; for the
+  paper's real data, which had no clean baseline period, also HPD overlap at or below
+  0.05 (and no cutoff for KL divergence).
 
 `flag_events` applies either kind, flagging each diagnostic separately and treating
 values equal to the threshold as flagged:

@@ -321,9 +321,10 @@ def flag_low_overlap(
         HPD overlap values.
     threshold : float, optional
         Overlap at or below this value is flagged. Default is 0.4, a
-        convenience value with no statistical basis; the paper sets the
-        threshold from a baseline period with
-        :func:`~statespacecheck.baseline_threshold` (its 1st percentile).
+        convenience value with no statistical basis. The paper's simulation
+        sets the threshold from a baseline period with
+        :func:`~statespacecheck.baseline_threshold` (its 1st percentile); its
+        real data, which had no baseline period, use a fixed 0.05.
     min_len : int, optional
         Minimum length for flagged runs. Default is 5.
         Filters out transient single-timepoint artifacts. Adjust based on
@@ -418,11 +419,11 @@ def flag_extreme_kl(
 
     The z-score is computed from the same values it tests, so the rule finds
     time points that stand out from the recording; a model that fits equally
-    badly everywhere is not flagged. The paper instead flags values at or
-    above a threshold set on a baseline period
-    (:func:`~statespacecheck.baseline_threshold`, its 99th percentile) and
-    uses KL divergence only as a reference, because it also flags consistent
-    observations when the prediction is broad; see
+    badly everywhere is not flagged. The paper's simulation instead flags
+    values at or above a threshold set on a baseline period
+    (:func:`~statespacecheck.baseline_threshold`, its 99th percentile), and
+    the paper treats KL divergence as a reference, because it also flags
+    consistent observations when the prediction is broad; see
     :func:`~statespacecheck.flag_events`.
 
     Parameters

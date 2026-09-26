@@ -156,7 +156,7 @@ print(diagnostics._fields)
 # ## 4. Thresholds from a baseline
 #
 # The thresholds come from a period where the model is believed to fit: here the first
-# 10 s. As in the paper, an HPD overlap at or below the baseline's 1st percentile, or a
+# 10 s. As in the paper's simulation, an HPD overlap at or below the baseline's 1st percentile, or a
 # KL divergence at or above its 99th percentile, is flagged, and so is any p-value at or
 # below 0.05.
 

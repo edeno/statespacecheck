@@ -123,9 +123,9 @@ Common pitfalls:
 
 | Diagnostic | Measures | Poor fit when | The paper's rule |
 | --- | --- | --- | --- |
-| HPD overlap | Overlap of the 95% highest-density regions of the prediction and the spike's likelihood | Low | At or below the 1st percentile of a baseline period (`baseline_threshold`), or a fixed cutoff |
+| HPD overlap | Overlap of the 95% highest-density regions of the prediction and the spike's likelihood | Low | At or below the 1st percentile of a baseline period (`baseline_threshold`) in the simulation; at or below 0.05 in the real data, which had no baseline period |
 | Predictive p-value | How unexpected the unit that fired is, given the prediction | Low | At or below 0.05 |
-| KL divergence | How different the two distributions are | High | A reference only: it is also large when a broad prediction is consistent with a precise spike |
+| KL divergence | How different the two distributions are | High | At or above the 99th percentile of a baseline period in the simulation; no cutoff in the real data. A reference: it is also large when a broad prediction is consistent with a precise spike |
 
 The diagnostics measure *consistency*, not similarity: a spike is consistent with the
 prediction when it falls where the prediction put probability, even if the prediction is
