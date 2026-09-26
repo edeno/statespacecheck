@@ -123,15 +123,32 @@ def clusterless_kde_model(encoding_model):
 
     A mark is ``[electrode, feature_1, ..., feature_d]``: the electrode is part of the
     mark. An electrode without (weighted) training spikes never fires under the model,
-    so its marks have zero intensity.
+    so its marks have zero intensity. The other electrodes must have the same number of
+    features: densities over different numbers of features are in different units, so
+    ranking them against each other would depend on the features' units.
     """
     environment = encoding_model["environment"]
     bins = np.asarray(environment.place_bin_centers_)[environment.is_track_interior_.ravel()]
     occupancy = np.asarray(encoding_model["occupancy"])
     position_std = np.asarray(encoding_model["position_std"])
-    n_features = max(
-        np.shape(f)[1] for f in encoding_model["encoding_spike_waveform_features"]
-    )
+    active_feature_counts = {
+        np.shape(features)[1]
+        for features, weights, rate in zip(
+            encoding_model["encoding_spike_waveform_features"],
+            encoding_model["encoding_weights"],
+            encoding_model["mean_rates"],
+            strict=True,
+        )
+        if float(rate) > 0.0 and np.sum(weights) > 0.0
+    }
+    if len(active_feature_counts) != 1:
+        msg = (
+            "The electrodes with spikes must all have the same number of waveform "
+            f"features; got {sorted(active_feature_counts)}. Check groups of electrodes "
+            "with the same number of features separately."
+        )
+        raise ValueError(msg)
+    (n_features,) = active_feature_counts
     electrodes = []  # None for an electrode that never fires
     for features, positions, weights, rate in zip(
         encoding_model["encoding_spike_waveform_features"],
