@@ -1,4 +1,4 @@
-"""Test data generators and assertions shared by the test modules."""
+"""Test data generators shared by the test modules."""
 
 import numpy as np
 

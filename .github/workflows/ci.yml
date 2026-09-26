@@ -47,7 +47,7 @@ jobs:
         run: ruff check . --output-format=github
 
       - name: Run mypy type checking
-        run: mypy src/
+        run: mypy
 
   test:
     name: Test Python ${{ matrix.python-version }} on ${{ matrix.os }}
@@ -75,7 +75,7 @@ jobs:
         run: uv pip install --system -e .[dev]
 
       - name: Run tests with coverage
-        run: pytest --cov=statespacecheck --cov-report=xml --cov-report=term-missing
+        run: pytest --cov-report=xml
 
       - name: Upload coverage to Codecov
         if: matrix.python-version == '3.12' && matrix.os == 'ubuntu-latest'
