@@ -362,11 +362,9 @@ def predictive_pvalue(
     >>> def sampler(n_samples):
     ...     rng = np.random.default_rng(42)  # Fixed seed for reproducibility
     ...     return rng.normal(loc=-1.5, scale=0.5, size=(n_samples, 3))
-    >>> p_vals = predictive_pvalue(observed, sampler, n_samples=100)
-    >>> p_vals.shape
-    (3,)
-    >>> bool(np.all((p_vals >= 0) & (p_vals <= 1)))
-    True
+    >>> # Monte Carlo estimates of the exact values 0.16, 0.5 and 0.84
+    >>> predictive_pvalue(observed, sampler, n_samples=1000).round(2)
+    array([0.16, 0.5 , 0.86])
 
     See Also
     --------

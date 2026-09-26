@@ -73,10 +73,11 @@ def plot_diagnostics(
     >>> import numpy as np
     >>> import matplotlib.pyplot as plt
     >>> from statespacecheck.viz import plot_diagnostics
+    >>> rng = np.random.default_rng(0)
     >>> time = np.arange(100)
-    >>> overlap = np.random.uniform(0.3, 0.9, 100)
-    >>> kl = np.random.uniform(0.1, 2.0, 100)
-    >>> pvals = np.random.uniform(0.1, 0.9, 100)
+    >>> overlap = rng.uniform(0.3, 0.9, 100)
+    >>> kl = rng.uniform(0.1, 2.0, 100)
+    >>> pvals = rng.uniform(0.1, 0.9, 100)
     >>> fig = plot_diagnostics(time, overlap, kl, pvals)
     >>> plt.close(fig)
     """
