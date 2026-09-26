@@ -3,6 +3,7 @@
 import numpy as np
 import pytest
 from numpy.testing import assert_allclose, assert_array_equal
+from scipy.special import logsumexp
 from scipy.stats import kstest, norm
 
 from statespacecheck import (
@@ -29,10 +30,10 @@ def discrete_events(discrete_mark_model):
 
 
 def _discrete_check(discrete_mark_model, state, marks, **kwargs):
-    rates, mark_intensity, sample_marks = discrete_mark_model
+    rates, log_mark_intensity, sample_marks = discrete_mark_model
     return monte_carlo_mark_pvalue(
         state,
-        mark_intensity,
+        log_mark_intensity,
         marks,
         ground_intensity=rates.sum(axis=-1),
         sample_marks=sample_marks,
@@ -107,7 +108,7 @@ def test_calibrated_under_the_true_model(clusterless_1d_model):
 
     check = monte_carlo_mark_pvalue(
         state,
-        model.mark_intensity,
+        model.log_mark_intensity,
         observed,
         ground_intensity=model.ground_intensity,
         sample_marks=model.sample_marks,
@@ -125,8 +126,8 @@ def test_figure2_scenario_matches_quadrature():
     predictive /= predictive.sum()
     sigma = 12.0
 
-    def mark_intensity(marks):
-        return norm.pdf(np.asarray(marks)[:, :1], position, sigma)
+    def log_mark_intensity(marks):
+        return norm.logpdf(np.asarray(marks)[:, :1], position, sigma)
 
     def sample_marks(bins, rng):
         return rng.normal(position[bins], sigma)[:, None]
@@ -134,7 +135,7 @@ def test_figure2_scenario_matches_quadrature():
     n_samples = 20_000
     check = monte_carlo_mark_pvalue(
         predictive[None],
-        mark_intensity,
+        log_mark_intensity,
         np.array([[60.0]]),
         ground_intensity=np.ones_like(position),
         sample_marks=sample_marks,
@@ -205,7 +206,7 @@ def test_impossible_observed_mark_gives_zero_pvalue():
 
     check = monte_carlo_mark_pvalue(
         state,
-        lambda m: rates[:, np.asarray(m)].T,
+        _log_intensity_of(rates),
         np.array([1]),
         ground_intensity=rates.sum(axis=-1),
         sample_marks=sample_marks,
@@ -216,6 +217,16 @@ def test_impossible_observed_mark_gives_zero_pvalue():
     assert check.pvalue[0] == 0.0
 
 
+def _log_intensity_of(rates):
+    """Log joint intensity of integer marks for a (n_bins, n_marks) rate table."""
+
+    def log_mark_intensity(marks):
+        with np.errstate(divide="ignore"):  # zero rates are impossible marks
+            return np.log(rates[:, np.asarray(marks)].T)
+
+    return log_mark_intensity
+
+
 def _two_mark_check(state, rates, marks, n_samples=10_000):
     cumulative = np.cumsum(rates / rates.sum(axis=1, keepdims=True), axis=1)
 
@@ -224,7 +235,7 @@ def _two_mark_check(state, rates, marks, n_samples=10_000):
 
     return monte_carlo_mark_pvalue(
         state,
-        lambda m: rates[:, np.asarray(m)].T,
+        _log_intensity_of(rates),
         np.asarray(marks),
         ground_intensity=rates.sum(axis=1),
         sample_marks=sample_marks,
@@ -263,20 +274,72 @@ class TestScale:
         assert_allclose(scaled.pvalue, reference.pvalue, atol=2 / 2000)
 
 
+def test_many_feature_marks_whose_densities_underflow():
+    """With 32 waveform features, a typical mark's intensity is about exp(-140),
+    below the smallest float32; in log space the check still works."""
+    rng = np.random.default_rng(0)
+    position = np.linspace(0.0, 1.0, 40)
+    waveforms = rng.normal(0.0, 60.0, (4, 32))
+    fields = 0.5 + 20.0 * np.exp(
+        -0.5 * ((position[:, None] - [0.2, 0.4, 0.6, 0.8]) / 0.1) ** 2
+    )
+    cumulative = np.cumsum(fields / fields.sum(axis=1, keepdims=True), axis=1)
+    bandwidth = 24.0
+
+    def log_mark_intensity(marks):
+        log_waveform = norm.logpdf(np.asarray(marks)[:, None, :], waveforms, bandwidth).sum(-1)
+        return logsumexp(log_waveform[:, None, :] + np.log(fields), axis=-1)
+
+    def sample_marks(bins, rng):
+        unit = np.minimum((cumulative[bins] <= rng.random(len(bins))[:, None]).sum(axis=1), 3)
+        return rng.normal(waveforms[unit], bandwidth)
+
+    state = norm.pdf(position, 0.5, 0.1)[None].repeat(2, axis=0)
+    typical = sample_marks(np.array([20]), np.random.default_rng(1))
+    assert log_mark_intensity(typical).max() < np.log(np.finfo(np.float32).tiny)
+    check = monte_carlo_mark_pvalue(
+        state,
+        log_mark_intensity,
+        np.vstack([typical, waveforms[:1] + 400.0]),  # a typical mark, then an extreme one
+        ground_intensity=fields.sum(axis=1),
+        sample_marks=sample_marks,
+        n_samples=500,
+        rng=2,
+    )
+    assert check.pvalue[0] > 0.05
+    assert check.pvalue[1] == 0.0
+
+
+def test_sampler_inconsistent_with_intensity_raises():
+    """Replicates the intensity calls impossible everywhere (or an intensity that
+    underflowed) would otherwise tie with an impossible observed mark: p = 1."""
+    rates = np.array([[1.0, 0.0], [2.0, 0.0]])  # mark 1 never occurs
+    with pytest.raises(ValueError, match="marks drawn by sample_marks have zero intensity"):
+        monte_carlo_mark_pvalue(
+            np.full((1, 2), 0.5),
+            _log_intensity_of(rates),
+            np.array([1]),
+            ground_intensity=rates.sum(axis=1),
+            sample_marks=lambda bins, _rng: np.ones(len(bins), dtype=int),
+            n_samples=20,
+            rng=0,
+        )
+
+
 class TestValidation:
     @pytest.mark.parametrize(
-        ("mark_intensity", "match"),
+        ("log_mark_intensity", "match"),
         [
-            (lambda m: np.ones((len(m), 4)), "mark_intensity must return shape"),
-            (lambda m: -np.ones((len(m), 3)), "finite nonnegative"),
-            (lambda m: np.full((len(m), 3), np.nan), "finite nonnegative"),
+            (lambda m: np.zeros((len(m), 4)), "log_mark_intensity must return shape"),
+            (lambda m: np.full((len(m), 3), np.nan), "finite values, or -inf"),
+            (lambda m: np.full((len(m), 3), np.inf), "finite values, or -inf"),
         ],
     )
-    def test_bad_mark_intensity_output_raises(self, mark_intensity, match):
+    def test_bad_log_intensity_output_raises(self, log_mark_intensity, match):
         with pytest.raises(ValueError, match=match):
             monte_carlo_mark_pvalue(
                 np.full((2, 3), 1 / 3),
-                mark_intensity,
+                log_mark_intensity,
                 np.zeros(2, dtype=int),
                 ground_intensity=np.ones(3),
                 sample_marks=lambda bins, _rng: np.zeros(len(bins), dtype=int),
@@ -286,7 +349,7 @@ class TestValidation:
         with pytest.raises(ValueError, match="sample_marks must return"):
             monte_carlo_mark_pvalue(
                 np.full((2, 3), 1 / 3),
-                lambda m: np.ones((len(m), 3)),
+                lambda m: np.zeros((len(m), 3)),
                 np.zeros(2, dtype=int),
                 ground_intensity=np.ones(3),
                 sample_marks=lambda bins, _rng: np.zeros(len(bins) + 1, dtype=int),
@@ -311,7 +374,7 @@ class TestValidation:
         observed = arguments.pop("observed_marks")
         with pytest.raises(ValueError, match=match):
             monte_carlo_mark_pvalue(
-                np.full((2, 3), 1 / 3), lambda m: np.ones((len(m), 3)), observed, **arguments
+                np.full((2, 3), 1 / 3), lambda m: np.zeros((len(m), 3)), observed, **arguments
             )
 
 

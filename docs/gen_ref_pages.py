@@ -106,7 +106,7 @@ overview.append(
     "- `DistributionArray`: the type of the float64 arrays the functions return, "
     "`numpy.typing.NDArray[numpy.float64]`. Inputs may be any array-like.\n"
     "- `DEFAULT_COVERAGE`: the default coverage of HPD regions, 0.95, as in the paper.\n"
-    "- [`MarkIntensity`](continuous_marks.md#statespacecheck.continuous_marks.MarkIntensity) "
+    "- [`LogMarkIntensity`](continuous_marks.md#statespacecheck.continuous_marks.LogMarkIntensity) "
     "and [`MarkSampler`](continuous_marks.md#statespacecheck.continuous_marks.MarkSampler): "
     "the types of the model functions `monte_carlo_mark_pvalue` takes.\n"
 )

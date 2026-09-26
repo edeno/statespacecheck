@@ -7,7 +7,7 @@ state space models.
 
 from statespacecheck._validation import DistributionArray
 from statespacecheck.continuous_marks import (
-    MarkIntensity,
+    LogMarkIntensity,
     MarkPredictiveCheck,
     MarkSampler,
     monte_carlo_mark_pvalue,
@@ -48,7 +48,7 @@ __all__ = [
     "DistributionArray",
     "EventDiagnostics",
     "EventFlags",
-    "MarkIntensity",
+    "LogMarkIntensity",
     "MarkPredictiveCheck",
     "MarkSampler",
     "__version__",

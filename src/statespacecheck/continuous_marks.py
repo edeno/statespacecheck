@@ -11,9 +11,12 @@ With a finite set of marks, such as the units of spike-sorted data, the
 predictive check is a finite sum; use :func:`~statespacecheck.mark_predictive_pvalue`
 and :func:`~statespacecheck.event_diagnostics`. When the marks are continuous or
 too many to enumerate, :func:`monte_carlo_mark_pvalue` evaluates the same check
-by simulation, from two functions of the model: one that evaluates the joint
-intensity of given marks at every state (:data:`MarkIntensity`), and one that
-draws a mark for an event at a given state (:data:`MarkSampler`).
+by simulation, from two functions of the model: one that evaluates the log of the
+joint intensity of given marks at every state (:data:`LogMarkIntensity`), and
+one that draws a mark for an event at a given state (:data:`MarkSampler`). The
+intensity is taken as its log because densities of many-dimensional marks are
+often too small to represent: the density of a mark with 32 waveform features
+can be ``exp(-140)``, below the smallest float32.
 
 State-bin indices passed to a :data:`MarkSampler` are flat indices into the
 state grid, in the C order of ``state_dist.reshape(n_events, -1)``.
@@ -33,12 +36,13 @@ from .events import (
     event_weighted_predictive,
 )
 
-MarkIntensity: TypeAlias = Callable[[NDArray[Any]], NDArray[np.floating]]
-"""Joint intensity of marks at every state.
+LogMarkIntensity: TypeAlias = Callable[[NDArray[Any]], NDArray[np.floating]]
+"""Log of the joint intensity of marks at every state.
 
-Called with marks of shape ``(n, *mark_shape)``; returns ``lambda(x, y)`` for
-each mark at every state bin, shape ``(n, *spatial_shape)``, finite and
-nonnegative.
+Called with marks of shape ``(n, *mark_shape)``; returns ``log lambda(x, y)`` for
+each mark at every state bin, shape ``(n, *spatial_shape)``: finite, or ``-inf``
+where the intensity is zero. Compute it in log space (for example with
+``scipy.stats.norm.logpdf``); exponentiating first can underflow.
 """
 
 MarkSampler: TypeAlias = Callable[[NDArray[np.intp], np.random.Generator], NDArray[Any]]
@@ -91,22 +95,22 @@ def _check_leading_axis(values: ArrayLike, n: int, name: str) -> None:
         raise ValueError(msg)
 
 
-def _evaluate_intensity(
-    mark_intensity: MarkIntensity,
+def _evaluate_log_intensity(
+    log_mark_intensity: LogMarkIntensity,
     marks: NDArray[Any],
     n: int,
     spatial_shape: tuple[int, ...],
 ) -> DistributionArray:
-    """Evaluate ``mark_intensity`` at ``n`` marks, checked and flattened to ``(n, n_bins)``."""
-    values = np.asarray(mark_intensity(marks), dtype=np.float64)
+    """Evaluate ``log_mark_intensity`` at ``n`` marks, checked, as a new ``(n, n_bins)`` array."""
+    values = np.array(log_mark_intensity(marks), dtype=np.float64)
     if values.shape != (n, *spatial_shape):
         msg = (
-            f"mark_intensity must return shape {(n, *spatial_shape)}, the intensity of "
-            f"each of the {n} marks at every state bin; got {values.shape}"
+            f"log_mark_intensity must return shape {(n, *spatial_shape)}, the log "
+            f"intensity of each of the {n} marks at every state bin; got {values.shape}"
         )
         raise ValueError(msg)
-    if not np.all(np.isfinite(values)) or np.any(values < 0.0):
-        msg = "mark_intensity must return finite nonnegative values"
+    if np.any(np.isnan(values)) or np.any(np.isposinf(values)):
+        msg = "log_mark_intensity must return finite values, or -inf for zero intensity"
         raise ValueError(msg)
     return values.reshape(n, -1)
 
@@ -149,7 +153,7 @@ def _monte_carlo_batch(
     state: DistributionArray,
     ground: DistributionArray,
     observed_marks: NDArray[Any],
-    mark_intensity: MarkIntensity,
+    log_mark_intensity: LogMarkIntensity,
     sample_marks: MarkSampler,
     spatial_shape: tuple[int, ...],
     n_samples: int,
@@ -164,10 +168,10 @@ def _monte_carlo_batch(
     ground : np.ndarray, shape (n_bins,)
         Flattened ground intensity.
     observed_marks : np.ndarray, shape (n_batch, *mark_shape)
-    mark_intensity, sample_marks
+    log_mark_intensity, sample_marks
         The model, as in :func:`monte_carlo_mark_pvalue`.
     spatial_shape : tuple of int
-        Shape of the state grid, which ``mark_intensity`` must return per mark.
+        Shape of the state grid, which ``log_mark_intensity`` must return per mark.
     n_samples : int
         Replicated marks per event.
     rng : np.random.Generator
@@ -187,23 +191,34 @@ def _monte_carlo_batch(
     # log sum_x Lambda(x) P(x), the normalizer of the predictive mark density
     log_norm = logsumexp(log_state + _safe_log(ground), axis=1)
 
-    observed_intensity = _evaluate_intensity(
-        mark_intensity, observed_marks, n_batch, spatial_shape
+    observed_log_intensity = _evaluate_log_intensity(
+        log_mark_intensity, observed_marks, n_batch, spatial_shape
     )
-    observed_sum = logsumexp(log_state + _safe_log(observed_intensity), axis=1)
+    observed_sum = logsumexp(log_state + observed_log_intensity, axis=1)
 
     state_bins = _sample_state_bins(event_weighted, n_samples, rng)
     replicated_marks = sample_marks(state_bins.ravel(), rng)
     _check_leading_axis(replicated_marks, n_batch * n_samples, "sample_marks")
-    # The (n_batch, n_samples, n_bins) arrays dominate memory: take the log into a
-    # new array (the intensities may be the caller's), then add in place
-    log_joint = _safe_log(
-        _evaluate_intensity(
-            mark_intensity, np.asarray(replicated_marks), n_batch * n_samples, spatial_shape
-        )
+    # The (n_batch, n_samples, n_bins) arrays dominate memory; the evaluated log
+    # intensities are a new array, so the state term is added in place
+    log_joint = _evaluate_log_intensity(
+        log_mark_intensity, np.asarray(replicated_marks), n_batch * n_samples, spatial_shape
     ).reshape(n_batch, n_samples, n_bins)
     log_joint += log_state[:, np.newaxis, :]
     simulated_sum = logsumexp(log_joint, axis=2)
+    # A replicate drawn at a state has positive intensity there, so its density
+    # cannot be zero unless the intensity underflowed or the sampler draws marks
+    # the intensity function says are impossible
+    impossible = np.isneginf(simulated_sum)
+    if impossible.any():
+        msg = (
+            f"{int(impossible.sum())} of {impossible.size} marks drawn by sample_marks have "
+            "zero intensity (log_mark_intensity -inf) at every state with predictive "
+            "mass, including the state they were drawn at. sample_marks must draw from "
+            "the model log_mark_intensity describes, and log_mark_intensity must be "
+            "computed in log space"
+        )
+        raise ValueError(msg)
 
     observed_log = observed_sum - log_norm
     simulated_log = simulated_sum - log_norm[:, np.newaxis]
@@ -234,7 +249,7 @@ def _check_positive_integer(value: object, name: str) -> None:
 
 def monte_carlo_mark_pvalue(
     state_dist: ArrayLike,
-    mark_intensity: MarkIntensity,
+    log_mark_intensity: LogMarkIntensity,
     observed_marks: ArrayLike,
     *,
     ground_intensity: ArrayLike,
@@ -270,15 +285,16 @@ def monte_carlo_mark_pvalue(
     state_dist : np.ndarray, shape (n_events, ...)
         Predictive state distribution for each event, where ``...`` represents
         one or more spatial axes. Rows need not be normalized.
-    mark_intensity : MarkIntensity
-        Joint intensity ``lambda(x, y)``: called with marks of shape
-        ``(n, *mark_shape)``, returns shape ``(n, ...)``.
+    log_mark_intensity : LogMarkIntensity
+        Log joint intensity ``log lambda(x, y)``: called with marks of shape
+        ``(n, *mark_shape)``, returns shape ``(n, ...)``, with ``-inf`` where
+        the intensity is zero.
     observed_marks : np.ndarray, shape (n_events, *mark_shape)
         The mark of each event.
     ground_intensity : np.ndarray, shape (...)
         Total event intensity ``Lambda(x)`` at every state. It must equal the
-        integral of ``mark_intensity`` over marks, for the same model as
-        ``sample_marks``; this cannot be checked here, and a mismatch biases
+        integral of ``exp(log_mark_intensity)`` over marks, for the same model
+        as ``sample_marks``; this cannot be checked here, and a mismatch biases
         the p-values.
     sample_marks : MarkSampler
         Draws a mark for an event at each of the flat state-bin indices it is
@@ -308,8 +324,11 @@ def monte_carlo_mark_pvalue(
     ValueError
         If shapes are inconsistent, inputs are negative or non-finite,
         ``n_samples`` or ``batch_size`` is not a positive integer, a callable
-        returns output of the wrong shape (or a negative or non-finite
-        intensity), or an event's total predictive event intensity is zero.
+        returns output of the wrong shape (or NaN or ``+inf`` log
+        intensities), an event's total predictive event intensity is zero, or
+        a replicated mark has zero intensity at every state with predictive
+        mass (the sampler and the intensity disagree, or the intensity
+        underflowed before its log was taken).
 
     See Also
     --------
@@ -333,15 +352,15 @@ def monte_carlo_mark_pvalue(
     >>> from statespacecheck import mark_predictive_pvalue, monte_carlo_mark_pvalue
     >>> state = np.array([[0.6, 0.3, 0.1], [0.6, 0.3, 0.1]])
     >>> rates = np.array([[4.0, 1.0], [1.0, 1.0], [1.0, 4.0]])  # (n_bins, n_marks)
-    >>> def mark_intensity(marks):
-    ...     return rates[:, marks].T
+    >>> def log_mark_intensity(marks):
+    ...     return np.log(rates[:, marks].T)
     >>> def sample_marks(bins, rng):  # mark 1 with probability rates[x, 1] / Lambda(x)
     ...     return (rng.random(len(bins)) < rates[bins, 1] / rates[bins].sum(axis=1)).astype(
     ...         int
     ...     )
     >>> check = monte_carlo_mark_pvalue(
     ...     state,
-    ...     mark_intensity,
+    ...     log_mark_intensity,
     ...     np.array([0, 1]),
     ...     ground_intensity=rates.sum(axis=1),
     ...     sample_marks=sample_marks,
@@ -377,7 +396,7 @@ def monte_carlo_mark_pvalue(
             state[start:stop],
             ground,
             marks[start:stop],
-            mark_intensity,
+            log_mark_intensity,
             sample_marks,
             spatial_shape,
             n_samples,

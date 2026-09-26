@@ -17,25 +17,25 @@ def rng():
 def discrete_mark_model():
     """Sorted-spike model written as a marked point process with integer marks.
 
-    Returns ``(rates, mark_intensity, sample_marks)``: place fields of 12 units
-    on 50 positions, shape ``(n_bins, n_marks)``; the joint intensity of integer
-    marks ``(n,)`` at every position, shape ``(n, n_bins)``; and a sampler of
-    each event's unit given its position bin.
+    Returns ``(rates, log_mark_intensity, sample_marks)``: place fields of 12
+    units on 50 positions, shape ``(n_bins, n_marks)``; the log joint intensity
+    of integer marks ``(n,)`` at every position, shape ``(n, n_bins)``; and a
+    sampler of each event's unit given its position bin.
     """
     x = np.linspace(0.0, 1.0, 50)
     centers = np.random.default_rng(0).random(12)
     rates = 0.2 + 10.0 * np.exp(-0.5 * ((x[:, None] - centers) / 0.1) ** 2)
     cumulative = np.cumsum(rates / rates.sum(axis=1, keepdims=True), axis=1)
 
-    def mark_intensity(marks):
-        return rates[:, np.asarray(marks)].T
+    def log_mark_intensity(marks):
+        return np.log(rates[:, np.asarray(marks)].T)
 
     def sample_marks(bins, rng):
         u = rng.random(len(bins))
         # Inverse CDF: the first unit whose cumulative probability exceeds u
         return np.minimum((cumulative[bins] <= u[:, None]).sum(axis=1), rates.shape[1] - 1)
 
-    return rates, mark_intensity, sample_marks
+    return rates, log_mark_intensity, sample_marks
 
 
 @pytest.fixture(scope="session")
@@ -53,9 +53,13 @@ def clusterless_1d_model():
     ground_intensity = place_fields.sum(axis=1)
     cumulative = np.cumsum(place_fields / ground_intensity[:, None], axis=1)
 
-    def mark_intensity(marks):
-        amplitude_density = norm.pdf(np.asarray(marks)[:, :1], waveform_means, sigma)
-        return amplitude_density @ place_fields.T
+    def log_mark_intensity(marks):
+        # log sum_u r_u(x) N(y; mu_u, sigma), shape (n, n_bins), with the largest
+        # log N(y; mu_u, sigma) factored out so the sum over units is a stable
+        # matrix product (every r_u > 0, so the sum is positive)
+        log_amplitude = norm.logpdf(np.asarray(marks)[:, :1], waveform_means, sigma)
+        largest = log_amplitude.max(axis=1, keepdims=True)
+        return largest + np.log(np.exp(log_amplitude - largest) @ place_fields.T)
 
     def sample_marks(bins, rng):
         u = rng.random(len(bins))
@@ -68,6 +72,6 @@ def clusterless_1d_model():
         waveform_means=waveform_means,
         sigma=sigma,
         ground_intensity=ground_intensity,
-        mark_intensity=mark_intensity,
+        log_mark_intensity=log_mark_intensity,
         sample_marks=sample_marks,
     )
