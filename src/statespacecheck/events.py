@@ -37,7 +37,6 @@ from ._validation import (
     DistributionArray,
     check_threshold_not_nan,
     flatten_time_spatial,
-    row_sums_rescaled,
     validate_coverage,
 )
 from .highest_density import DEFAULT_COVERAGE
@@ -403,18 +402,19 @@ def event_weighted_predictive(
     """
     state = _validate_state_distribution(state_dist, "state_dist")
     ground = _validate_ground_intensity(ground_intensity, np.shape(state_dist)[1:])
-    # Scale each row by a power of two so its largest value is below 1, which is
-    # exact, so the product with the (finite) ground intensity cannot overflow;
-    # row_sums_rescaled handles totals that overflow or are subnormal
-    _, exponents = np.frexp(state.max(axis=1, initial=0.0))
-    weighted, total = row_sums_rescaled(np.ldexp(state, -exponents[:, np.newaxis]) * ground)
-    if np.any(total == 0.0):
+    # In log space, the product and its normalization neither overflow nor
+    # underflow, whatever the scales of the state and the intensity
+    with np.errstate(divide="ignore"):
+        log_weighted = np.log(state) + np.log(ground)
+    log_total = logsumexp(log_weighted, axis=1, keepdims=True)
+    zero_total = np.isneginf(log_total[:, 0])
+    if zero_total.any():
         msg = (
             "Event-weighted predictive distribution is undefined for rows with zero "
-            f"total event intensity; row indices: {_first(np.flatnonzero(total == 0.0))}"
+            f"total event intensity; row indices: {_first(np.flatnonzero(zero_total))}"
         )
         raise ValueError(msg)
-    event_weighted: DistributionArray = (weighted / total[:, np.newaxis]).reshape(
+    event_weighted: DistributionArray = np.exp(log_weighted - log_total).reshape(
         np.shape(state_dist)
     )
     return event_weighted

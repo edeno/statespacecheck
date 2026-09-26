@@ -196,6 +196,14 @@ class TestEventWeightedPredictive:
     def test_extreme_state_scale(self, state, expected):
         assert_allclose(event_weighted_predictive(state, np.array([2.0, 2.0])), expected)
 
+    def test_tiny_state_with_large_intensity_keeps_its_weight(self):
+        """A state entry far below the row's largest can carry most of the event
+        mass when the intensity there is large: 1e-100 * 3e100 = 3 vs 1e300 * 1e-300 = 1."""
+        weighted = event_weighted_predictive(
+            np.array([[1e300, 1e-100]]), np.array([1e-300, 3e100])
+        )
+        assert_allclose(weighted, [[0.25, 0.75]], rtol=1e-12)
+
     def test_zero_total_rows_are_listed(self):
         state = np.array([[1.0, 0.0], [0.5, 0.5], [1.0, 0.0]])
         with pytest.raises(ValueError, match=r"row indices: \[0, 2\]"):
