@@ -194,9 +194,12 @@ def clusterless_kde_model(encoding_model, chunk_size=256):
         choice = np.empty(len(state_bins), dtype=int)
         for state_bin in np.unique(state_bins):
             rows = state_bins == state_bin
-            cdf = np.cumsum(weights[state_bin])
+            # Scaled to the largest weight, then normalized to [0, 1]: very small (even
+            # subnormal) weights keep their proportions
+            cdf = np.cumsum(weights[state_bin] / weights[state_bin].max())
+            cdf /= cdf[-1]
             # side="right" skips zero weights; rounding can pass the last positive one
-            index = np.searchsorted(cdf, uniform[rows] * cdf[-1], side="right")
+            index = np.searchsorted(cdf, uniform[rows], side="right")
             choice[rows] = np.minimum(index, np.flatnonzero(weights[state_bin])[-1])
         return choice
 
