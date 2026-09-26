@@ -322,3 +322,43 @@ class TestHPDOverlap:
         # intersection: position (0,1) (size=1)
         # overlap = 1 / min(2, 2) = 1 / 2 = 0.5
         assert np.allclose(overlap, 0.5)
+
+
+class TestNanBinsInOneInput:
+    """A bin marked NaN in either input is excluded from both."""
+
+    @pytest.fixture
+    def pair(self) -> tuple[np.ndarray, np.ndarray]:
+        rng = np.random.default_rng(7)
+        return rng.dirichlet(np.ones(8), size=5), rng.dirichlet(np.ones(8), size=5)
+
+    def test_kl_nan_in_likelihood_only(self, pair):
+        state, like = pair
+        like_nan = like.copy()
+        like_nan[:, [0, 3]] = np.nan
+        both_nan = state.copy(), like_nan.copy()
+        both_nan[0][:, [0, 3]] = np.nan
+        np.testing.assert_allclose(
+            kl_divergence(state, like_nan), kl_divergence(*both_nan), rtol=1e-12
+        )
+        assert np.all(np.isfinite(kl_divergence(state, like_nan)))
+
+    def test_kl_nan_in_state_only(self, pair):
+        state, like = pair
+        state_nan = state.copy()
+        state_nan[:, 2] = np.nan
+        like_nan = like.copy()
+        like_nan[:, 2] = np.nan
+        np.testing.assert_allclose(
+            kl_divergence(state_nan, like), kl_divergence(state_nan, like_nan), rtol=1e-12
+        )
+
+    def test_hpd_overlap_nan_in_likelihood_only(self, pair):
+        state, like = pair
+        like_nan = like.copy()
+        like_nan[:, [0, 3]] = np.nan
+        state_nan = state.copy()
+        state_nan[:, [0, 3]] = np.nan
+        np.testing.assert_array_equal(
+            hpd_overlap(state, like_nan), hpd_overlap(state_nan, like_nan)
+        )

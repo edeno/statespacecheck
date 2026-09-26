@@ -19,6 +19,25 @@ from ._validation import (
 from .highest_density import DEFAULT_COVERAGE, highest_density_region
 
 
+def _exclude_bins_invalid_in_either(
+    state_dist: DistributionArray, likelihood: DistributionArray
+) -> tuple[DistributionArray, DistributionArray]:
+    """Mark a bin NaN in both arrays when it is non-finite in either.
+
+    Both distributions are then normalized over, and compared on, the same
+    set of valid bins. Arrays of different shapes are returned unchanged for
+    the shape check to report.
+    """
+    state = np.asarray(state_dist, dtype=float)
+    like = np.asarray(likelihood, dtype=float)
+    if state.shape == like.shape:
+        invalid = ~(np.isfinite(state) & np.isfinite(like))
+        if invalid.any():
+            state = np.where(invalid, np.nan, state)
+            like = np.where(invalid, np.nan, like)
+    return state, like
+
+
 def _validate_and_normalize_distributions(
     state_dist: DistributionArray, likelihood: DistributionArray
 ) -> tuple[DistributionArray, DistributionArray]:
@@ -54,10 +73,13 @@ def _validate_and_normalize_distributions(
     - Each time slice normalized to sum to 1.0 over valid bins
     - Zero-sum rows remain all zeros; downstream returns inf (KL) or empty HPD
     """
-    # Use validation utilities for consistent validation
-    # This converts NaN/inf to 0 but keeps zeros that represent actual zero probability
+    # A bin invalid in either input is excluded from both; validation then
+    # converts NaN to 0 but keeps zeros that represent actual zero probability.
     state, like = validate_paired_distributions(
-        state_dist, likelihood, name1="state_dist", name2="likelihood", min_ndim=2
+        *_exclude_bins_invalid_in_either(state_dist, likelihood),
+        name1="state_dist",
+        name2="likelihood",
+        min_ndim=2,
     )
 
     # Flatten for vectorized operations
@@ -147,8 +169,9 @@ def kl_divergence(
     where P is the state distribution and Q is the likelihood.
 
     Distributions are automatically normalized over valid (non-NaN) bins.
-    NaN values mark invalid spatial bins (e.g., inaccessible locations)
-    and are excluded from both normalization and KL computation.
+    NaN values mark invalid spatial bins (e.g., inaccessible locations); a bin
+    that is NaN in either input is excluded from both, for normalization and
+    for the divergence.
 
     Time slices where distributions have no valid mass return inf for the divergence.
 
@@ -258,16 +281,19 @@ def hpd_overlap(
     disagreement. Check for all-zero rows separately if they can occur.
 
     Distributions are automatically normalized over valid (non-NaN) bins.
-    NaN values mark invalid spatial bins (e.g., inaccessible locations)
-    and are excluded from both normalization and HPD region computation.
+    NaN values mark invalid spatial bins (e.g., inaccessible locations); a bin
+    that is NaN in either input is excluded from both HPD regions.
 
     """
     validate_coverage(coverage)
 
-    # Validate but don't normalize - HPD works on relative magnitudes (unnormalized weights)
-    # This saves 2 full array normalizations for large datasets
+    # Validate but don't normalize - HPD works on relative magnitudes (unnormalized
+    # weights). A bin invalid in either input is excluded from both.
     state, like = validate_paired_distributions(
-        state_dist, likelihood, name1="state_dist", name2="likelihood", min_ndim=2
+        *_exclude_bins_invalid_in_either(state_dist, likelihood),
+        name1="state_dist",
+        name2="likelihood",
+        min_ndim=2,
     )
 
     # Get HPD regions (highest_density_region works on unnormalized weights)
