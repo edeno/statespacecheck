@@ -24,6 +24,38 @@ def row_chunks(shape: tuple[int, ...]) -> Iterator[slice]:
         yield slice(start, min(start + step, n_rows))
 
 
+def rescale_subnormal_rows(
+    flat: DistributionArray, row_sums: DistributionArray
+) -> tuple[DistributionArray, DistributionArray]:
+    """Scale rows whose total is subnormal by 2**1000 before they are normalized.
+
+    Dividing by a subnormal total overflows on some NumPy versions (1.26 divides
+    by multiplying with the reciprocal), turning the row into zeros. Scaling by a
+    power of two is exact, so the normalized row is unchanged; other rows are not
+    touched.
+
+    Parameters
+    ----------
+    flat : np.ndarray, shape (n_rows, n_bins)
+        Nonnegative values.
+    row_sums : np.ndarray, shape (n_rows,)
+        ``flat.sum(axis=1)``.
+
+    Returns
+    -------
+    flat, row_sums : np.ndarray
+        The inputs, with subnormal rows (and their sums) rescaled.
+    """
+    subnormal = (row_sums > 0.0) & (row_sums < np.finfo(np.float64).tiny)
+    if not subnormal.any():
+        return flat, row_sums
+    flat = flat.copy()
+    flat[subnormal] *= 2.0**1000
+    row_sums = row_sums.copy()
+    row_sums[subnormal] = flat[subnormal].sum(axis=1)
+    return flat, row_sums
+
+
 def validate_coverage(coverage: float) -> None:
     """Validate that coverage is in the valid range (0, 1).
 

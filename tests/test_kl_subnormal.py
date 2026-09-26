@@ -1,7 +1,9 @@
 """Test KL divergence with subnormal numbers that trigger floating point errors."""
 
 import numpy as np
+import pytest
 
+from statespacecheck.predictive_checks import log_predictive_density, predictive_density
 from statespacecheck.state_consistency import kl_divergence
 
 
@@ -44,3 +46,24 @@ class TestKLDivergenceSubnormalNumbers:
 
         # Should be very close to 0 (distributions are nearly identical except for tiny values)
         assert kl_div[0] < 1e-10
+
+
+@pytest.mark.parametrize(
+    "compute",
+    [
+        lambda s: kl_divergence(s, s),
+        lambda s: predictive_density(s, np.ones_like(s)),
+        lambda s: log_predictive_density(s, np.ones_like(s)),
+    ],
+    ids=["kl_divergence", "predictive_density", "log_predictive_density"],
+)
+def test_row_with_subnormal_total_mass(compute) -> None:
+    """A row whose total mass is subnormal normalizes like any other.
+
+    Dividing by a subnormal sum overflows on some NumPy versions (1.26), which
+    turned the row into zeros; the result must match the same row scaled up.
+    """
+    tiny = np.zeros((1, 9))
+    tiny[0, [0, 3]] = [1.0e-309, 1.2e-309]  # 1 / sum exceeds the largest float
+    normal = tiny * 2.0**1000
+    np.testing.assert_allclose(compute(tiny), compute(normal), rtol=1e-12)

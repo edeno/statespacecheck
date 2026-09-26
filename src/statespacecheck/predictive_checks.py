@@ -18,6 +18,7 @@ from scipy.special import logsumexp
 from ._validation import (
     DistributionArray,
     flatten_time_spatial,
+    rescale_subnormal_rows,
     row_chunks,
     validate_distribution,
     validate_paired_distributions,
@@ -418,6 +419,7 @@ def _predictive_density_rows(
     # Normalize state distribution ONLY (not likelihood!)
     # Shape: (n_time,)
     state_sum = state_flat.sum(axis=1)
+    state_flat, state_sum = rescale_subnormal_rows(state_flat, state_sum)
 
     # Check for zero-sum state rows before normalization
     zero_rows = state_sum == 0
@@ -471,6 +473,7 @@ def _log_predictive_density_rows(
 
     # Normalize state distribution ONLY (not likelihood!)
     state_sum = state_flat.sum(axis=1)
+    state_flat, state_sum = rescale_subnormal_rows(state_flat, state_sum)
 
     # Check for zero-sum state rows before normalization
     zero_rows = state_sum == 0

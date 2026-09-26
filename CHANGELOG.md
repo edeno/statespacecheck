@@ -37,6 +37,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `kl_divergence()`, `predictive_density()` and `log_predictive_density()` normalize rows whose total mass is subnormal correctly. With NumPy 1.26 the division overflowed and turned such rows into zeros.
 - The predictive-checks tutorial described the p-value with `>=` and treated p near 1 as misfit; it now uses `<=`, one-sided flags, and the paper's terminology. Links between tutorials work on the documentation site.
 - The predictive-checks tutorial showed p-values computed before the 0.1.1 fix to `predictive_pvalue()`, so misfit periods appeared as p ≈ 1 instead of p ≈ 0; its outputs are regenerated.
 - `predictive_mark_probabilities()`, `mark_predictive_pvalue()` and `event_diagnostics()` no longer emit a spurious "divide by zero encountered in matmul" `RuntimeWarning` on macOS with NumPy < 2.3; results are unchanged.
