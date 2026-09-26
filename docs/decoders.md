@@ -130,7 +130,7 @@ from scipy.stats import norm
 from statespacecheck import MarkModel
 
 
-def clusterless_kde_model(encoding_model):
+def clusterless_kde_model(encoding_model, chunk_size=256):
     """The MarkModel (log mark intensity, mark sampler, ground intensity) of a fitted
     non_local_detector clusterless KDE encoding model, over its interior bins.
 
@@ -138,30 +138,13 @@ def clusterless_kde_model(encoding_model):
     mark. An electrode without (weighted) training spikes never fires under the model,
     so its marks have zero intensity. The other electrodes must have the same number of
     features: densities over different numbers of features are in different units, so
-    ranking them against each other would depend on the features' units.
+    ranking them against each other would depend on the features' units. Marks are
+    evaluated ``chunk_size`` at a time, which bounds memory.
     """
     environment = encoding_model["environment"]
     bins = np.asarray(environment.place_bin_centers_)[environment.is_track_interior_.ravel()]
     occupancy = np.asarray(encoding_model["occupancy"])
     position_std = np.asarray(encoding_model["position_std"])
-    active_feature_counts = {
-        np.shape(features)[1]
-        for features, weights, rate in zip(
-            encoding_model["encoding_spike_waveform_features"],
-            encoding_model["encoding_weights"],
-            encoding_model["mean_rates"],
-            strict=True,
-        )
-        if float(rate) > 0.0 and np.sum(weights) > 0.0
-    }
-    if len(active_feature_counts) != 1:
-        msg = (
-            "The electrodes with spikes must all have the same number of waveform "
-            f"features; got {sorted(active_feature_counts)}. Check groups of electrodes "
-            "with the same number of features separately."
-        )
-        raise ValueError(msg)
-    (n_features,) = active_feature_counts
     electrodes = []  # None for an electrode that never fires
     for features, positions, weights, rate in zip(
         encoding_model["encoding_spike_waveform_features"],
@@ -174,95 +157,85 @@ def clusterless_kde_model(encoding_model):
         if float(rate) == 0.0 or weights.sum() == 0.0:
             electrodes.append(None)
             continue
-        # rate * w_j K(x, p_j) / sum_j w_j / occupancy(x): spike j's share of the
-        # intensity at each bin, (n_encoding, n_bins); zero where occupancy is zero
+        # rate * w_j K(x, p_j) / sum_j w_j / occupancy(x): encoding spike j's share of
+        # the intensity at each bin, (n_encoding, n_bins); zero where occupancy is zero
         scale = np.divide(
             float(rate) / weights.sum(),
             occupancy,
             out=np.zeros_like(occupancy),
             where=occupancy > 0,
         )
-        kernel = (
-            weights[:, None]
-            * np.exp(norm.logpdf(bins[None], positions[:, None], position_std).sum(-1))
-            * scale
+        position_kernel = np.exp(
+            norm.logpdf(bins[None], positions[:, None], position_std).sum(-1)
         )
-        ground = kernel.sum(axis=0)  # the waveform kernel integrates to 1
         electrodes.append(
-            {
-                "features": features,
-                "waveform_std": np.broadcast_to(encoding_model["waveform_std"], n_features),
-                "kernel": kernel,
-                "ground": ground,
-                "spike_cdf": np.cumsum(
-                    np.divide(kernel, ground, out=np.zeros_like(kernel), where=ground > 0),
-                    axis=0,
-                ).T,  # (n_bins, n_encoding)
-                # the last encoding spike with weight at each bin
-                "last_spike": len(kernel) - 1 - np.argmax(kernel[::-1] > 0, axis=0),
-            }
+            {"features": features, "kernel": weights[:, None] * position_kernel * scale}
         )
+    feature_counts = {e["features"].shape[1] for e in electrodes if e is not None}
+    if len(feature_counts) != 1:
+        msg = (
+            "The electrodes with spikes must all have the same number of waveform "
+            f"features; got {sorted(feature_counts)}. Check groups of electrodes with the "
+            "same number of features separately."
+        )
+        raise ValueError(msg)
+    (n_features,) = feature_counts
+    waveform_std = np.broadcast_to(encoding_model["waveform_std"], n_features)
+    # Each electrode's ground intensity (the waveform kernel integrates to 1), (n_bins, n_electrodes)
     electrode_ground = np.stack(
-        [np.zeros(len(bins)) if e is None else e["ground"] for e in electrodes], axis=1
-    )
-    ground = electrode_ground.sum(axis=1)
-    electrode_cdf = np.cumsum(
-        np.divide(
-            electrode_ground,
-            ground[:, None],
-            out=np.zeros_like(electrode_ground),
-            where=ground[:, None] > 0,
-        ),
+        [np.zeros(len(bins)) if e is None else e["kernel"].sum(axis=0) for e in electrodes],
         axis=1,
     )
-    # The last electrode with spikes at each bin; a draw that rounds past it is put there
-    last_electrode = len(electrodes) - 1 - np.argmax(electrode_ground[:, ::-1] > 0, axis=1)
+    ground = electrode_ground.sum(axis=1)
+
+    def draw(weights, state_bins, rng):
+        """An index for each state bin, in proportion to that bin's row of ``weights``."""
+        uniform = rng.random(len(state_bins))
+        choice = np.empty(len(state_bins), dtype=int)
+        for state_bin in np.unique(state_bins):
+            rows = state_bins == state_bin
+            cdf = np.cumsum(weights[state_bin])
+            # side="right" skips zero weights; rounding can pass the last positive one
+            index = np.searchsorted(cdf, uniform[rows] * cdf[-1], side="right")
+            choice[rows] = np.minimum(index, np.flatnonzero(weights[state_bin])[-1])
+        return choice
 
     def log_mark_intensity(marks):
         marks = np.asarray(marks, dtype=float)
-        electrode_ids = marks[:, 0] if marks.ndim == 2 else None
-        if (
-            marks.ndim != 2
-            or marks.shape[1] != 1 + n_features
-            or not np.all(np.isin(electrode_ids, np.arange(len(electrodes))))
-        ):
-            msg = (
-                f"marks must have shape (n, {1 + n_features}): an electrode index in "
-                f"0..{len(electrodes) - 1} (the encoding model's order), then the features"
-            )
+        if marks.ndim != 2 or marks.shape[1] != 1 + n_features:
+            msg = f"marks must have shape (n, {1 + n_features}): the electrode, then the features"
+            raise ValueError(msg)
+        electrode_ids = marks[:, 0]
+        if not np.all(np.isin(electrode_ids, np.arange(len(electrodes)))):
+            msg = f"electrodes must be indices 0..{len(electrodes) - 1}, in the encoding model's order"
             raise ValueError(msg)
         out = np.full((len(marks), len(bins)), -np.inf)
         for index, electrode in enumerate(electrodes):
-            rows = marks[:, 0] == index
-            if electrode is None or not rows.any():
+            rows = np.flatnonzero(electrode_ids == index)
+            if electrode is None:
                 continue
-            # log K_wf(y, f_j), (n, n_encoding); factor out each mark's largest term
-            log_waveform = norm.logpdf(
-                marks[rows, None, 1:], electrode["features"], electrode["waveform_std"]
-            ).sum(-1)
-            largest = log_waveform.max(axis=1, keepdims=True)
-            with np.errstate(divide="ignore"):
-                out[rows] = largest + np.log(
-                    np.exp(log_waveform - largest) @ electrode["kernel"]
-                )
+            for start in range(0, len(rows), chunk_size):
+                chunk = rows[start : start + chunk_size]
+                # log K_wf(y, f_j), (n, n_encoding); factor out each mark's largest term
+                log_waveform = norm.logpdf(
+                    marks[chunk, None, 1:], electrode["features"], waveform_std
+                ).sum(-1)
+                largest = log_waveform.max(axis=1, keepdims=True)
+                with np.errstate(divide="ignore"):
+                    out[chunk] = largest + np.log(
+                        np.exp(log_waveform - largest) @ electrode["kernel"]
+                    )
         return out
 
     def sample_marks(state_bins, rng):
         marks = np.empty((len(state_bins), 1 + n_features))
-        which = (electrode_cdf[state_bins] <= rng.random(len(state_bins))[:, None]).sum(1)
-        marks[:, 0] = np.minimum(which, last_electrode[state_bins])
+        marks[:, 0] = draw(electrode_ground, state_bins, rng)
         for index, electrode in enumerate(electrodes):
             rows = np.flatnonzero(marks[:, 0] == index)
             if electrode is None or not len(rows):
                 continue
-            cdf = electrode["spike_cdf"][state_bins[rows]]
-            spike = np.minimum(
-                (cdf <= rng.random(len(rows))[:, None]).sum(1),
-                electrode["last_spike"][state_bins[rows]],
-            )
-            marks[rows, 1:] = rng.normal(
-                electrode["features"][spike], electrode["waveform_std"]
-            )
+            spike = draw(electrode["kernel"].T, state_bins[rows], rng)
+            marks[rows, 1:] = rng.normal(electrode["features"][spike], waveform_std)
         return marks
 
     return MarkModel(log_mark_intensity, sample_marks, ground)
