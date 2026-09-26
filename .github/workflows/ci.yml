@@ -13,6 +13,10 @@ on:
     branches:
       - main
   workflow_dispatch:
+  # Weekly, to catch breakage from new releases and nightly builds of the
+  # dependencies (Scientific Python SPEC 4)
+  schedule:
+    - cron: "0 6 * * 1"
 
 # Read-only by default (Scientific Python SPEC 8); the publish and release jobs
 # elevate only the scopes they need.
@@ -122,8 +126,10 @@ jobs:
         # One resolver call, so a test dependency cannot silently upgrade a
         # pinned floor; a conflict fails the job instead. scipy 1.11.0 is
         # yanked, so 1.11.1 is the lowest release a `>=1.11.1` user resolves.
+        # matplotlib 3.8.0 calls pyparsing APIs that pyparsing 3.3 deprecates;
+        # pin a contemporary pyparsing so warnings can stay errors.
         run: |
-          pip install numpy==1.26.0 scipy==1.11.1 matplotlib==3.8.0 \
+          pip install numpy==1.26.0 scipy==1.11.1 matplotlib==3.8.0 "pyparsing<3.3" \
             -e . pytest pytest-cov hypothesis
           pip check
       - name: Assert the floors were not upgraded
@@ -134,11 +140,31 @@ jobs:
           assert got == ("1.26.0", "1.11.1", "3.8.0"), got
           EOF
       - name: Run tests
-        # pyproject.toml turns every warning into an error, but the old floor
-        # releases emit their own deprecation warnings (matplotlib 3.8.0 with
-        # a current pyparsing), which are not this package's to fix. Warnings
-        # are disabled for this job only; the matrix keeps them as errors.
-        run: pytest --no-cov -p no:warnings
+        run: pytest --no-cov
+
+  test-nightly:
+    # Against the nightly builds of numpy, scipy and matplotlib, to see
+    # upcoming breakage early; only on the weekly schedule and on demand.
+    name: Test against nightly dependencies
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.13"
+      - name: Install with nightly numpy, scipy and matplotlib
+        run: |
+          pip install -e .[dev]
+          pip install --pre --upgrade \
+            --extra-index-url https://pypi.anaconda.org/scientific-python-nightly-wheels/simple \
+            numpy scipy matplotlib
+          python -c "import numpy, scipy, matplotlib; print(numpy.__version__, scipy.__version__, matplotlib.__version__)"
+      - name: Run tests
+        run: pytest --no-cov
 
   build:
     name: Build distribution

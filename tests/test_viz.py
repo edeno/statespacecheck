@@ -98,7 +98,7 @@ class TestPlotDiagnostics:
 
         spans = list(fig.axes[0].patches)
         assert len(spans) == 1
-        assert spans[0].get_width() > 0
+        assert spans[0].get_extents().width > 0  # Polygon on matplotlib 3.8, Rectangle later
         plt.close(fig)
 
     def test_import_does_not_load_pyplot(self) -> None:

@@ -191,6 +191,7 @@ source = ["src/statespacecheck"]
 omit = ["*/_version.py"]
 
 [tool.coverage.report]
+fail_under = 95
 exclude_lines = [
     "pragma: no cover",
     "def __repr__",
