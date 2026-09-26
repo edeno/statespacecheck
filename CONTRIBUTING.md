@@ -133,7 +133,8 @@ pull requests and updates their versions monthly.
 ## Continuous Integration
 
 `.github/workflows/ci.yml` runs on pull requests and pushes to `main`, on
-`v*` tags, and on demand (Actions → CI → Run workflow). Its jobs:
+`v*` tags, weekly (Monday 06:00 UTC), and on demand (Actions → CI → Run
+workflow). Its jobs:
 
 1. **Code Quality** (`quality`): `ruff format --check`, `ruff check` and
    `mypy` from the locked environment (`uv sync --frozen`), and
@@ -143,9 +144,12 @@ pull requests and updates their versions monthly.
    warnings as errors; coverage goes to Codecov from Python 3.12 on Linux.
 4. **Dependency floors** (`test-minimum-pins`): the tests on Python 3.10 with
    the lowest NumPy, SciPy and matplotlib that `pyproject.toml` allows.
-5. **Build** (`build`) and **install tests** (`test-package`): builds the wheel
+5. **Nightly dependencies** (`test-nightly`): the tests against the nightly
+   builds of NumPy, SciPy and matplotlib; on the weekly schedule and on demand
+   only.
+6. **Build** (`build`) and **install tests** (`test-package`): builds the wheel
    and sdist, then installs each and runs a smoke test.
-6. **Publish** and **GitHub release**: on `v*` tags only; see below.
+7. **Publish** and **GitHub release**: on `v*` tags only; see below.
 
 `.github/workflows/docs.yml` runs on every pull request and push to `main`: it
 executes the tutorial notebooks, checks that their committed text outputs match
