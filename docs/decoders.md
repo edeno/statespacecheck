@@ -50,19 +50,19 @@ For a fitted sorted-spikes model from
 predictive distribution is `results.predictive_posterior` from
 `model.predict(..., return_outputs="predictive_posterior")`, and
 the place fields are stored one unit per row, over all position bins. Keep only the
-bins on the track, and transpose the place fields. Assign spikes to time bins with the
-decoding bin edges `time_edges` passed to `predict`, not with `results.time`, which holds
-the bins' centers:
+bins on the track, and transpose the place fields. Assign spikes to time bins as the
+decoder does, with the `time` passed to `predict`. (A coming `non_local_detector`
+release takes the decoding bin edges `time_edges` instead, and `results.time` then holds
+the bins' centers; use the same code with `time_edges` in place of `time`.)
 
 <!-- not-executed -->
 ```python
 import numpy as np
 import statespacecheck as ssc
 
-# predict returns only the smoother posterior unless asked for the predictive one;
-# time_edges are the decoding bin edges, shape (n_time + 1,)
+# predict returns only the smoother posterior unless asked for the predictive one
 results = model.predict(
-    spike_times=spike_times, time_edges=time_edges, return_outputs="predictive_posterior"
+    spike_times=spike_times, time=time, return_outputs="predictive_posterior"
 )
 predictive = results.predictive_posterior.dropna("state_bins")  # on-track bins only
 
@@ -79,12 +79,11 @@ on_track = np.asarray(model.is_track_interior_state_bins_, dtype=bool)
 on_track = on_track.reshape(-1, n_positions)[0]
 place_fields = place_fields[:, on_track].T  # (n_bins, n_units)
 
-# The decoder's convention: bin i holds the spikes in [time_edges[i], time_edges[i + 1]),
-# and the last bin also a spike at time_edges[-1]; spikes outside the edges are not used
-# (np.digitize alone would put them in the first or last bin)
+# The decoder's convention: it uses only the spikes in [time[0], time[-1]] and assigns
+# them to time bins with np.digitize (other spikes would be put in the first or last bin)
 decoded_spikes = [np.asarray(t) for t in spike_times]
-decoded_spikes = [t[(t >= time_edges[0]) & (t <= time_edges[-1])] for t in decoded_spikes]
-event_time_ind = np.concatenate([np.digitize(t, time_edges[1:-1]) for t in decoded_spikes])
+decoded_spikes = [t[(t >= time[0]) & (t <= time[-1])] for t in decoded_spikes]
+event_time_ind = np.concatenate([np.digitize(t, time[1:-1]) for t in decoded_spikes])
 event_marks = np.concatenate([np.full(len(t), u) for u, t in enumerate(decoded_spikes)])
 
 diagnostics = ssc.event_diagnostics(predictive, place_fields, event_time_ind, event_marks)
@@ -267,22 +266,20 @@ Applied to a fitted model and its predictive distribution:
 ```python
 mark_model = clusterless_kde_model(model.encoding_model_[("", 0)])
 # predictive: (n_time, n_bins) on the interior bins, as in the example above.
-# The spikes the decoder used, those within the decoding edges, electrode by electrode
-# in the encoding model's order; the time bins and marks are built in the same order
-in_bounds = [(t >= time_edges[0]) & (t <= time_edges[-1]) for t in spike_times]
+# The spikes the decoder used, those in [time[0], time[-1]], electrode by electrode in
+# the encoding model's order; the time bins and marks are built in the same order
+in_bounds = [(t >= time[0]) & (t <= time[-1]) for t in spike_times]
 decoded_times = [t[keep] for t, keep in zip(spike_times, in_bounds)]
 decoded_features = [f[keep] for f, keep in zip(spike_waveform_features, in_bounds)]
-event_time_ind = np.concatenate([np.digitize(t, time_edges[1:-1]) for t in decoded_times])
+event_time_ind = np.concatenate([np.digitize(t, time[1:-1]) for t in decoded_times])
 # Marks: the electrode index, then the waveform features. An electrode without spikes
 # adds no rows (and its features may not have the others' width), so it is skipped;
 # the other electrodes keep their indices
-observed_marks = np.concatenate(
-    [
-        np.column_stack([np.full(len(f), e), f])
-        for e, f in enumerate(decoded_features)
-        if len(f)
-    ]
-)
+blocks = [
+    np.column_stack([np.full(len(f), e), f]) for e, f in enumerate(decoded_features) if len(f)
+]
+observed_marks = np.concatenate(blocks) if blocks else np.empty((0, 1))  # no spikes
+
 check = ssc.monte_carlo_mark_pvalue(
     predictive[event_time_ind], mark_model, observed_marks, rng=0
 )
