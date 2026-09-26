@@ -305,9 +305,9 @@ def monte_carlo_mark_pvalue(
     then a mark at that state with ``sample_marks``. The comparison is made on
     log densities with a tolerance for their rounding error,
     ``16 * eps * (n_bins + M)``, where ``M`` bounds the magnitudes of the log
-    terms summed (``log P``, ``log lambda`` and ``log Lambda``, before they
-    cancel), so marks with equal predictive density count as ties at any
-    scale of the inputs (compare the tie tolerance of
+    terms that affect each sum (``log P``, ``log lambda`` and ``log Lambda``,
+    before they cancel), so marks with equal predictive density count as ties
+    at any scale of the inputs (compare the tie tolerance of
     :func:`~statespacecheck.mark_predictive_pvalue`). Small values mean the
     observed mark was unexpected given the prediction; an impossible mark
     gives 0.
