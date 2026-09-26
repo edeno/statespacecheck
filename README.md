@@ -6,305 +6,150 @@
 [![CI](https://github.com/edeno/statespacecheck/actions/workflows/ci.yml/badge.svg)](https://github.com/edeno/statespacecheck/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/edeno/statespacecheck/branch/main/graph/badge.svg)](https://codecov.io/gh/edeno/statespacecheck)
 
-**Goodness-of-fit diagnostics for state space models in neuroscience**
+**Local goodness-of-fit diagnostics for state space models: find the observations, down
+to individual spikes, where a decoder disagrees with the data.**
 
-`statespacecheck` provides tools to assess how well Bayesian state space models fit neural data by examining the consistency between posterior distributions and their component likelihood distributions. These diagnostics help identify issues with prior specification and model assumptions, enabling iterative model refinement.
+<!-- --8<-- [start:intro] -->
+A state space model decodes a latent state (for example an animal's position) by
+combining a prediction from the past with the evidence in each new observation.
+`statespacecheck` asks, for every observation, whether the two agree: does the
+observation fall where the model's one-step prediction expected it? Global scores
+such as the likelihood of a whole session cannot say *when* a model fails; these
+diagnostics can, so a misfit can be traced to a period, a behavior, or a part of the
+model.
 
-## Overview
-
-State space models are powerful tools for relating neural activity to latent dynamic brain states (e.g., memory, attention, spatial navigation). The core assumption is that complex, high-dimensional neural activity can be related to low-dimensional latent states through:
-
-1. **State transition model**: How latent states evolve over time
-2. **Observation model**: How neural activity relates to the current latent state
-
-The posterior distribution combines information from both models, weighing current data (normalized likelihood) against accumulated history (prediction distribution). When these distributions agree, the model's prior expectations and data-driven evidence are consistent. When they diverge, the mismatch reveals where and when the model fails to capture the structure of the data.
-
-## Features
-
-- **KL Divergence**: Measure information divergence between posterior and likelihood distributions at each time point
-- **HPD Overlap**: Compute spatial overlap between highest posterior density regions
-- **Per-spike diagnostics**: For spike trains and other marked point-process data, compute HPD overlap, KL divergence, and an exact predictive p-value for every event
-- **Vectorized Operations**: Efficient NumPy-based implementation with no Python loops
-- **Flexible Dimensionality**: Supports both 1D `(n_time, n_position_bins)` and 2D `(n_time, n_x_bins, n_y_bins)` spatial arrays
-- **Robust Edge Case Handling**: Proper treatment of NaN values, zero sums, and empty distributions
-
-## Terminology
-
-This package uses specific terminology to match standard state space model conventions:
-
-### State Distributions (`state_dist` parameter)
-
-- **One-step-ahead predictive distribution**: p(x_t | y_{1:t-1}) - The distribution over current state given all past observations
-- **Smoothed distribution**: p(x_t | y_{1:T}) - The distribution over state at time t given all observations (past and future)
-- **Filtered distribution**: p(x_t | y_{1:t}) - The posterior distribution at time t (filtered estimate)
-
-For goodness-of-fit diagnostics, you typically use the **one-step predictive** or **smoothed** distribution as `state_dist`. These represent your model's predictions before (predictive) or after (smoother) incorporating all available data.
-
-### Likelihood (`likelihood` parameter)
-
-- **Normalized likelihood**: p(y_t | x_t) / Σ_x p(y_t | x_t) - The likelihood normalized across spatial positions
-- This is mathematically equivalent to the posterior p(x_t | y_t) with a uniform prior
-- Represents what your data alone says about the state, without temporal smoothing
-
-### Important Note: Discrete Distributions
-
-All functions expect **discrete probability distributions** represented as histograms over spatial bins. For continuous distributions (e.g., Gaussian), discretize them first:
-
-- Distributions are **automatically normalized** over valid (non-NaN) bins
-- Each bin represents the probability mass in that spatial region
-- **NaN values** can be used to mark invalid/inaccessible spatial bins (e.g., walls in a maze)
-- Finer binning provides better approximation but increases computation
-
-### Interpretation
-
-- **Consistency**: When state distribution and likelihood agree (low KL divergence, high overlap), your model's predictions align with the data
-- **Inconsistency**: When they diverge, it indicates:
-  - Prior/transition model may be too rigid or misspecified
-  - Observation model may not capture the true relationship between states and observations
-  - Model capacity may be insufficient
+The package implements the methods of the paper *Local goodness-of-fit measures for
+neural decoding* (Zeng, Comrie, Frank, Eden and Denovellis). Its analysis code and an
+interactive website are at
+[statespacecheck-paper](https://github.com/edeno/statespacecheck-paper) and
+<https://edeno.github.io/statespacecheck-paper/>.
+<!-- --8<-- [end:intro] -->
 
 ## Installation
 
 ```bash
-# Using uv (recommended)
-uv pip install -e .
-
-# Using pip
-pip install -e .
+pip install statespacecheck
 ```
 
-## Quick Start
+## Quick start
 
-### Basic Example
+<!-- --8<-- [start:quickstart] -->
+Given a decoder's one-step predictive distribution, each unit's firing rate at each
+position, and which unit fired in which time bin, compute three diagnostics for every
+spike and flag the poorly fit ones. Here a simulated decoder predicts the animal's
+position correctly in the first half of the recording and the mirror-image position
+in the second half:
 
 ```python
 import numpy as np
-from statespacecheck import (
-    kl_divergence,
-    hpd_overlap,
-    highest_density_region,
+import statespacecheck as ssc
+
+rng = np.random.default_rng(0)
+position = np.linspace(0, 100, 51)  # position bins (cm)
+n_time, n_units, dt = 2000, 20, 0.02  # time bins, units, bin width (s)
+
+# Place fields: firing rate (Hz) of each unit at each position, (n_bins, n_units)
+centers = np.linspace(0, 100, n_units)
+place_fields = 0.1 + 20 * np.exp(-0.5 * ((position[:, None] - centers) / 8) ** 2)
+
+# The animal runs back and forth; spikes follow the place fields
+true_position = 50 + 45 * np.sin(np.arange(n_time) * dt * 0.6)
+true_bin = np.abs(position[:, None] - true_position).argmin(axis=0)
+spike_counts = rng.poisson(place_fields[true_bin] * dt)  # (n_time, n_units)
+time_bin, unit = np.nonzero(spike_counts)
+n_spikes = spike_counts[time_bin, unit]
+time_ind, unit = np.repeat(time_bin, n_spikes), np.repeat(unit, n_spikes)  # one per spike
+
+# A decoder's one-step predictive distribution, (n_time, n_bins): it tracks the
+# animal in the first half and predicts the mirror-image position in the second
+predicted = np.where(np.arange(n_time) < n_time // 2, true_position, 100 - true_position)
+predictive = np.exp(-0.5 * ((position - predicted[:, None]) / 5) ** 2)
+predictive /= predictive.sum(axis=1, keepdims=True)
+
+# Diagnostics for every spike; thresholds from a baseline period; flags
+diagnostics = ssc.event_diagnostics(predictive, place_fields, time_ind, unit)
+baseline = time_ind < n_time // 4
+flags = ssc.flag_events(
+    diagnostics,
+    hpd_overlap_threshold=ssc.baseline_threshold(diagnostics.hpd_overlap[baseline], 0.01),
 )
-
-# Example: 1D spatial arrays (time x position)
-n_time, n_bins = 100, 50
-state_dist = np.random.dirichlet(np.ones(n_bins), size=n_time)  # predictive or smoother
-likelihood = np.random.dirichlet(np.ones(n_bins), size=n_time)
-
-# Compute KL divergence at each time point
-kl_div = kl_divergence(state_dist, likelihood)
-# Returns: (n_time,) array of divergence values
-
-# Compute HPD region overlap
-overlap = hpd_overlap(state_dist, likelihood, coverage=0.95)
-# Returns: (n_time,) array of overlap proportions (0 = no overlap, 1 = complete)
-
-# Get highest density region mask
-hd_mask = highest_density_region(state_dist, coverage=0.95)
-# Returns: (n_time, n_bins) boolean mask
+misfit = time_ind >= n_time // 2
+for name, flagged in [
+    ("HPD overlap", flags.hpd_overlap),
+    ("p-value", flags.predictive_pvalue),
+]:
+    print(
+        f"{name:12s} flagged: {flagged[~misfit].mean():.0%} of spikes before, "
+        f"{flagged[misfit].mean():.0%} during the misfit"
+    )
 ```
 
-### Neuroscience Example
-
-```python
-import numpy as np
-from scipy.stats import norm
-from statespacecheck import kl_divergence, hpd_overlap
-
-# Assume you have state space model output for spatial navigation task
-# with position bins representing locations in a linear track
-
-# Position bins (e.g., 50 cm track discretized into 100 bins)
-position_bins = np.linspace(0, 50, 100)  # cm
-n_time = 1000  # Number of time steps
-
-# Example: One-step-ahead predictive distribution from Kalman filter
-# predicted_position: (n_time,) array of predicted positions in cm
-# predicted_std: (n_time,) array of prediction uncertainty
-predicted_position = 25 + 10 * np.sin(np.linspace(0, 4 * np.pi, n_time))
-predicted_std = np.ones(n_time) * 2.0
-
-# Convert to spatial probability distribution over position bins
-# Note: Distributions are automatically normalized, no need to normalize manually
-state_dist = np.array(
-    [
-        norm.pdf(position_bins, loc=pred_pos, scale=pred_std)
-        for pred_pos, pred_std in zip(predicted_position, predicted_std)
-    ]
-)
-
-# Example: Likelihood from place cell firing (observation model)
-# spike_counts: (n_cells, n_time) array of spike counts
-# place_fields: (n_cells, n_bins) array of firing rate maps
-# For this example, we'll simulate the likelihood
-# Note: Automatically normalized, no manual normalization needed
-likelihood = np.array(
-    [
-        norm.pdf(position_bins, loc=pred_pos + np.random.randn(), scale=3.0)
-        for pred_pos in predicted_position
-    ]
-)
-
-# Assess goodness-of-fit
-divergence = kl_divergence(state_dist, likelihood)
-overlap = hpd_overlap(state_dist, likelihood, coverage=0.95)
-
-# Interpret results
-print(f"Mean KL divergence: {np.mean(divergence):.3f}")
-print(f"Mean HPD overlap: {np.mean(overlap):.3f}")
-
-# Identify time points with poor fit
-high_divergence = divergence > 1.0
-low_overlap = overlap < 0.3
-print(f"Time points with high divergence: {np.sum(high_divergence)}/{n_time}")
-print(f"Time points with low overlap: {np.sum(low_overlap)}/{n_time}")
+```text
+HPD overlap  flagged: 2% of spikes before, 81% during the misfit
+p-value      flagged: 2% of spikes before, 85% during the misfit
 ```
+<!-- --8<-- [end:quickstart] -->
 
-### Per-Spike Diagnostics
+The [per-event tutorial](https://edeno.github.io/statespacecheck/tutorials/05_per_event_diagnostics/)
+walks through this workflow with a real filter, and the
+[decoder guide](https://edeno.github.io/statespacecheck/decoders/) shows how to get
+these inputs from your own decoder.
 
-For spike-sorted data decoded with a point-process observation model, each
-spike's likelihood is its unit's place field (intensity) normalized over
-position. `event_diagnostics` compares that single-spike likelihood with the
-one-step predictive distribution of the spike's time bin, and evaluates the
-predictive check exactly over the finite set of units:
+<!-- --8<-- [start:reading] -->
+## What your decoder provides
 
-```python
-import numpy as np
-from statespacecheck import baseline_threshold, event_diagnostics
+| Argument | Shape | What it is |
+| --- | --- | --- |
+| `predictive` | `(n_time, n_bins)` or `(n_time, n_x, n_y)` | The one-step predictive distribution p(x_t \| y_1:t-1) in each time bin |
+| `mark_intensities` | `(n_bins, n_units)` or `(n_x, n_y, n_units)` | Each unit's firing rate at each position (its place field) |
+| `event_time_ind` | `(n_spikes,)` | The time bin of each spike (an integer index) |
+| `event_marks` | `(n_spikes,)` | The unit of each spike (an integer index) |
 
-# predictive:   (n_time, n_bins) one-step predictive distribution from your decoder
-# place_fields: (n_bins, n_units) expected spike count of each unit in each position bin
-# spike_time_ind, spike_unit: (n_spikes,) time bin and unit of each spike
-result = event_diagnostics(predictive, place_fields, spike_time_ind, spike_unit)
-result.hpd_overlap  # (n_spikes,) low values indicate poor local fit
-result.kl_divergence  # (n_spikes,) high values indicate poor local fit
-result.predictive_pvalue  # (n_spikes,) low values indicate poor local fit
+Common pitfalls:
 
-# Flag spikes against thresholds from a period where the model is trusted
-baseline = spike_time_ind < n_baseline_bins
-hpd_threshold = baseline_threshold(result.hpd_overlap[baseline], 0.01)
-flagged = (result.hpd_overlap <= hpd_threshold) | (result.predictive_pvalue <= 0.05)
-```
+- **Place fields stored one unit per row**, `(n_units, n_bins)`: pass `place_fields.T`.
+- **Positions outside the track** marked NaN: the per-event functions need finite
+  values, so keep only the valid bins in both arrays.
+- **Switching models** (for example continuous and fragmented dynamics): sum the
+  predictive distribution over the discrete states first, so every model is compared
+  on the same position grid.
+- **Spike times**: `event_time_ind` holds bin indices; convert times with
+  `np.digitize(spike_times, time_bin_edges) - 1`.
 
-The building blocks are also available individually: `event_likelihood`,
-`predictive_mark_probabilities`, and `mark_predictive_pvalue`.
+## Reading the results
 
-## API Reference
+| Diagnostic | Measures | Poor fit when | The paper's rule |
+| --- | --- | --- | --- |
+| HPD overlap | Overlap of the 95% highest-density regions of the prediction and the spike's likelihood | Low | At or below the 1st percentile of a baseline period (`baseline_threshold`), or a fixed cutoff |
+| Predictive p-value | How unexpected the unit that fired is, given the prediction | Low | At or below 0.05 |
+| KL divergence | How different the two distributions are | High | A reference only: it is also large when a broad prediction is consistent with a precise spike |
 
-### `kl_divergence(state_dist, likelihood)`
+The diagnostics measure *consistency*, not similarity: a spike is consistent with the
+prediction when it falls where the prediction put probability, even if the prediction is
+much broader. See [Interpreting the diagnostics](https://edeno.github.io/statespacecheck/interpretation/).
+<!-- --8<-- [end:reading] -->
 
-Compute Kullback-Leibler divergence between state distribution and likelihood.
+## The paper's quantities in the package
 
-**Parameters:**
+| Paper | Function |
+| --- | --- |
+| Normalized single-event likelihood | `event_likelihood` |
+| HPD overlap (Szymkiewicz–Simpson overlap of 95% HPD regions) | `hpd_overlap`, `highest_density_region` |
+| KL divergence D(predictive ‖ likelihood) | `kl_divergence` |
+| Predictive distribution over units | `predictive_mark_probabilities` |
+| Rank-based predictive p-value (exact sum over units) | `mark_predictive_pvalue` |
+| All three diagnostics for every spike | `event_diagnostics` |
+| Thresholds from a baseline period; flagging | `baseline_threshold`, `flag_events` |
 
-- `state_dist` (np.ndarray): State distributions (one-step predictive or smoother). Non-negative values, automatically normalized. NaN marks invalid bins. Shape `(n_time, ...)` where `...` represents arbitrary spatial dimensions
-- `likelihood` (np.ndarray): Likelihood distributions. Non-negative values, automatically normalized. NaN marks invalid bins. Must have same shape as state_dist
+The package also has tools the paper does not use: time-bin versions of the diagnostics
+for a whole-bin likelihood, run-based flagging of time series (`statespacecheck.periods`),
+a generic Monte Carlo predictive check (`predictive_pvalue`), and `plot_diagnostics`. The
+[API reference](https://edeno.github.io/statespacecheck/reference/) marks which is which.
 
-**Returns:**
+## Documentation
 
-- `kl_divergence` (np.ndarray): KL divergence at each time point. Shape `(n_time,)`
-
-**Interpretation:**
-
-- **Low divergence (< 0.1)**: State distribution and likelihood agree well, indicating consistency between prior and data
-- **Moderate divergence (0.1 - 1.0)**: Some disagreement, worth investigating
-- **High divergence (> 1.0)**: Substantial mismatch, suggests issues with prior specification or observation model
-
-### `hpd_overlap(state_dist, likelihood, coverage=0.95)`
-
-Compute overlap between highest posterior density regions.
-
-**Parameters:**
-
-- `state_dist` (np.ndarray): State distributions (one-step predictive or smoother). Non-negative values, automatically normalized. NaN marks invalid bins. Shape `(n_time, ...)` where `...` represents arbitrary spatial dimensions
-- `likelihood` (np.ndarray): Likelihood distributions. Non-negative values, automatically normalized. NaN marks invalid bins. Must have same shape as state_dist
-- `coverage` (float): Coverage probability for HPD regions (default: 0.95)
-
-**Returns:**
-
-- `overlap` (np.ndarray): Overlap proportion at each time point. Shape `(n_time,)`. Values range from 0 (no overlap) to 1 (complete overlap)
-
-**Interpretation:**
-
-- **High overlap (> 0.7)**: State distribution and likelihood concentrate probability mass in similar regions
-- **Moderate overlap (0.3 - 0.7)**: Partial agreement, may indicate transition periods or model uncertainty
-- **Low overlap (< 0.3)**: Distributions are spatially inconsistent, suggests model issues
-
-### `highest_density_region(distribution, coverage=0.95)`
-
-Compute boolean mask indicating highest density region membership.
-
-**Parameters:**
-
-- `distribution` (np.ndarray): Probability distributions. Shape `(n_time, ...)` where `...` represents arbitrary spatial dimensions
-- `coverage` (float): Desired coverage probability (default: 0.95)
-
-**Returns:**
-
-- `isin_hd` (np.ndarray): Boolean mask. Same shape as input
-
-**Notes:**
-
-- Highest density regions can be multimodal (non-contiguous)
-- Regions are defined by selecting positions with highest density until cumulative mass reaches coverage
-- NaN values are treated as zero mass
-
-## Development
-
-### Setup
-
-```bash
-# Create the environment: the package in editable mode plus the dev tools,
-# at the versions pinned in uv.lock
-uv sync
-```
-
-`uv run <command>` runs a command in that environment; there is no nox or tox
-file. See [CONTRIBUTING.md](CONTRIBUTING.md) for the full workflow.
-
-### Running Tests
-
-```bash
-# Run the tests and the docstring examples, with coverage
-uv run pytest
-
-# Run a specific test file
-uv run pytest tests/test_state_consistency.py -v
-```
-
-### Code Quality
-
-```bash
-# Check code style
-uv run ruff check .
-
-# Format code
-uv run ruff format .
-
-# Type checking (strict)
-uv run mypy
-```
-
-### Standards
-
-- **Python**: 3.10+ (following [SPEC 0](https://scientific-python.org/specs/spec-0000/))
-- **Dependencies**: numpy>=1.26.0, scipy>=1.11.1, matplotlib>=3.8.0
-- **Docstrings**: NumPy format with parameter types and return values
-- **Type hints**: Full mypy strict mode compliance
-- **Style**: ruff for formatting and linting (95 char line length)
-- **No `# type: ignore`**: Fix type issues by refactoring, not suppressing
-
-## Scientific Context
-
-This package implements goodness-of-fit diagnostics for state space models used in neuroscience. The methods are based on the principle that a well-specified model should have consistent posterior and likelihood distributions. Large divergences or low overlap indicate:
-
-1. **Prior issues**: State transition model too rigid or misspecified
-2. **Observation model issues**: Tuning curves or noise assumptions incorrect
-3. **Model capacity**: Latent state dimensionality insufficient
-
-These diagnostics complement but are distinct from:
-
-- **Cross-validation**: Measures predictive generalization to new data
-- **Permutation tests**: Assess whether model captures structure vs. random patterns
+<https://edeno.github.io/statespacecheck>: tutorials, interpreting the diagnostics,
+using the package with your decoder, and the API reference.
 
 ## Citation
 
@@ -322,27 +167,13 @@ the repository records the version and release date:
 
 A DOI will be added once releases are archived on Zenodo.
 
-The methods are described in the companion paper, *Local goodness-of-fit
-measures for neural decoding* (Zeng, Comrie, Frank, Eden and Denovellis), whose
-analysis code is at <https://github.com/edeno/statespacecheck-paper>.
+Please also cite the companion paper for the methods: *Local goodness-of-fit measures
+for neural decoding* (Zeng, Comrie, Frank, Eden and Denovellis); its analysis code is
+at <https://github.com/edeno/statespacecheck-paper>.
 <!-- --8<-- [end:citation] -->
 
-## License
+## Contributing and license
 
-MIT License - see LICENSE file for details.
-
-## Contributing
-
-Contributions are welcome! Please:
-
-1. Fork the repository
-2. Create a feature branch
-3. Add tests for new functionality
-4. Ensure all tests pass and code meets quality standards
-5. Submit a pull request
-
-## References
-
-- Auger-Méthé, M., et al. (2021). A guide to state-space modeling of ecological time series. *Ecological Monographs*, 91(4), e01470.
-- Newman, K. B., & Thomas, L. (2014). Goodness of fit for state-space models. In *Statistical Inference from Stochastic Processes* (pp. 153-191).
-- Gelman, A., et al. (2020). *Bayesian Data Analysis* (3rd ed.). CRC Press.
+Contributions are welcome; see
+[CONTRIBUTING.md](https://github.com/edeno/statespacecheck/blob/main/CONTRIBUTING.md).
+MIT License.
