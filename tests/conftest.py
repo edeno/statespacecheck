@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
+from helpers import integer_mark_model, unit_sampler
 from scipy.stats import norm
 
 from statespacecheck import MarkModel
@@ -27,17 +28,7 @@ def discrete_mark_model():
     x = np.linspace(0.0, 1.0, 50)
     centers = np.random.default_rng(0).random(12)
     rates = 0.2 + 10.0 * np.exp(-0.5 * ((x[:, None] - centers) / 0.1) ** 2)
-    cumulative = np.cumsum(rates / rates.sum(axis=1, keepdims=True), axis=1)
-
-    def log_mark_intensity(marks):
-        return np.log(rates[:, np.asarray(marks)].T)
-
-    def sample_marks(bins, rng):
-        u = rng.random(len(bins))
-        # Inverse CDF: the first unit whose cumulative probability exceeds u
-        return np.minimum((cumulative[bins] <= u[:, None]).sum(axis=1), rates.shape[1] - 1)
-
-    return rates, MarkModel(log_mark_intensity, sample_marks, rates.sum(axis=1))
+    return rates, integer_mark_model(rates)
 
 
 @pytest.fixture(scope="session")
@@ -54,7 +45,7 @@ def clusterless_1d_model():
     waveform_means = np.linspace(1.0, 4.0, 6)
     sigma = 0.3
     ground_intensity = place_fields.sum(axis=1)
-    cumulative = np.cumsum(place_fields / ground_intensity[:, None], axis=1)
+    sample_unit = unit_sampler(place_fields)
 
     def log_mark_intensity(marks):
         # log sum_u r_u(x) N(y; mu_u, sigma), shape (n, n_bins), with the largest
@@ -65,9 +56,7 @@ def clusterless_1d_model():
         return largest + np.log(np.exp(log_amplitude - largest) @ place_fields.T)
 
     def sample_marks(bins, rng):
-        u = rng.random(len(bins))
-        unit = np.minimum((cumulative[bins] <= u[:, None]).sum(axis=1), len(centers) - 1)
-        return rng.normal(waveform_means[unit], sigma)[:, None]
+        return rng.normal(waveform_means[sample_unit(bins, rng)], sigma)[:, None]
 
     return SimpleNamespace(
         position=position,

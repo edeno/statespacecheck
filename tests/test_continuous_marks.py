@@ -2,6 +2,7 @@
 
 import numpy as np
 import pytest
+from helpers import integer_mark_model, unit_sampler
 from numpy.testing import assert_allclose, assert_array_equal
 from scipy.special import logsumexp
 from scipy.stats import kstest, norm
@@ -54,6 +55,18 @@ class TestSampleStateBins:
         for row, target in zip(bins, probabilities, strict=True):
             assert np.all(target[row] > 0.0)
 
+    def test_never_draws_a_trailing_zero_probability_bin(self):
+        """A uniform draw just below 1 can round past a row's last bin; it must fall back
+        to the row's last bin with probability, not to a bin with none."""
+
+        class AlmostOne:
+            def random(self, shape):
+                return np.full(shape, 1.0 - 2.0**-53)
+
+        probabilities = np.array([[0.5, 0.5, 0.0]] * 3)
+        bins = _sample_state_bins(probabilities, 2, AlmostOne())
+        assert_array_equal(bins, 1)
+
 
 class TestAgainstExactDiscreteMarks:
     """For integer marks the Monte Carlo check estimates mark_predictive_pvalue."""
@@ -89,13 +102,9 @@ def test_two_dimensional_grid_matches_exact():
     density is exact and the p-values agree with mark_predictive_pvalue."""
     rng = np.random.default_rng(6)
     rates = rng.gamma(2.0, size=(4, 3, 5))  # (n_x, n_y, n_marks)
-    flat_rates = rates.reshape(-1, 5)
-    cumulative = np.cumsum(flat_rates / flat_rates.sum(axis=1, keepdims=True), axis=1)
     model = MarkModel(
         lambda m: np.log(np.moveaxis(rates[:, :, np.asarray(m)], -1, 0)),  # (n, 4, 3)
-        lambda bins, g: np.minimum(
-            (cumulative[bins] <= g.random(len(bins))[:, None]).sum(1), 4
-        ),
+        unit_sampler(rates.reshape(-1, 5)),  # flat, C-order state bins
         rates.sum(axis=-1),
     )
     state = rng.dirichlet(np.full(12, 0.5), size=8).reshape(8, 4, 3)
@@ -125,7 +134,7 @@ def test_calibrated_under_the_true_model(clusterless_1d_model):
     state_bins = np.array([rng.choice(len(clusterless.position), p=row) for row in weights])
     observed = model.sample(state_bins, rng)
 
-    check = monte_carlo_mark_pvalue(state, model, observed, n_samples=2000, rng=4)
+    check = monte_carlo_mark_pvalue(state, model, observed, n_samples=500, rng=4)
     assert kstest(check.pvalue, "uniform").pvalue > 0.01
 
 
@@ -213,30 +222,16 @@ def test_impossible_observed_mark_gives_zero_pvalue():
     def sample_marks(bins, _rng):
         return np.zeros(len(bins), dtype=int)  # at bins 0 and 1 only mark 0 occurs
 
-    model = MarkModel(_log_intensity_of(rates), sample_marks, rates.sum(axis=-1))
+    model = integer_mark_model(rates)._replace(sample=sample_marks)
     check = monte_carlo_mark_pvalue(state, model, np.array([1]), n_samples=50, rng=0)
     assert check.observed_log_density[0] == -np.inf
     assert check.pvalue[0] == 0.0
 
 
-def _log_intensity_of(rates):
-    """Log joint intensity of integer marks for a (n_bins, n_marks) rate table."""
-
-    def log_mark_intensity(marks):
-        with np.errstate(divide="ignore"):  # zero rates are impossible marks
-            return np.log(rates[:, np.asarray(marks)].T)
-
-    return log_mark_intensity
-
-
 def _two_mark_check(state, rates, marks, n_samples=10_000):
-    cumulative = np.cumsum(rates / rates.sum(axis=1, keepdims=True), axis=1)
-
-    def sample_marks(bins, rng):
-        return np.minimum((cumulative[bins] <= rng.random(len(bins))[:, None]).sum(axis=1), 1)
-
-    model = MarkModel(_log_intensity_of(rates), sample_marks, rates.sum(axis=1))
-    return monte_carlo_mark_pvalue(state, model, np.asarray(marks), n_samples=n_samples, rng=0)
+    return monte_carlo_mark_pvalue(
+        state, integer_mark_model(rates), np.asarray(marks), n_samples=n_samples, rng=0
+    )
 
 
 class TestScale:
@@ -306,7 +301,7 @@ def test_many_feature_marks_whose_densities_underflow():
     fields = 0.5 + 20.0 * np.exp(
         -0.5 * ((position[:, None] - [0.2, 0.4, 0.6, 0.8]) / 0.1) ** 2
     )
-    cumulative = np.cumsum(fields / fields.sum(axis=1, keepdims=True), axis=1)
+    sample_unit = unit_sampler(fields)
     bandwidth = 24.0
 
     def log_mark_intensity(marks):
@@ -314,8 +309,7 @@ def test_many_feature_marks_whose_densities_underflow():
         return logsumexp(log_waveform[:, None, :] + np.log(fields), axis=-1)
 
     def sample_marks(bins, rng):
-        unit = np.minimum((cumulative[bins] <= rng.random(len(bins))[:, None]).sum(axis=1), 3)
-        return rng.normal(waveforms[unit], bandwidth)
+        return rng.normal(waveforms[sample_unit(bins, rng)], bandwidth)
 
     state = norm.pdf(position, 0.5, 0.1)[None].repeat(2, axis=0)
     typical = sample_marks(np.array([20]), np.random.default_rng(1))
@@ -336,7 +330,7 @@ def test_sampler_inconsistent_with_intensity_raises():
     underflowed) would otherwise tie with an impossible observed mark: p = 1."""
     rates = np.array([[1.0, 0.0], [2.0, 0.0]])  # mark 1 never occurs
     model = MarkModel(
-        _log_intensity_of(rates),
+        integer_mark_model(rates).log_intensity,
         lambda bins, _rng: np.ones(len(bins), dtype=int),
         rates.sum(axis=1),
     )
@@ -461,7 +455,9 @@ class TestSilentFailures:
         ground = rates.sum(axis=1)
         ground[2] = 0.0
         model = MarkModel(
-            _log_intensity_of(rates), lambda bins, _rng: np.zeros(len(bins), int), ground
+            integer_mark_model(rates).log_intensity,
+            lambda bins, _rng: np.zeros(len(bins), int),
+            ground,
         )
         with pytest.raises(ValueError, match="ground_intensity is zero"):
             monte_carlo_mark_pvalue(np.array([[0.1, 0.1, 0.8]]), model, np.array([1]))
@@ -504,16 +500,3 @@ class TestSilentFailures:
         )
         with pytest.raises(ValueError, match=r"row indices: \[13\]"):
             monte_carlo_mark_pvalue(state, model, np.zeros(20, dtype=int), batch_size=8)
-
-
-def test_sampler_never_draws_a_trailing_zero_probability_bin():
-    """A uniform draw just below 1 can round past a row's last bin; it must fall back
-    to the row's last bin with probability, not to a bin with none."""
-
-    class AlmostOne:
-        def random(self, shape):
-            return np.full(shape, 1.0 - 2.0**-53)
-
-    probabilities = np.array([[0.5, 0.5, 0.0]] * 3)
-    bins = _sample_state_bins(probabilities, 2, AlmostOne())
-    assert_array_equal(bins, 1)

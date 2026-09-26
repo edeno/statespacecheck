@@ -2,6 +2,8 @@
 
 import numpy as np
 
+from statespacecheck import MarkModel
+
 
 def make_random_distribution_1d(
     rng: np.random.Generator, n_time: int, n_bins: int
@@ -170,3 +172,29 @@ def sum_over_spatial(arr: np.ndarray) -> np.ndarray:
     """
     spatial_axes = tuple(range(1, arr.ndim))
     return arr.sum(axis=spatial_axes)
+
+
+def unit_sampler(rates: np.ndarray):
+    """A mark sampler that draws, for each state bin, a unit in proportion to its rate.
+
+    ``rates`` has shape ``(n_bins, n_units)``; the sampler takes flat state-bin
+    indices ``(n,)`` and a generator and returns unit indices ``(n,)``.
+    """
+    cumulative = np.cumsum(rates / rates.sum(axis=1, keepdims=True), axis=1)
+
+    def sample(bins: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+        u = rng.random(len(bins))
+        # Inverse CDF: the first unit whose cumulative probability exceeds u
+        return np.minimum((cumulative[bins] <= u[:, None]).sum(axis=1), rates.shape[1] - 1)
+
+    return sample
+
+
+def integer_mark_model(rates: np.ndarray) -> MarkModel:
+    """The MarkModel of integer marks (units) with rates ``(n_bins, n_units)``."""
+
+    def log_intensity(marks: np.ndarray) -> np.ndarray:
+        with np.errstate(divide="ignore"):  # zero rates are impossible marks
+            return np.log(rates[:, np.asarray(marks)].T)
+
+    return MarkModel(log_intensity, unit_sampler(rates), rates.sum(axis=1))
