@@ -81,7 +81,8 @@ def _sample_state_bins(
 This processes one batch of events. `state` has shape `(nb, n_bins)` and is the flattened `state_dist[start:stop]`; `marks` is `observed_marks[start:stop]`.
 
 ```python
-log_state = _safe_log(state)  # (nb, n_bins); the normalization cancels, and summing could overflow
+# Unnormalized: the normalization cancels, and summing the row could overflow
+log_state = _safe_log(state)  # (nb, n_bins)
 log_norm = logsumexp(log_state + _safe_log(ground_flat), axis=1)  # log Σ Λ P
 observed_intensity = _evaluate_intensity(mark_intensity, marks, nb, n_bins)
 observed_log = logsumexp(log_state + _safe_log(observed_intensity), axis=1) - log_norm
