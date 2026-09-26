@@ -308,6 +308,7 @@ These diagnostics complement but are distinct from:
 
 ## Citation
 
+<!-- --8<-- [start:citation] -->
 If you use this package in your research, please cite it. `CITATION.cff` holds
 the metadata (GitHub's *Cite this repository* button reads it):
 
@@ -326,6 +327,7 @@ A DOI will be added once releases are archived on Zenodo.
 The methods are described in the companion paper, *Local goodness-of-fit
 measures for neural decoding* (Zeng, Comrie, Frank, Eden and Denovellis), whose
 analysis code is at <https://github.com/edeno/statespacecheck-paper>.
+<!-- --8<-- [end:citation] -->
 
 ## License
 
