@@ -5,9 +5,12 @@ import pytest
 from numpy.testing import assert_allclose, assert_array_equal
 
 from statespacecheck import (
+    EventDiagnostics,
+    EventFlags,
     baseline_threshold,
     event_diagnostics,
     event_likelihood,
+    flag_events,
     hpd_overlap,
     kl_divergence,
     mark_predictive_pvalue,
@@ -336,3 +339,58 @@ class TestBaselineThreshold:
     def test_invalid_quantile_raises(self, quantile):
         with pytest.raises(ValueError, match="quantile"):
             baseline_threshold(np.arange(3.0), quantile)
+
+
+@pytest.fixture
+def small_diagnostics() -> EventDiagnostics:
+    return EventDiagnostics(
+        hpd_overlap=np.array([0.0, 0.05, 0.5, np.nan]),
+        kl_divergence=np.array([3.0, np.inf, 0.1, 2.0]),
+        predictive_pvalue=np.array([0.05, 0.9, 0.01, 1.0]),
+        likelihood=None,
+    )
+
+
+class TestFlagEvents:
+    def test_paper_rule_is_inclusive(self, small_diagnostics):
+        """HPD at or below, KL at or above, p at or below their thresholds."""
+        flags = flag_events(
+            small_diagnostics,
+            hpd_overlap_threshold=0.05,
+            kl_divergence_threshold=2.0,
+            pvalue_threshold=0.05,
+        )
+        assert isinstance(flags, EventFlags)
+        assert_array_equal(flags.hpd_overlap, [True, True, False, False])
+        assert_array_equal(flags.kl_divergence, [True, True, False, True])
+        assert_array_equal(flags.predictive_pvalue, [True, False, True, False])
+
+    def test_unset_thresholds_skip_the_metric(self, small_diagnostics):
+        """Only the p-value has a default cutoff (0.05); the others need a threshold."""
+        flags = flag_events(small_diagnostics)
+        assert flags.hpd_overlap is None
+        assert flags.kl_divergence is None
+        assert_array_equal(flags.predictive_pvalue, [True, False, True, False])
+
+    def test_pvalue_can_be_skipped(self, small_diagnostics):
+        flags = flag_events(small_diagnostics, pvalue_threshold=None)
+        assert flags.predictive_pvalue is None
+
+    def test_infinite_kl_threshold_flags_only_infinite(self, small_diagnostics):
+        flags = flag_events(small_diagnostics, kl_divergence_threshold=np.inf)
+        assert_array_equal(flags.kl_divergence, [False, True, False, False])
+
+    def test_with_baseline_thresholds(self, random_model):
+        """The paper's workflow: thresholds from a baseline, then flag every event."""
+        diagnostics = event_diagnostics(*random_model)
+        baseline = slice(0, 20)
+        flags = flag_events(
+            diagnostics,
+            hpd_overlap_threshold=baseline_threshold(diagnostics.hpd_overlap[baseline], 0.01),
+            kl_divergence_threshold=baseline_threshold(
+                diagnostics.kl_divergence[baseline], 0.99
+            ),
+        )
+        assert flags.hpd_overlap is not None
+        assert flags.hpd_overlap.shape == diagnostics.hpd_overlap.shape
+        assert flags.hpd_overlap.dtype == bool

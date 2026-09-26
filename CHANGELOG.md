@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `flag_events()` and `EventFlags`: the paper's per-event flagging rule. HPD overlap at or below its threshold, KL divergence at or above its threshold, and the predictive p-value at or below its cutoff (default 0.05), each flagged separately.
+
 ### Changed
 
 - **Breaking:** `flag_extreme_pvalues()` is one-sided and flags `p <= alpha`, as in the paper. It used to flag `p < alpha/2 or p > 1 - alpha/2`, which marked the best-fitting observations (p near 1) as misfit. `alpha` and `min_len` are keyword-only.

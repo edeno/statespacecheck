@@ -17,6 +17,7 @@ per-event quantities that the distribution-level diagnostics in
   predictive p-value for every event in a recording.
 - :func:`baseline_threshold` estimates a flagging threshold from a baseline
   (well-specified) sample of per-event values.
+- :func:`flag_events` applies the paper's flagging rule to every event.
 
 Array conventions follow the rest of the package: state distributions are
 ``(n_events, ...)`` or ``(n_time, ...)`` where ``...`` is one or more spatial
@@ -510,3 +511,106 @@ def baseline_threshold(baseline_values: NDArray[np.floating], quantile: float) -
     if np.isinf(np.partition(values, upper_rank)[upper_rank]):
         return float(np.inf)
     return float(np.quantile(values, quantile))
+
+
+class EventFlags(NamedTuple):
+    """Per-event flags returned by :func:`flag_events`.
+
+    Each field is a boolean array of shape ``(n_events,)`` marking events
+    whose diagnostic is on the misfit side of its threshold, or ``None`` if
+    no threshold was given for that diagnostic.
+
+    Attributes
+    ----------
+    hpd_overlap : np.ndarray of bool, shape (n_events,), or None
+        HPD overlap at or below its threshold.
+    kl_divergence : np.ndarray of bool, shape (n_events,), or None
+        KL divergence at or above its threshold.
+    predictive_pvalue : np.ndarray of bool, shape (n_events,), or None
+        Predictive p-value at or below its cutoff.
+    """
+
+    hpd_overlap: NDArray[np.bool_] | None
+    kl_divergence: NDArray[np.bool_] | None
+    predictive_pvalue: NDArray[np.bool_] | None
+
+
+def flag_events(
+    diagnostics: EventDiagnostics,
+    *,
+    hpd_overlap_threshold: float | None = None,
+    kl_divergence_threshold: float | None = None,
+    pvalue_threshold: float | None = 0.05,
+) -> EventFlags:
+    """Flag events whose diagnostics indicate poor local fit.
+
+    Applies the paper's rule to each event independently: an event is flagged
+    when its HPD overlap is **at or below** ``hpd_overlap_threshold``, its KL
+    divergence is **at or above** ``kl_divergence_threshold``, or its
+    predictive p-value is **at or below** ``pvalue_threshold``. Each
+    diagnostic is flagged separately; NaN values are never flagged.
+
+    Thresholds for HPD overlap and KL divergence depend on the model and the
+    data, so they have no default. The paper sets them from a period where the
+    model is believed to fit, with :func:`baseline_threshold` (1st percentile
+    of HPD overlap, 99th percentile of KL divergence), and flags p-values at a
+    fixed 0.05. It recommends HPD overlap and the predictive p-value as the
+    primary diagnostics and KL divergence as a reference, because KL
+    divergence is also large for consistent events when the prediction is
+    broad.
+
+    Parameters
+    ----------
+    diagnostics : EventDiagnostics
+        Per-event diagnostics from :func:`event_diagnostics`.
+    hpd_overlap_threshold : float, optional
+        Flag HPD overlap at or below this value. Default None (not flagged).
+    kl_divergence_threshold : float, optional
+        Flag KL divergence at or above this value. Default None (not flagged).
+    pvalue_threshold : float, optional
+        Flag predictive p-values at or below this value. Default 0.05; None
+        skips the p-value.
+
+    Returns
+    -------
+    EventFlags
+        Boolean flags for each diagnostic that has a threshold, else None.
+
+    Examples
+    --------
+    Thresholds from a baseline period, as in the paper's simulation:
+
+    >>> import numpy as np
+    >>> from statespacecheck import baseline_threshold, event_diagnostics, flag_events
+    >>> rng = np.random.default_rng(0)
+    >>> predictive = rng.dirichlet(np.ones(20), size=200)  # (n_time, n_bins)
+    >>> place_fields = rng.gamma(2.0, size=(20, 8))  # (n_bins, n_units)
+    >>> time_ind, units = rng.integers(0, 200, 500), rng.integers(0, 8, 500)
+    >>> diagnostics = event_diagnostics(predictive, place_fields, time_ind, units)
+    >>> baseline = time_ind < 100
+    >>> flags = flag_events(
+    ...     diagnostics,
+    ...     hpd_overlap_threshold=baseline_threshold(diagnostics.hpd_overlap[baseline], 0.01),
+    ...     kl_divergence_threshold=baseline_threshold(
+    ...         diagnostics.kl_divergence[baseline], 0.99
+    ...     ),
+    ... )
+    >>> flags.predictive_pvalue.shape
+    (500,)
+
+    See Also
+    --------
+    baseline_threshold : Threshold from a baseline period
+    event_diagnostics : Compute the per-event diagnostics
+    """
+    hpd = np.asarray(diagnostics.hpd_overlap, dtype=float)
+    kl = np.asarray(diagnostics.kl_divergence, dtype=float)
+    pvalue = np.asarray(diagnostics.predictive_pvalue, dtype=float)
+    # NaN compares False, so it is never flagged.
+    return EventFlags(
+        hpd_overlap=None if hpd_overlap_threshold is None else hpd <= hpd_overlap_threshold,
+        kl_divergence=None
+        if kl_divergence_threshold is None
+        else kl >= kl_divergence_threshold,
+        predictive_pvalue=None if pvalue_threshold is None else pvalue <= pvalue_threshold,
+    )
