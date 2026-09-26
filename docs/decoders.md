@@ -47,7 +47,8 @@ for example `np.digitize(spike_times, time_bin_edges) - 1`.
 
 For a fitted sorted-spikes model from
 [non_local_detector](https://github.com/LorenFrankLab/non_local_detector), the
-predictive distribution is `results.predictive_posterior` from `model.predict(...)`, and
+predictive distribution is `results.predictive_posterior` from
+`model.predict(..., return_outputs="predictive_posterior")`, and
 the place fields are stored one unit per row, over all position bins. Keep only the
 bins on the track, and transpose the place fields:
 
@@ -56,7 +57,10 @@ bins on the track, and transpose the place fields:
 import numpy as np
 import statespacecheck as ssc
 
-results = model.predict(spike_times=spike_times, time=time)
+# predict returns only the smoother posterior unless asked for the predictive one
+results = model.predict(
+    spike_times=spike_times, time=time, return_outputs="predictive_posterior"
+)
 predictive = results.predictive_posterior.dropna("state_bins")  # on-track bins only
 
 # A model with several discrete states (e.g. continuous and fragmented) indexes
