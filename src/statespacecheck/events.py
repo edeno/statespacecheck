@@ -136,6 +136,7 @@ def _validate_state_distribution(state_dist: ArrayLike, name: str) -> Distributi
 
 def _validate_marks(marks: ArrayLike, n_marks: int, name: str) -> NDArray[np.intp]:
     """Check that ``marks`` is a 1-D integer array of valid mark indices."""
+    _reject_masked(marks, name, "Pass an ndarray of the events to include")
     marks = np.asarray(marks)
     if marks.ndim == 1 and marks.size == 0:
         return np.empty(0, dtype=np.intp)

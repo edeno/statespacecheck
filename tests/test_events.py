@@ -617,6 +617,15 @@ class TestEventDiagnosticsErrors:
         with pytest.raises(ValueError, match="time-bin indices"):
             event_diagnostics(predictive, fields, np.array([0.3, 1.7]), np.array([0, 1]))
 
+    @pytest.mark.parametrize("argument", ["event_time_ind", "event_marks"])
+    def test_masked_indices_raise(self, model, argument):
+        """Converting a masked array would use the values under the mask."""
+        predictive, fields = model
+        indices = {"event_time_ind": np.array([0, 1]), "event_marks": np.array([0, 1])}
+        indices[argument] = np.ma.masked_array(indices[argument], mask=[False, True])
+        with pytest.raises(ValueError, match=f"{argument} is a masked array"):
+            event_diagnostics(predictive, fields, **indices)
+
     def test_empty_lists_are_accepted(self, model):
         predictive, fields = model
         result = event_diagnostics(predictive, fields, [], [])

@@ -126,13 +126,19 @@ def _safe_log(values: NDArray[np.floating]) -> DistributionArray:
 def _evaluate_log_intensity(
     log_intensity: LogMarkIntensity,
     marks: NDArray[Any],
-    n: int,
     spatial_shape: tuple[int, ...],
+    first_event: int,
+    marks_per_event: int = 1,
 ) -> DistributionArray:
-    """Evaluate ``log_intensity`` at ``n`` marks, checked, as a float64 ``(n, n_bins)`` array.
+    """Evaluate ``log_intensity`` at marks, checked, as a float64 ``(n, n_bins)`` array.
 
-    The result may share memory with the callable's output; do not modify it.
+    ``marks`` holds ``marks_per_event`` consecutive marks for each event from
+    ``first_event`` on: one per event for observed marks, ``n_samples`` for
+    replicates. Errors name the events. The result may share memory with the
+    callable's output; do not modify it.
     """
+    n = marks.shape[0]
+    what = "the observed marks" if marks_per_event == 1 else "marks drawn by model.sample"
     returned = log_intensity(marks)
     _reject_masked(
         returned,
@@ -140,6 +146,12 @@ def _evaluate_log_intensity(
         "Return an ndarray with -inf where the intensity is zero",
     )
     dtype = np.asarray(returned).dtype
+    if dtype.kind in "biuc":
+        msg = (
+            "model.log_intensity must return real floating-point log intensities, with "
+            f"-inf for zero intensity; it returned {dtype}"
+        )
+        raise ValueError(msg)
     if np.issubdtype(dtype, np.floating) and dtype.itemsize < 8:
         msg = (
             f"model.log_intensity must return float64 values; it returned {dtype}, whose "
@@ -153,11 +165,17 @@ def _evaluate_log_intensity(
             f"intensity of each of the {n} marks at every state bin; got {values.shape}"
         )
         raise ValueError(msg)
+    values = values.reshape(n, -1)
     largest = values.max(initial=-np.inf)  # NaN if any value is NaN
     if np.isnan(largest) or largest == np.inf:
-        msg = "model.log_intensity must return finite values, or -inf for zero intensity"
+        rows = np.flatnonzero(np.isnan(values).any(axis=1) | (values == np.inf).any(axis=1))
+        events = np.unique(first_event + rows // marks_per_event)
+        msg = (
+            "model.log_intensity must return finite values, or -inf for zero intensity; "
+            f"it returned NaN or +inf for {what} of events {_first(events)}"
+        )
         raise ValueError(msg)
-    return values.reshape(n, -1)
+    return values
 
 
 def _sample_state_bins(
@@ -259,16 +277,41 @@ def _monte_carlo_batch(
     observed_sum = logsumexp(observed_terms, axis=1)
 
     state_bins = _sample_state_bins(event_weighted, n_samples, rng)
-    replicated_marks = np.asarray(sample(state_bins.ravel(), rng))
+    returned_marks = sample(state_bins.ravel(), rng)
+    _reject_masked(returned_marks, "model.sample's output", "Return an ndarray of marks")
+    replicated_marks = np.asarray(returned_marks)
     if replicated_marks.shape != (n_batch * n_samples, *mark_shape):
         msg = (
             f"model.sample must return marks of shape {(n_batch * n_samples, *mark_shape)}, "
-            f"one per state bin, like observed_marks; got {replicated_marks.shape}"
+            f"one per state bin, like the observed marks; got {replicated_marks.shape}"
         )
         raise ValueError(msg)
+    not_finite = _nonfinite_rows(replicated_marks)
+    if not_finite.size:
+        events = np.unique(first_event + not_finite // n_samples)
+        msg = f"model.sample returned non-finite marks for events {_first(events)}"
+        raise ValueError(msg)
     replicated_log_intensity = _evaluate_log_intensity(
-        log_intensity, replicated_marks, n_batch * n_samples, spatial_shape
+        log_intensity, replicated_marks, spatial_shape, first_event, n_samples
     ).reshape(n_batch, n_samples, n_bins)
+    # A mark drawn at a state has positive intensity there. Zero intensity at its own
+    # state means the sampler and the intensity disagree (for example, about the
+    # order of the flat state-bin indices) or the intensity underflowed; the
+    # replicate would then count toward the p-value with the wrong density
+    at_drawn_state = np.take_along_axis(
+        replicated_log_intensity, state_bins[:, :, np.newaxis], axis=2
+    )[:, :, 0]
+    impossible = np.isneginf(at_drawn_state)
+    if impossible.any():
+        events = first_event + np.flatnonzero(impossible.any(axis=1))
+        msg = (
+            f"{int(impossible.sum())} of {impossible.size} marks drawn by model.sample have "
+            "zero intensity (model.log_intensity -inf) at the state bin they were drawn "
+            f"at (events {_first(events)}). model.sample must draw from the model "
+            "model.log_intensity describes, at flat state-bin indices in C order, and "
+            "model.log_intensity must be computed in log space"
+        )
+        raise ValueError(msg)
     if no_events.any():
         _check_zero_ground(
             (np.isfinite(replicated_log_intensity) & no_events[:, np.newaxis, :]).any(axis=1),
@@ -280,20 +323,6 @@ def _monte_carlo_batch(
     simulated_sum = np.empty((n_batch, n_samples))
     for row in range(n_batch):
         simulated_sum[row] = logsumexp(log_joint[row], axis=1)
-    # A replicate drawn at a state has positive intensity there, so its density
-    # cannot be zero unless the intensity underflowed or the sampler draws marks
-    # the intensity function says are impossible
-    impossible = np.isneginf(simulated_sum)
-    if impossible.any():
-        events = first_event + np.flatnonzero(impossible.any(axis=1))
-        msg = (
-            f"{int(impossible.sum())} of {impossible.size} marks drawn by model.sample have "
-            "zero intensity (model.log_intensity -inf) at every state with predictive "
-            f"mass, including the state they were drawn at (events {_first(events)}). "
-            "model.sample must draw from the model model.log_intensity describes, and "
-            "model.log_intensity must be computed in log space"
-        )
-        raise ValueError(msg)
 
     observed_log = observed_sum - log_norm
     simulated_log = simulated_sum - log_norm[:, np.newaxis]
@@ -374,18 +403,27 @@ def _check_mark_model(model: object) -> None:
         raise TypeError(msg)
 
 
+def _nonfinite_rows(marks: NDArray[Any]) -> NDArray[np.intp]:
+    """Return the indices of the numeric marks ``(n, *mark_shape)`` that are not all finite."""
+    if not np.issubdtype(marks.dtype, np.number) or marks.size == 0:
+        return np.empty(0, dtype=np.intp)
+    return np.flatnonzero(~np.isfinite(marks.reshape(marks.shape[0], -1)).all(axis=1))
+
+
 def _validate_observed_marks(marks: ArrayLike, n_events: int, name: str) -> NDArray[Any]:
-    """Check that there is one mark per event and that numeric marks are finite."""
+    """Check the marks of the events, returned read-only so the model cannot change them."""
+    _reject_masked(marks, name, "Pass an ndarray of the events' marks")
     marks = np.asarray(marks)
     if marks.ndim == 0 or marks.shape[0] != n_events:
         msg = f"{name} must have one entry per event ({n_events}); got shape {marks.shape}"
         raise ValueError(msg)
-    if np.issubdtype(marks.dtype, np.number):
-        not_finite = np.flatnonzero(~np.isfinite(flatten_time_spatial(marks)).all(axis=1))
-        if not_finite.size:
-            msg = f"{name} must be finite; events {_first(not_finite)} are not"
-            raise ValueError(msg)
-    return marks
+    not_finite = _nonfinite_rows(marks)
+    if not_finite.size:
+        msg = f"{name} must be finite; events {_first(not_finite)} are not"
+        raise ValueError(msg)
+    read_only = marks.view()
+    read_only.flags.writeable = False
+    return read_only
 
 
 def _check_positive_integer(value: object, name: str) -> None:
@@ -527,7 +565,7 @@ def monte_carlo_mark_pvalue(
             state[start:stop],
             ground,
             _evaluate_log_intensity(
-                model.log_intensity, marks[start:stop], stop - start, spatial_shape
+                model.log_intensity, marks[start:stop], spatial_shape, start
             ),
             marks.shape[1:],
             model.log_intensity,
@@ -722,8 +760,11 @@ def clusterless_event_diagnostics(
         stop = min(start + batch_size, n_events)
         predictive_batch = predictive_flat[time_ind[start:stop]]
         observed_log_intensity = _evaluate_log_intensity(
-            model.log_intensity, marks[start:stop], stop - start, spatial_shape
+            model.log_intensity, marks[start:stop], spatial_shape, start
         )
+        # The likelihood is normalized over every state, so the model's consistency
+        # matters at states without predictive mass too
+        _check_zero_ground(np.isfinite(observed_log_intensity) & (ground == 0.0), start)
         # C order, as event_likelihood receives it from event_diagnostics: the
         # normalizing sum's rounding depends on the layout
         likelihood_batch = _normalize_log(

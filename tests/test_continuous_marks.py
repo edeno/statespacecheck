@@ -898,3 +898,166 @@ class TestSimulatedSession:
         }
         assert flagged["misspecified"] > 0.4
         assert flagged["true"] < 0.25
+
+
+class TestModelChecks:
+    """Model output and inputs that would otherwise give wrong numbers without an error."""
+
+    @pytest.mark.parametrize(
+        "log_intensity",
+        [
+            lambda m: np.ones((len(m), 3), dtype=bool),  # a support mask, not a log
+            lambda m: np.zeros((len(m), 3), dtype=np.int64),  # cannot hold -inf
+            lambda m: np.zeros((len(m), 3), dtype=complex),  # np.emath.log of a negative
+        ],
+    )
+    def test_non_real_float_log_intensity_raises(self, log_intensity):
+        with pytest.raises(ValueError, match="real floating-point"):
+            monte_carlo_mark_pvalue(
+                np.full((2, 3), 1 / 3), _uniform_model(log_intensity), np.zeros(2, dtype=int)
+            )
+
+    def test_nan_log_intensity_names_the_observed_event(self):
+        model = _uniform_model(
+            lambda m: np.where(np.asarray(m)[:, None] == 1, np.nan, np.zeros((len(m), 3)))
+        )
+        marks = np.array([0, 0, 0, 0, 0, 1, 0])
+        with pytest.raises(
+            ValueError, match=r"NaN or \+inf for the observed marks of events \[5\]"
+        ):
+            monte_carlo_mark_pvalue(
+                np.full((7, 3), 1 / 3), model, marks, n_samples=5, batch_size=2
+            )
+
+    def test_nan_log_intensity_names_the_replicated_event(self):
+        model = _uniform_model(
+            lambda m: np.where(np.asarray(m)[:, None] == 1, np.nan, np.zeros((len(m), 3))),
+            sample=lambda bins, _rng: np.ones(len(bins), dtype=int),
+        )
+        with pytest.raises(
+            ValueError, match=r"marks drawn by model\.sample of events \[0, 1\]"
+        ):
+            monte_carlo_mark_pvalue(
+                np.full((4, 3), 1 / 3),
+                model,
+                np.zeros(4, dtype=int),
+                n_samples=5,
+                batch_size=2,
+            )
+
+    def test_non_finite_replicated_marks_raise(self):
+        """NaN replicates used to be ranked like any other mark."""
+        calls = []
+
+        def sample(bins, _rng):
+            calls.append(len(bins))
+            marks = np.zeros((len(bins), 1))
+            if len(calls) == 2:  # the second batch: events 2 and 3
+                marks[::2] = np.nan
+            return marks
+
+        model = _uniform_model(lambda m: np.zeros((len(m), 3)), sample)
+        with pytest.raises(ValueError, match=r"non-finite marks for events \[2, 3\]"):
+            monte_carlo_mark_pvalue(
+                np.full((4, 3), 1 / 3), model, np.zeros((4, 1)), n_samples=4, batch_size=2
+            )
+
+    def test_sampler_that_draws_marks_impossible_at_their_state_raises(self):
+        """Mark 0 occurs only at bin 0 and mark 1 only at bins 1 and 2, but the sampler
+        draws the other one; every replicate is possible somewhere with predictive mass,
+        so only the check at the drawn state catches it."""
+        rates = np.array([[1.0, 0.0], [0.0, 1.0], [0.0, 1.0]])
+        model = MarkModel(
+            integer_mark_model(rates).log_intensity,
+            lambda bins, _rng: (bins == 0).astype(int),
+            rates.sum(axis=1),
+        )
+        with pytest.raises(ValueError, match="at the state bin they were drawn at"):
+            monte_carlo_mark_pvalue(
+                np.full((1, 3), 1 / 3), model, np.array([0]), n_samples=50, rng=0
+            )
+
+    def test_masked_sampler_output_raises(self):
+        model = _uniform_model(
+            sample=lambda bins, _rng: np.ma.masked_array(np.zeros(len(bins), dtype=int))
+        )
+        with pytest.raises(ValueError, match=r"model\.sample's output is a masked array"):
+            monte_carlo_mark_pvalue(np.full((1, 3), 1 / 3), model, np.array([0]), n_samples=5)
+
+    def test_masked_observed_marks_raise(self):
+        marks = np.ma.masked_array([0, 0], mask=[False, True])
+        with pytest.raises(ValueError, match="observed_marks is a masked array"):
+            monte_carlo_mark_pvalue(np.full((2, 3), 1 / 3), _uniform_model(), marks)
+
+    def test_model_cannot_change_the_callers_marks(self):
+        def log_intensity(marks):
+            marks -= 1.0  # a callable that modifies its input in place
+            return np.zeros((len(marks), 3))
+
+        marks = np.array([[5.0], [7.0]])
+        with pytest.raises(ValueError, match="read-only"):
+            monte_carlo_mark_pvalue(
+                np.full((2, 3), 1 / 3), _uniform_model(log_intensity), marks
+            )
+        assert_array_equal(marks, [[5.0], [7.0]])
+
+
+class TestClusterlessChecks:
+    def test_intensity_where_ground_intensity_is_zero_raises_without_predictive_mass(self):
+        """The likelihood is normalized over every state, so a finite intensity where
+        the model has no events would take likelihood mass even where the prediction
+        has none."""
+        model = _uniform_model(ground_intensity=np.array([1.0, 1.0, 0.0]))
+        predictive = np.full((7, 3), 0.5)
+        predictive[:, 2] = 0.0
+        with pytest.raises(ValueError, match=r"ground_intensity is zero \(events \[0, 1\]\)"):
+            clusterless_event_diagnostics(
+                predictive, model, np.arange(7), np.zeros(7, dtype=int), batch_size=2
+            )
+
+    def test_zero_ground_error_names_the_global_event(self):
+        log_rates = np.array([[0.0, 0.0, -np.inf], [0.0, 0.0, 0.0]])  # mark 1 finite at bin 2
+        model = MarkModel(
+            lambda m: log_rates[np.asarray(m)],
+            lambda bins, _rng: np.zeros(len(bins), dtype=int),
+            np.array([1.0, 1.0, 0.0]),
+        )
+        with pytest.raises(ValueError, match=r"zero \(events \[5\]\)"):
+            clusterless_event_diagnostics(
+                np.full((7, 3), 1 / 3),
+                model,
+                np.arange(7),
+                np.array([0, 0, 0, 0, 0, 1, 0]),
+                n_samples=5,
+                batch_size=2,
+                rng=0,
+            )
+
+    @pytest.mark.parametrize("argument", ["predictive", "event_time_ind", "event_marks"])
+    def test_masked_inputs_raise(self, argument):
+        arguments = {
+            "predictive": np.full((3, 3), 1 / 3),
+            "model": _uniform_model(),
+            "event_time_ind": np.array([0, 2]),
+            "event_marks": np.zeros(2, dtype=int),
+        }
+        arguments[argument] = np.ma.masked_array(arguments[argument])
+        with pytest.raises(ValueError, match=f"{argument} is a masked array"):
+            clusterless_event_diagnostics(**arguments)
+
+    def test_invalid_coverage_raises_before_any_event(self):
+        with pytest.raises(ValueError, match="coverage"):
+            clusterless_event_diagnostics(
+                np.full((3, 3), 1 / 3), _uniform_model(), [], np.empty(0), coverage=1.5
+            )
+
+    def test_coverage_is_used(self, discrete_mark_model, discrete_session):
+        rates, model = discrete_mark_model
+        predictive, time_ind, marks = discrete_session
+        result = clusterless_event_diagnostics(
+            predictive, model, time_ind, marks, coverage=0.5, n_samples=10, rng=0
+        )
+        expected = event_diagnostics(predictive, rates, time_ind, marks, coverage=0.5)
+        default = event_diagnostics(predictive, rates, time_ind, marks)
+        assert not np.array_equal(expected.hpd_overlap, default.hpd_overlap)
+        assert_array_equal(result.hpd_overlap, expected.hpd_overlap)

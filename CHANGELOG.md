@@ -43,6 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `event_diagnostics()` and `mark_predictive_pvalue()` raise `ValueError` for masked event or mark indices; converting them used the values under the mask.
 - `baseline_threshold()` raises `TypeError` for complex values; converting them to float dropped the imaginary part with only a warning.
 - `predictive_mark_probabilities()`, `mark_predictive_pvalue()` and `event_diagnostics()` raise `ValueError` for a masked state distribution; converting it dropped the mask and used the values under it.
 - `event_likelihood()`, `predictive_mark_probabilities()` and `mark_predictive_pvalue()` return empty results for zero events, and `event_diagnostics()` for zero time bins, instead of raising `IndexError` or a reshape error.
