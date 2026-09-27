@@ -233,7 +233,10 @@ def hpd_overlap(
     the state distribution and the likelihood, as a fraction of the smaller region
     (the Szymkiewicz-Simpson overlap coefficient). It is 1 when one region lies
     inside the other, so a broad prediction and a precise, consistent likelihood
-    score 1, and 0 when the regions are disjoint.
+    score 1, and 0 when the regions are disjoint. A high overlap means the
+    likelihood passes this check, not that the prediction is informative: a
+    prediction spread over most of the state space overlaps almost any
+    likelihood.
 
     Parameters
     ----------

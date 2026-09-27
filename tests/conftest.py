@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
-from helpers import gaussian_mark_model, integer_mark_model
+from helpers import gaussian_mark_model, integer_mark_model, markov_trajectory, spike_events
 from scipy.stats import norm
 
 
@@ -76,20 +76,10 @@ def clusterless_session(clusterless_1d_model):
     # transition[i, j] = P(bin i at t | bin j at t - 1)
     transition = norm.pdf(position[:, None], position[None, :], 0.03)
     transition /= transition.sum(axis=0, keepdims=True)
-    cumulative = np.cumsum(transition, axis=0)
-    state_bin = np.empty(n_time, dtype=int)
-    # The filter starts from a uniform distribution, so its first prediction, which
-    # the first position is drawn from, is transition @ uniform
-    state_bin[0] = rng.choice(n_bins, p=transition @ np.full(n_bins, 1.0 / n_bins))
-    uniform = rng.random(n_time)
-    for t in range(1, n_time):
-        column = cumulative[:, state_bin[t - 1]]
-        state_bin[t] = min(np.searchsorted(column, uniform[t] * column[-1]), n_bins - 1)
+    state_bin = markov_trajectory(rng, transition, n_time)
 
     counts = rng.poisson(place_fields[state_bin] * dt)  # (n_time, n_units)
-    time_ind, unit = np.nonzero(counts)
-    repeats = counts[time_ind, unit]
-    event_time_ind, event_unit = np.repeat(time_ind, repeats), np.repeat(unit, repeats)
+    event_time_ind, event_unit = spike_events(counts)
     event_marks = rng.normal(clusterless.waveform_means[event_unit], clusterless.sigma)[
         :, None
     ]

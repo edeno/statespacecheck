@@ -229,3 +229,31 @@ def gaussian_mark_model(
         return rng.normal(waveform_means[sample_unit(bins, rng)], sigma)[:, None]
 
     return MarkModel(log_mark_intensity, sample_marks, place_fields.sum(axis=1))
+
+
+def markov_trajectory(
+    rng: np.random.Generator, transition: np.ndarray, n_time: int
+) -> np.ndarray:
+    """Draw state bins ``(n_time,)`` from a grid filter's own Markov chain.
+
+    ``transition[i, j]`` is the probability of bin ``i`` after bin ``j``. The
+    filter starts from a uniform distribution, so the first state is drawn from its
+    first prediction, ``transition @ uniform``; a filter with this transition is then
+    exact for the trajectory.
+    """
+    n_bins = transition.shape[0]
+    cumulative = np.cumsum(transition, axis=0)
+    state_bin = np.empty(n_time, dtype=int)
+    state_bin[0] = rng.choice(n_bins, p=transition @ np.full(n_bins, 1.0 / n_bins))
+    uniform = rng.random(n_time)
+    for t in range(1, n_time):
+        column = cumulative[:, state_bin[t - 1]]
+        state_bin[t] = min(np.searchsorted(column, uniform[t] * column[-1]), n_bins - 1)
+    return state_bin
+
+
+def spike_events(counts: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """One event per spike from counts ``(n_time, n_units)``: its time bin and unit."""
+    time_ind, unit = np.nonzero(counts)
+    repeats = counts[time_ind, unit]
+    return np.repeat(time_ind, repeats), np.repeat(unit, repeats)

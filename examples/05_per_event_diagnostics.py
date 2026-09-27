@@ -7,7 +7,7 @@
 #       extension: .py
 #       format_name: percent
 #       format_version: '1.3'
-#       jupytext_version: 1.18.1
+#       jupytext_version: 1.19.5
 #   kernelspec:
 #     display_name: statespacecheck
 #     language: python
@@ -169,8 +169,17 @@ thresholds = {
         diagnostics.kl_divergence[baseline], 0.99
     ),
 }
-print({name: round(value, 3) for name, value in thresholds.items()})
 flags = ssc.flag_events(diagnostics, **thresholds, pvalue_threshold=0.05)
+
+# Each rule, and the fraction of baseline spikes it actually flags
+rules = [
+    ("hpd_overlap", "at or below", thresholds["hpd_overlap_threshold"], "1st percentile"),
+    ("kl_divergence", "at or above", thresholds["kl_divergence_threshold"], "99th percentile"),
+    ("predictive_pvalue", "at or below", 0.05, "fixed"),
+]
+for name, rule, value, source in rules:
+    flagged = getattr(flags, name)[baseline].mean()
+    print(f"{name:18s} {rule} {value:6.3f} ({source:15s}): {flagged:5.1%} of baseline spikes")
 
 after = spike_time >= time[remap_time]
 print(f"{'diagnostic':20s} before remapping   after remapping")
@@ -180,9 +189,15 @@ for name in flags._fields:
 
 # %% [markdown]
 # The HPD-overlap threshold is 0: more than 1% of baseline spikes already have no
-# overlap, so only spikes with no overlap at all are flagged ("at or below" the
-# threshold). Before the remapping each diagnostic flags a few percent of spikes;
-# after it, many more.
+# overlap. The comparison is inclusive, as in the paper, so every spike tied at 0 is
+# flagged, and more than the requested 1% of baseline spikes are. (HPD overlap is also
+# exactly 1 whenever one region is nested in the other, and KL divergence exactly 0
+# when a prediction equals a spike's likelihood, so ties are common.) The fraction
+# flagged in the baseline describes the baseline, from which the threshold was also
+# estimated; it does not guarantee the rate of false alarms in other periods.
+#
+# Before the remapping each diagnostic flags a few percent of spikes; after it, many
+# more.
 #
 # Plotted per spike, as in the paper's figures, with the p-value shown as $-\log p$ so
 # that poor fit points up:
@@ -208,7 +223,9 @@ plt.show()
 #
 # Flags can be broken down by unit. Most of the units that remapped are among the most
 # often flagged, pointing to the observation model (their place fields) rather than to
-# the state transition model.
+# the state transition model. Concentrated flags are a lead, not proof: a unit that the
+# prediction rarely expects gets small p-values even under a correct model, so the next
+# step checks whether a revised model removes the flags.
 
 # %%
 unit_flag_rate = np.array(

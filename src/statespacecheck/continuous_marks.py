@@ -547,6 +547,15 @@ def monte_carlo_mark_pvalue(
     which random numbers each event receives, so p-values then differ within
     Monte Carlo error.
 
+    The p-value is ``r / B``: the fraction of ``B = n_samples`` replicated marks at most as
+    probable as the observation. It estimates the predictive tail probability,
+    with standard error ``sqrt(p (1 - p) / B)``. A rank test at a finite ``B``
+    would use ``(r + 1) / (B + 1)`` instead, computed from the returned ``p`` as
+    ``(p * B + 1) / (B + 1)``. It is valid in finite samples when the observation
+    and the replicates are exchangeable under the model, and possibly conservative:
+    it is never below ``1 / (B + 1)``, and its level equals ``alpha`` only when
+    ``alpha (B + 1)`` is an integer and there are no ties.
+
     Examples
     --------
     Two marks, whose exact p-values :func:`~statespacecheck.mark_predictive_pvalue`

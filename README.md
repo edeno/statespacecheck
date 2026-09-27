@@ -72,9 +72,11 @@ predictive /= predictive.sum(axis=1, keepdims=True)
 # Diagnostics for every spike; thresholds from a baseline period; flags
 diagnostics = ssc.event_diagnostics(predictive, place_fields, time_ind, unit)
 baseline = time_ind < n_time // 4
-flags = ssc.flag_events(
-    diagnostics,
-    hpd_overlap_threshold=ssc.baseline_threshold(diagnostics.hpd_overlap[baseline], 0.01),
+hpd_threshold = ssc.baseline_threshold(diagnostics.hpd_overlap[baseline], 0.01)
+flags = ssc.flag_events(diagnostics, hpd_overlap_threshold=hpd_threshold)
+print(
+    f"HPD overlap flagged at or below {hpd_threshold:.2f} (the baseline's 1st "
+    f"percentile): {flags.hpd_overlap[baseline].mean():.1%} of baseline spikes"
 )
 misfit = time_ind >= n_time // 2
 for name, flagged in [
@@ -88,9 +90,14 @@ for name, flagged in [
 ```
 
 ```text
+HPD overlap flagged at or below 0.00 (the baseline's 1st percentile): 2.4% of baseline spikes
 HPD overlap  flagged: 2% of spikes before, 81% during the misfit
 p-value      flagged: 2% of spikes before, 85% during the misfit
 ```
+
+More than 1% of baseline spikes have no overlap at all, so the 1st percentile is 0 and
+the inclusive rule flags all of them: 2.4% of the baseline, not 1%. That fraction
+describes the baseline; it is not a false-alarm rate to expect elsewhere.
 <!-- --8<-- [end:quickstart] -->
 
 The [per-event tutorial](https://edeno.github.io/statespacecheck/tutorials/05_per_event_diagnostics/)
@@ -129,7 +136,11 @@ Common pitfalls:
 
 The diagnostics measure *consistency*, not similarity: a spike is consistent with the
 prediction when it falls where the prediction put probability, even if the prediction is
-much broader. See [Interpreting the diagnostics](https://edeno.github.io/statespacecheck/interpretation/).
+much broader. Passing a diagnostic (a high HPD overlap, a large p-value) means the spike
+is consistent with the prediction in that respect, not that the model is right: a
+prediction too broad to be useful passes both, a rare unit can get small p-values under
+a correct model, and counts, timing and the proportions of units across spikes are not
+checked. See [Interpreting the diagnostics](https://edeno.github.io/statespacecheck/interpretation/).
 <!-- --8<-- [end:reading] -->
 
 ## The paper's quantities in the package
