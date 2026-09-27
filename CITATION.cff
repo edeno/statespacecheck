@@ -26,6 +26,14 @@ authors:
 repository-code: https://github.com/edeno/statespacecheck
 url: https://edeno.github.io/statespacecheck
 license: MIT
+doi: 10.5281/zenodo.22999988
+identifiers:
+  - type: doi
+    value: 10.5281/zenodo.22999988
+    description: All versions (concept DOI); resolves to the latest release.
+  - type: doi
+    value: 10.5281/zenodo.22999989
+    description: Version 0.3.0.
 version: 0.3.0
 date-released: "2026-09-27"
 keywords:
