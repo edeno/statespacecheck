@@ -136,8 +136,11 @@ def kl_divergence(state_dist: ArrayLike, likelihood: ArrayLike) -> DistributionA
     Raises
     ------
     ValueError
-        If state_dist and likelihood have different shapes, or if distributions
-        contain negative values.
+        If state_dist and likelihood have different shapes, if distributions
+        contain negative values, or if an input is a masked array (mark bins to
+        exclude with NaN).
+    TypeError
+        If an input is complex.
 
     Examples
     --------
@@ -219,7 +222,10 @@ def hpd_overlap(
     ------
     ValueError
         If state_dist and likelihood have different shapes, if coverage
-        is not in (0, 1), or if distributions contain negative values.
+        is not in (0, 1), if distributions contain negative values, or if an
+        input is a masked array (mark bins to exclude with NaN).
+    TypeError
+        If an input is complex.
 
     Examples
     --------

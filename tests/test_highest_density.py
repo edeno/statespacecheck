@@ -343,8 +343,9 @@ class TestHighestDensityRegion:
 
 
 def test_coverage_just_below_one_excludes_bins_without_mass():
-    """0.2 + 0.4 + 0.3 sums, in cumulative order, just short of the total times the
-    largest coverage below 1; the region must still stop at the last bin with mass,
+    """Sorted in descending order, 0.4 + 0.3 + 0.2 sums to 0.8999999999999999, just
+    short of the target: the largest coverage below 1 times the row total 0.2 + 0.4 +
+    0.3 = 0.9000000000000001. The region must still stop at the last bin with mass,
     not take a zero cutoff that includes every bin."""
     coverage = np.nextafter(1.0, 0.0)
     distribution = np.array([[0.2, 0.4, 0.3, 0.0]])

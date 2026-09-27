@@ -25,7 +25,9 @@ def highest_density_region(
 
     Vectorized HPD mask for arrays shaped (n_time, *spatial). For each time t,
     includes all bins with value >= threshold_t, where threshold_t is chosen so
-    cumulative mass >= coverage * total_t.
+    cumulative mass >= coverage * total_t (when rounding keeps the cumulative mass
+    just short of that, with coverage just below 1, the region ends at the last
+    bin with mass).
 
     Parameters
     ----------
@@ -45,7 +47,11 @@ def highest_density_region(
     Raises
     ------
     ValueError
-        If coverage is not in the range (0, 1).
+        If coverage is not in the range (0, 1), if distribution is not at least
+        2-D with spatial bins, if it contains negative values, or if it is a
+        masked array (mark bins to exclude with NaN).
+    TypeError
+        If an input is complex.
 
     Examples
     --------
@@ -66,8 +72,8 @@ def highest_density_region(
 
     Notes
     -----
-    - NaNs are ignored (treated as 0 mass).
-    - If total mass at time t <= 0 or not finite, returns all-False for that t.
+    - NaN and infinite values are ignored (treated as 0 mass).
+    - If total mass at time t is 0, returns all-False for that t.
     - Works in unnormalized space to avoid numerical issues.
     - Vectorized within chunks of time points; the chunks bound memory.
     - The input is probability mass per bin, so the region is the highest
@@ -135,10 +141,11 @@ def _highest_density_region_rows(
     # Shape: (n_time,)
     idx = ge.argmax(axis=1)
 
-    # A row with mass can fall short of the target through rounding in the
-    # cumulative sum (coverage just below 1): take its last bin with mass. The
-    # last bin overall could have none, and a zero cutoff would include every bin,
-    # invalid ones too. Empty rows are handled below.
+    # The sorted cumulative sum and the row total add the same values in different
+    # orders, so with coverage just below 1 a row with mass can fall short of the
+    # target through rounding: take its last bin with mass. The last bin overall
+    # could have none, and a zero cutoff would include every bin, invalid ones too.
+    # Empty rows are handled below.
     last_with_mass = np.maximum(np.count_nonzero(flat_sorted > 0, axis=1) - 1, 0)
     idx = np.where(has_true, idx, last_with_mass)
 
