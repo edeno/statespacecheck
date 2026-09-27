@@ -15,7 +15,9 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from helpers import gaussian_mark_model
+from helpers import unit_sampler
+from scipy.special import logsumexp
+from scipy.stats import norm
 
 import statespacecheck as ssc
 
@@ -55,11 +57,23 @@ def _compute() -> dict[str, np.ndarray]:
         predictive, rates, time_ind, marks, return_likelihood=True, batch_size=64
     ).likelihood
 
-    # Continuous marks: 6 units with Gaussian 1-D waveform amplitudes
+    # Continuous marks: 6 units with Gaussian 1-D waveform amplitudes. The log
+    # intensity sums over units with logsumexp, not a matrix product, whose last bits
+    # can differ between BLAS libraries
     fields = 0.5 + 20.0 * np.exp(
         -0.5 * ((np.linspace(0, 1, 40)[:, None] - np.linspace(0.1, 0.9, 6)) / 0.12) ** 2
     )
-    model = gaussian_mark_model(fields, np.linspace(1.0, 4.0, 6), 0.3)
+    means = np.linspace(1.0, 4.0, 6)
+    sample_unit = unit_sampler(fields)
+
+    def log_intensity(marks: np.ndarray) -> np.ndarray:
+        log_amplitude = norm.logpdf(np.asarray(marks)[:, :1], means, 0.3)  # (n, n_units)
+        return logsumexp(log_amplitude[:, np.newaxis, :] + np.log(fields), axis=-1)
+
+    def sample(bins: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+        return rng.normal(means[sample_unit(bins, rng)], 0.3)[:, np.newaxis]
+
+    model = ssc.MarkModel(log_intensity, sample, fields.sum(axis=1))
     clusterless = ssc.clusterless_event_diagnostics(
         predictive,
         model,
