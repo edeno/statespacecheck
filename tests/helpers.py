@@ -192,13 +192,18 @@ def unit_sampler(rates: np.ndarray):
 
 
 def integer_mark_model(rates: np.ndarray) -> MarkModel:
-    """The MarkModel of integer marks (units) with rates ``(n_bins, n_units)``."""
+    """The MarkModel of integer marks (units) with rates ``(..., n_units)``.
+
+    The log intensity of marks ``(n,)`` has shape ``(n, ...)``; the sampler takes
+    flat, C-order state-bin indices.
+    """
 
     def log_intensity(marks: np.ndarray) -> np.ndarray:
         with np.errstate(divide="ignore"):  # zero rates are impossible marks
-            return np.log(rates[:, np.asarray(marks)].T)
+            return np.log(np.moveaxis(rates[..., np.asarray(marks)], -1, 0))
 
-    return MarkModel(log_intensity, unit_sampler(rates), rates.sum(axis=1))
+    flat = rates.reshape(-1, rates.shape[-1])
+    return MarkModel(log_intensity, unit_sampler(flat), rates.sum(axis=-1))
 
 
 def gaussian_mark_model(

@@ -108,11 +108,7 @@ def test_two_dimensional_grid_matches_exact():
     density is exact and the p-values agree with mark_predictive_pvalue."""
     rng = np.random.default_rng(6)
     rates = rng.gamma(2.0, size=(4, 3, 5))  # (n_x, n_y, n_marks)
-    model = MarkModel(
-        lambda m: np.log(np.moveaxis(rates[:, :, np.asarray(m)], -1, 0)),  # (n, 4, 3)
-        unit_sampler(rates.reshape(-1, 5)),  # flat, C-order state bins
-        rates.sum(axis=-1),
-    )
+    model = integer_mark_model(rates)  # log intensity (n, 4, 3)
     state = rng.dirichlet(np.full(12, 0.5), size=8).reshape(8, 4, 3)
     marks = rng.integers(0, 5, 8)
     n_samples = 20_000
@@ -571,11 +567,7 @@ class TestClusterlessMatchesDiscrete:
     def test_two_dimensional_grid(self):
         rng = np.random.default_rng(9)
         rates = rng.gamma(2.0, size=(4, 3, 5))  # (n_x, n_y, n_marks)
-        model = MarkModel(
-            lambda m: np.log(np.moveaxis(rates[:, :, np.asarray(m)], -1, 0)),  # (n, 4, 3)
-            unit_sampler(rates.reshape(-1, 5)),
-            rates.sum(axis=-1),
-        )
+        model = integer_mark_model(rates)  # log intensity (n, 4, 3)
         predictive = rng.dirichlet(np.full(12, 0.5), size=6).reshape(6, 4, 3)
         time_ind, marks = rng.integers(0, 6, 10), rng.integers(0, 5, 10)
         result = clusterless_event_diagnostics(
@@ -898,6 +890,11 @@ class TestSimulatedSession:
         }
         assert flagged["misspecified"] > 0.4
         assert flagged["true"] < 0.25
+
+    def test_local_diagnostics_are_valid(self, session_diagnostics):
+        for result in session_diagnostics.values():
+            assert np.all((result.hpd_overlap >= 0.0) & (result.hpd_overlap <= 1.0))
+            assert np.all(result.kl_divergence >= 0.0)  # also False for NaN
 
 
 class TestModelChecks:

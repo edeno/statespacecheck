@@ -78,6 +78,8 @@ def clusterless_session(clusterless_1d_model):
     transition /= transition.sum(axis=0, keepdims=True)
     cumulative = np.cumsum(transition, axis=0)
     state_bin = np.empty(n_time, dtype=int)
+    # Uniform, which the filter's first prediction (transition @ uniform) matches
+    # except near the track's ends; only the first time bin's events are affected
     state_bin[0] = rng.integers(n_bins)
     uniform = rng.random(n_time)
     for t in range(1, n_time):
