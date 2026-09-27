@@ -133,11 +133,7 @@ def _highest_density_region_rows(
     # Shape: (n_time, n_spatial) boolean
     ge = csum >= target[:, None]
 
-    # Check if each row has at least one True value
-    # Shape: (n_time,)
-    has_true = ge.any(axis=1)
-
-    # argmax gives first True index; if none True, returns 0 (we fix below)
+    # argmax gives the first True index; a row with none gets 0, fixed below
     # Shape: (n_time,)
     idx = ge.argmax(axis=1)
 
@@ -146,8 +142,8 @@ def _highest_density_region_rows(
     # target through rounding: take its last bin with mass. The last bin overall
     # could have none, and a zero cutoff would include every bin, invalid ones too.
     # (Only a row with mass can fall short: an empty row's target is 0.)
-    last_with_mass = np.count_nonzero(flat_sorted > 0, axis=1) - 1
-    idx = np.where(has_true, idx, last_with_mass)
+    short = np.flatnonzero(~ge.any(axis=1))
+    idx[short] = np.count_nonzero(flat_sorted[short] > 0, axis=1) - 1
 
     # Per-row cutoff (unnormalized)
     # Shape: (n_time,)
