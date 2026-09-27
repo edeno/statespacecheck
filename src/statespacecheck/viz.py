@@ -76,7 +76,8 @@ def plot_diagnostics(
     ------
     ValueError
         If a metric or ``flags`` has a different length from ``time``, or if
-        ``flags`` is not boolean.
+        ``flags`` is not boolean or is a masked array (use False for excluded
+        time points).
 
     Examples
     --------

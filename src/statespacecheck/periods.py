@@ -21,7 +21,7 @@ import numpy as np
 from numpy.typing import ArrayLike, NDArray
 from scipy.stats import median_abs_deviation
 
-from ._validation import DistributionArray, check_threshold_not_nan
+from ._validation import DistributionArray, as_array, check_threshold_not_nan
 
 
 def aggregate_over_period(
@@ -65,7 +65,11 @@ def aggregate_over_period(
     ------
     ValueError
         If metric_values is not 1-dimensional, time_mask is not boolean, the
-        shapes don't match, reduction is invalid, or weights are negative.
+        shapes don't match, reduction is invalid, weights are negative or
+        non-finite, or an input is a masked array. Use NaN for missing metric
+        values, False to exclude time points, or zero weights to exclude values.
+    TypeError
+        If metric_values or weights are complex.
 
     Warns
     -----
@@ -141,7 +145,12 @@ def aggregate_over_period(
 
     # Validate weights if provided
     if weights is not None:
-        weights_arr = np.asarray(weights, dtype=float)
+        weights_arr = as_array(
+            weights,
+            "weights",
+            "Pass an ndarray with zero weights for excluded time points",
+            dtype=float,
+        )
         if weights_arr.shape != metric_arr.shape:
             msg = (
                 f"weights must have same length as metric_values, "
@@ -310,7 +319,7 @@ def _as_flags(
 
     Casting other values to bool would flag every nonzero (and NaN) value.
     """
-    flags = np.asarray(values)
+    flags = as_array(values, name, "Pass an ndarray with False for excluded time points")
     if flags.dtype != np.bool_:
         msg = f"{name} must be a boolean array; got dtype {flags.dtype}. {hint}"
         raise ValueError(msg)
@@ -319,7 +328,7 @@ def _as_flags(
 
 def _as_series(values: ArrayLike, name: str) -> DistributionArray:
     """Return ``values`` as a 1-D float array, or raise naming the argument."""
-    series = np.asarray(values, dtype=float)
+    series = as_array(values, name, "Pass an ndarray with NaN for missing values", dtype=float)
     if series.ndim != 1:
         msg = f"{name} must be 1-D, shape (n_time,); got shape {series.shape}"
         raise ValueError(msg)
@@ -361,8 +370,10 @@ def flag_low_overlap(
     Raises
     ------
     ValueError
-        If ``overlap`` is not 1-D, ``threshold`` is NaN, or ``min_len`` is
-        less than 1.
+        If ``overlap`` is not 1-D or is a masked array (use NaN for missing
+        values), ``threshold`` is NaN, or ``min_len`` is less than 1.
+    TypeError
+        If ``overlap`` is complex.
 
     Examples
     --------
@@ -415,8 +426,10 @@ def find_low_overlap_intervals(
     Raises
     ------
     ValueError
-        If ``overlap`` is not 1-D, ``threshold`` is NaN, or ``min_len`` is
-        less than 1.
+        If ``overlap`` is not 1-D or is a masked array (use NaN for missing
+        values), ``threshold`` is NaN, or ``min_len`` is less than 1.
+    TypeError
+        If ``overlap`` is complex.
 
     Examples
     --------
@@ -497,8 +510,10 @@ def flag_extreme_kl(
     Raises
     ------
     ValueError
-        If ``kl`` is not 1-D, ``z_thresh`` is NaN, or ``min_len`` is less
-        than 1.
+        If ``kl`` is not 1-D or is a masked array (use NaN for missing values),
+        ``z_thresh`` is NaN, or ``min_len`` is less than 1.
+    TypeError
+        If ``kl`` is complex.
 
     Examples
     --------
@@ -565,8 +580,10 @@ def flag_extreme_pvalues(
     Raises
     ------
     ValueError
-        If ``pvalues`` is not 1-D, ``alpha`` is NaN, or ``min_len`` is less
-        than 1.
+        If ``pvalues`` is not 1-D or is a masked array (use NaN for missing
+        values), ``alpha`` is NaN, or ``min_len`` is less than 1.
+    TypeError
+        If ``pvalues`` is complex.
 
     Examples
     --------
@@ -618,9 +635,10 @@ def combine_flags(
     Raises
     ------
     ValueError
-        If no flag arrays are provided, if a flag array is not boolean, if
-        arrays have mismatched lengths, if ``min_votes`` is not between 1 and
-        the number of flag arrays, or if ``min_len`` is less than 1.
+        If no flag arrays are provided, if a flag array is not boolean or is
+        masked (use False for excluded time points), if arrays have mismatched
+        lengths, if ``min_votes`` is not between 1 and the number of flag arrays,
+        or if ``min_len`` is less than 1.
 
     Examples
     --------

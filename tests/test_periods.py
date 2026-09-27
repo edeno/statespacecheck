@@ -624,6 +624,31 @@ class TestArgumentChecks:
         with pytest.raises(ValueError, match="time_mask must be a boolean array"):
             aggregate_over_period(values, np.array([0, 1, 2, 3]))
 
+    @pytest.mark.parametrize("argument", ["metric_values", "time_mask", "weights"])
+    def test_aggregation_rejects_masked_inputs(self, argument):
+        inputs = {
+            "metric_values": np.array([1.0, 100.0]),
+            "time_mask": np.array([True, True]),
+            "weights": np.array([1.0, 1.0]),
+        }
+        inputs[argument] = np.ma.array(inputs[argument], mask=[False, True])
+        with pytest.raises(ValueError, match=f"{argument} is a masked array"):
+            aggregate_over_period(**inputs)
+
+    @pytest.mark.parametrize("case", SERIES_FLAGS)
+    def test_flags_reject_masked_series(self, case):
+        flag, series, _ = case
+        # Dropping the middle mask joins two short runs into a flagged run.
+        values = np.ma.array(np.full(5, 0.01), mask=[False, False, True, False, False])
+        with pytest.raises(ValueError, match=f"{series} is a masked array"):
+            flag(values, min_len=5)
+
+    def test_combine_flags_rejects_masked_flags(self):
+        flags = np.ones(5, dtype=bool)
+        masked = np.ma.array(flags, mask=[False, False, True, False, False])
+        with pytest.raises(ValueError, match=r"flags\[1\] is a masked array"):
+            combine_flags(flags, masked, min_votes=2, min_len=5)
+
     @pytest.mark.parametrize("case", SERIES_FLAGS)
     def test_two_dimensional_series_raises(self, case) -> None:
         flag, series, _ = case
