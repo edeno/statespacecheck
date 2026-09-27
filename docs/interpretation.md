@@ -33,8 +33,8 @@ precise spike from a sparsely firing cell). Use it as a reference.
 
 A p-value near 1 means the observed unit was among the most probable ones. Only small
 p-values indicate misfit. With spike-sorted data the p-value is exact and takes only a
-few distinct values, so it is conservative: under a correct model, each spike has
-probability at most 5% of `p <= 0.05`.
+few distinct values, so it is conservative: under a correct model, a spike drawn from
+its predictive mark distribution has probability at most 5% of `p <= 0.05`.
 
 ## What passing a diagnostic means
 
@@ -52,8 +52,8 @@ show that the model is correct.
 - **Rare units get small p-values under a correct model.** The p-value of a spike is
   the predictive probability of all units at most as probable as the one that fired,
   so the least probable unit, predicted with probability 0.02, has p = 0.02 on every
-  spike, and all its spikes are flagged at 0.05, although the probability that a spike
-  is flagged stays at most 5%. Flags concentrated in a few units therefore do not, alone,
+  spike, and all its spikes are flagged at 0.05, although a spike drawn from the
+  prediction still has probability at most 5% of being flagged. Flags concentrated in a few units therefore do not, alone,
   show that their place fields are wrong. Compare each unit's flagged fraction with the
   fraction the model itself would flag for that unit, which can be far above 5% (in
   this example, 100%): estimate it by simulating spikes from the model (drawing each
@@ -85,12 +85,19 @@ against the summed predictive probabilities).
 
 ## Calibration
 
-Under a correct model, each spike has probability at most `alpha` of `p <= alpha`. That
-bounds the expected fraction of flagged spikes, not the fraction observed in a given
-recording, which varies around its expectation and can exceed `alpha` by chance; the
-variation is larger than for independent spikes, because spikes in the same time bin
-share a prediction and successive predictions depend on the same spikes. The guarantee
-holds only relative to the reference the p-value is computed from:
+Under a correct model, a spike drawn from its predictive mark distribution has
+probability at most `alpha` of `p <= alpha`. Over a recording, the expected number of
+flagged spikes is therefore at most `alpha` times the expected number of spikes:
+`E[flagged] <= alpha E[spikes]`. That does not bound the fraction observed in a given
+recording, which varies around its expectation and can exceed `alpha` by chance (more
+than for independent spikes, because spikes in the same time bin share a prediction and
+successive predictions depend on the same spikes). Nor does it bound an average of
+per-recording fractions: a recording with few spikes weighs as much as one with many.
+If most recordings have a few spikes from a rarely predicted unit and the rest have
+many from a common one, most recordings are entirely flagged while few spikes overall
+are. Pool the counts instead: total flagged spikes over total spikes.
+
+The guarantee holds only relative to the reference the p-value is computed from:
 
 - **The one-step predictive distribution**, which does not use the spike being tested.
   A filtered or smoothed posterior already includes the spike, so the spike looks more
@@ -100,8 +107,8 @@ holds only relative to the reference the p-value is computed from:
   Where possible, fit on one part of a session and evaluate on another.
 - **Monte Carlo p-values** (clusterless marks) add sampling error (see below).
 
-In the simulation below, with an exact filter and the true place fields, 4.4% of
-spikes had `p <= 0.05`, averaged over 12 recordings.
+In the simulation below, with an exact filter and the true place fields, 4.4% of all
+spikes over 12 recordings had `p <= 0.05`.
 
 ## Choosing thresholds
 
@@ -248,13 +255,13 @@ time-rescaling.
 A seeded simulation of 20 place cells on a 1-D track (`tests/test_statistical_validation.py`)
 decoded 12 independent recordings per scenario with a grid filter, with thresholds
 from separate correctly specified recordings (HPD overlap at its 1st percentile, KL
-divergence at its 99th, the p-value at 0.05). Fractions of spikes flagged, averaged over
-recordings:
+divergence at its 99th, the p-value at 0.05). Fractions of all spikes flagged, pooled
+over the recordings (about 38,700 spikes per scenario):
 
 | Scenario | p-value | HPD overlap | KL divergence |
 | --- | --- | --- | --- |
 | Correct model | 4.4% | 2.9% | 1.1% |
-| Changed place fields (a third of the units moved) | **18.1%** | **6.2%** | **2.6%** |
+| Changed place fields (a third of the units moved) | **18.2%** | **6.2%** | **2.6%** |
 | Prediction far too broad (transition 17 times too wide) | 1.1% | 0.0% | 0.0% |
 | Overall rate 4 times too high | 3.6% | 3.2% | **3.4%** |
 | Overall rate 4 times too low | 4.5% | 2.9% | 0.8% |

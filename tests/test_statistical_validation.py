@@ -81,6 +81,38 @@ def test_uniform_prediction_over_units_gives_every_unit_p_one():
     assert_array_equal(diagnostics.predictive_pvalue, np.ones(100))
 
 
+def test_average_of_recording_fractions_is_not_bounded():
+    """Calibration bounds expected counts, E[flagged] <= alpha E[spikes], not an average
+    of per-recording fractions. Two states with probabilities 0.9 and 0.1: in the first
+    only unit 0 fires (5 spikes expected per recording), in the second only unit 1
+    (1,000). Unit 0's predictive probability is 4.5 / 104.5 = 0.043, so its spikes are
+    flagged at 0.05. Most recordings are all unit 0 and entirely flagged, yet 4.3% of
+    the expected spikes are."""
+    state = np.array([0.9, 0.1])
+    counts = np.array([[5.0, 0.0], [0.0, 1000.0]])  # expected counts (n_states, n_units)
+    pvalue = mark_predictive_pvalue(np.tile(state, (2, 1)), counts, np.array([0, 1]))
+    flagged_unit = pvalue <= 0.05
+    assert_array_equal(flagged_unit, [True, False])
+
+    # Exactly: each state emits one unit, so a nonempty recording is all flagged or none
+    nonempty = 1.0 - np.exp(-counts.sum(axis=1))
+    average_fraction = (state * nonempty * flagged_unit).sum() / (state * nonempty).sum()
+    expected_ratio = (state @ counts @ flagged_unit) / (state @ counts).sum()
+    assert average_fraction > 0.89
+    assert expected_ratio <= 0.05
+
+    # Simulated recordings agree: the average fraction far exceeds 0.05, while the
+    # flagged count stays within its bound
+    rng = np.random.default_rng(6)
+    in_state = rng.choice(2, size=20_000, p=state)
+    spikes = rng.poisson(counts[in_state])  # (n_recordings, n_units)
+    flagged, total = spikes @ flagged_unit, spikes.sum(axis=1)
+    fractions = flagged[total > 0] / total[total > 0]
+    assert abs(fractions.mean() - average_fraction) < 3 * _standard_error(fractions)
+    excess = flagged - 0.05 * total  # E[excess] <= 0 under the model
+    assert excess.mean() <= 3 * _standard_error(excess)
+
+
 def test_rare_unit_is_flagged_under_a_correct_model():
     """The least probable unit, at 0.02, always has p = 0.02, so all its spikes are
     flagged at 0.05 although the model is correct; overall, 2% of spikes are."""
@@ -173,6 +205,8 @@ def scenarios():
             for r in range(N_RECORDINGS)
         ]
         results[name] = SimpleNamespace(
+            n_spikes=np.array([d.predictive_pvalue.size for d in runs]),
+            n_pvalue_flagged=np.array([np.sum(d.predictive_pvalue <= 0.05) for d in runs]),
             pvalue=np.array([np.mean(d.predictive_pvalue <= 0.05) for d in runs]),
             hpd=np.array([np.mean(d.hpd_overlap <= hpd_threshold) for d in runs]),
             kl=np.array([np.mean(d.kl_divergence >= kl_threshold) for d in runs]),
@@ -193,10 +227,11 @@ def _exceeds(larger, smaller, n_se=3.0):
     return difference > n_se * np.hypot(_standard_error(larger), _standard_error(smaller))
 
 
-# Observed with these seeds (mean over 12 recordings, about 3,300 spikes each):
+# Observed with these seeds (flagged fractions of all spikes, pooled over 12 recordings
+# of about 3,300 spikes each; averages of the per-recording fractions agree to 0.001):
 #   scenario          p <= 0.05  HPD flagged  KL flagged  median KL
 #   correct             0.044       0.029       0.011       0.52
-#   changed fields      0.181       0.062       0.026       1.09
+#   changed fields      0.182       0.062       0.026       1.09
 #   broad prediction    0.011       0.000       0.000       1.06
 #   rate x4             0.036       0.032       0.034       0.69
 #   rate x0.25          0.045       0.029       0.008       0.51
@@ -205,11 +240,12 @@ def _exceeds(larger, smaller, n_se=3.0):
 @pytest.mark.slow
 class TestSimulatedMisspecification:
     def test_correct_model_pvalues_are_calibrated(self, scenarios):
-        """Exact discrete p-values are conservative: each spike has probability at most
-        5% of p <= 0.05, so the mean fraction over recordings stays within sampling
-        error of 5% or below."""
-        pvalue = scenarios["correct"].pvalue
-        assert pvalue.mean() <= 0.05 + 3 * _standard_error(pvalue)
+        """Exact discrete p-values are conservative: a spike drawn from its predictive
+        mark distribution has probability at most 5% of p <= 0.05, so the expected
+        number of flagged spikes is at most 5% of the expected number of spikes."""
+        correct = scenarios["correct"]
+        excess = correct.n_pvalue_flagged - 0.05 * correct.n_spikes  # E[excess] <= 0
+        assert excess.mean() <= 3 * _standard_error(excess)
 
     def test_changed_place_fields_are_detected(self, scenarios):
         correct, changed = scenarios["correct"], scenarios["changed fields"]
