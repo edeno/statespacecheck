@@ -215,8 +215,10 @@ print(spikes.predictive_pvalue.round(2), spikes.hpd_overlap.round(2))
 The observed mark lies in the tail of the predictive mark distribution: the Monte Carlo
 p-value is about 0.08 (numerical integration gives 0.083), above the paper's 0.05 cutoff.
 `clusterless_event_diagnostics` computes HPD overlap, KL divergence and this p-value for
-every spike, as `event_diagnostics` does for sorted units: the first spike, the same
-mark in the same prediction, overlaps it least. Results are reproducible for a fixed
+every spike, as `event_diagnostics` does for sorted units. The first spike repeats the
+example above (mark 60 under a prediction centred at 35): its single-event likelihood
+has the lowest HPD overlap with the prediction (0.46), and its p-value is again about
+0.08. Results are reproducible for a fixed
 seed and `batch_size`. The [clusterless tutorial](https://edeno.github.io/statespacecheck/tutorials/06_clusterless_diagnostics/)
 decodes a simulated clusterless recording and diagnoses a misspecified mark model.
 

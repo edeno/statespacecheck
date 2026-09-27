@@ -150,7 +150,8 @@ predictive = decode(true_model)
 
 # %% [markdown]
 # The misspecified decoder believes every unit's amplitude is 0.8 higher than it is,
-# as if the waveform features had been estimated on a recording whose gain drifted.
+# as if the waveform features had been estimated on a recording whose amplitudes have
+# since drifted by a constant offset.
 
 # %%
 misspecified_model = clusterless_model(waveform_means + 0.8)
@@ -248,47 +249,58 @@ fig.tight_layout()
 plt.show()
 
 # %% [markdown]
-# The small p-values of the misspecified model cluster in time, each time the animal
-# is near the start of the track, while HPD overlap and KL divergence barely change:
-# KL divergence is even a little lower. The simulation knows which unit fired each
-# spike, so the flags can be counted by unit:
+# Most of the small p-values of the misspecified model cluster in time, each time the
+# animal is near the start of the track, while HPD overlap and KL divergence barely
+# change: KL divergence is even a little lower. Real clusterless data have no unit
+# labels, but the flags can be broken down by the marks themselves, here by amplitude:
 
 # %%
-flagged = {
-    name: [np.mean(result.predictive_pvalue[spike_unit == u] <= 0.05) for u in range(n_units)]
-    for name, result in [("true", diagnostics), ("misspecified", misspecified)]
-}
+amplitude_edges = np.arange(0.0, 6.01, 0.75)
+amplitude_bin = np.digitize(spike_marks[:, 0], amplitude_edges[1:-1])  # 0 .. 7
 fig, ax = plt.subplots(figsize=(9, 2.5))
-width = 0.4
-ax.bar(np.arange(n_units) - width / 2, flagged["true"], width, color="tab:gray", label="true")
-ax.bar(
-    np.arange(n_units) + width / 2,
-    flagged["misspecified"],
-    width,
-    color="tab:red",
-    label="misspecified",
-)
-ax.set(xlabel="Unit (by amplitude)", ylabel="Fraction p <= 0.05")
+width = 0.3
+for offset, (label, result, color) in zip(
+    [-width / 2, width / 2],
+    [("true", diagnostics, "tab:gray"), ("misspecified", misspecified, "tab:red")],
+    strict=True,
+):
+    flagged = [
+        np.mean(result.predictive_pvalue[amplitude_bin == k] <= 0.05)
+        for k in range(amplitude_edges.size - 1)
+    ]
+    ax.bar(amplitude_edges[:-1] + 0.375 + offset, flagged, width, color=color, label=label)
+ax.set(xlabel="Spike amplitude", ylabel="Fraction p <= 0.05", xticks=amplitude_edges)
 ax.legend()
 plt.show()
 
 # %% [markdown]
-# Nearly all of the misfit is in unit 0. The shift of 0.8 is larger than the 0.6
-# spacing of the units' amplitudes, so each spike of unit $u$ looks most like what the
-# misspecified model expects of unit $u - 1$, whose place field is 12 cm lower. The
-# decoder reads it as that unit's spike and places the animal lower on the track, as
-# in the predictive distribution plotted above. Its prediction for the next spikes comes
-# from the same misspecified model, so they agree with it: the prediction and each
-# spike's likelihood stay consistent, and HPD overlap, KL divergence and most
-# p-values look like a good fit. Unit 0's amplitudes, near 1.0, lie below every
-# amplitude the misspecified model expects (1.8 and up), so no unit explains them and
-# its spikes are flagged. Its place field is at the start of the track, which is
-# where the flags appeared in time.
+# The misfit is in the spikes of the lowest amplitudes. The simulation knows which unit
+# fired each spike, so it can tell why:
+
+# %%
+for name, result in [("true", diagnostics), ("misspecified", misspecified)]:
+    flagged = [
+        np.mean(result.predictive_pvalue[spike_unit == u] <= 0.05) for u in range(n_units)
+    ]
+    print(f"{name:13s} fraction p <= 0.05 by unit:", np.round(flagged, 2))
+
+# %% [markdown]
+# The shift of 0.8 is larger than the 0.6 spacing of the units' amplitudes, so each
+# spike of unit $u$ looks most like what the misspecified model expects of unit
+# $u - 1$, whose place field is 12 cm lower. The decoder reads it as that unit's spike
+# and places the animal lower on the track, as in the predictive distribution plotted
+# above. Its prediction for the next spikes comes from the same misspecified model, so
+# they agree with it: the prediction and each spike's likelihood stay consistent, and
+# HPD overlap, KL divergence and most p-values look like a good fit. Unit 0's
+# amplitudes, near 1.0, lie below every amplitude the misspecified model expects (1.8
+# and up), so no unit explains them: more than half of its spikes are flagged, against
+# at most 8% for any other unit. Its place field is at the start of the track, which
+# is where the flags appeared in time.
 #
 # The diagnostics measure whether each spike is consistent with the decoder's
 # prediction, not whether the decoded position is right. A systematic error that the
 # model absorbs consistently shows only where it breaks: here, at the edge of the
-# mark space. Breaking the flags down by where the marks fall is how to find it.
+# mark space, which breaking the flags down by mark value finds.
 
 # %% [markdown]
 # ## 5. The sorted special case

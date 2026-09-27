@@ -19,8 +19,9 @@ The same per-spike diagnostics for spikes described by waveform features rather 
 sorted units: build the observation model as a `MarkModel`, decode a simulated
 clusterless recording with a correct and a misspecified mark model, and compute the
 diagnostics with `clusterless_event_diagnostics`. Shows what a consistency diagnostic
-can and cannot see, and that sorted units give the same results as
-`event_diagnostics`.
+can and cannot see, and that sorted units give the same HPD overlap and KL divergence as
+`event_diagnostics`, and p-values within Monte Carlo error. Needs only
+`pip install statespacecheck matplotlib`.
 
 ## Background and extensions
 

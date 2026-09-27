@@ -1,4 +1,4 @@
-"""Predictive checks of events whose marks are continuous or intractable.
+"""Per-event diagnostics of events whose marks are continuous or intractable.
 
 A marked point-process observation model gives every event a mark (for
 clusterless decoding, the event's waveform features) and a joint intensity
@@ -17,9 +17,12 @@ function that draws a mark for an event at a given state (:data:`MarkSampler`),
 and the ground intensity. The intensity is taken as its log because densities of
 many-dimensional marks are often too small to represent: the density of a mark
 with 32 waveform features can be ``exp(-140)``, below the smallest float32.
+:func:`clusterless_event_diagnostics` computes all three per-event diagnostics
+(HPD overlap, KL divergence and this p-value) from the same :class:`MarkModel`.
 
 State-bin indices passed to a :data:`MarkSampler` are flat indices into the
-state grid, in the C order of ``state_dist.reshape(n_events, -1)``.
+state grid, in the C order of its spatial axes (as ``reshape(n, -1)`` flattens
+them).
 """
 
 from collections.abc import Callable
@@ -66,7 +69,7 @@ is given, so that seeded results are reproducible.
 
 
 class MarkModel(NamedTuple):
-    """A marked point-process observation model, as :func:`monte_carlo_mark_pvalue` uses it.
+    """A marked point-process observation model, as the continuous-mark functions take it.
 
     The three parts must describe the same model: ``ground_intensity`` is the
     integral of ``exp(log_intensity)`` over marks, and ``sample`` draws from
@@ -89,7 +92,8 @@ class MarkModel(NamedTuple):
     ground_intensity: ArrayLike
 
 
-# Events processed per batch in :func:`monte_carlo_mark_pvalue`. Memory is
+# Events processed per batch in :func:`monte_carlo_mark_pvalue` and
+# :func:`clusterless_event_diagnostics`. Memory is
 # dominated by arrays over every replicated mark at every state, batch x
 # n_samples x n_bins x 8 B (8 x 1000 x 512 x 8 B ~ 33 MB); the peak is about two
 # of them plus what the model's log_intensity allocates, ~90 MB in a measured
@@ -503,13 +507,15 @@ def monte_carlo_mark_pvalue(
     TypeError
         If ``model`` is not a :class:`MarkModel`.
     ValueError
-        If shapes are inconsistent, inputs are negative or non-finite,
-        ``n_samples`` or ``batch_size`` is not a positive integer, a callable
-        returns output of the wrong shape (or NaN or ``+inf`` log
-        intensities), an event's total predictive event intensity is zero, or
-        a replicated mark has zero intensity at every state with predictive
-        mass (the sampler and the intensity disagree, or the intensity
-        underflowed before its log was taken).
+        If shapes are inconsistent, inputs are negative, non-finite or masked,
+        ``n_samples`` or ``batch_size`` is not a positive integer, or an
+        event's total predictive event intensity is zero. Also if a callable
+        returns invalid output: log intensities of the wrong shape, not real
+        float64, or NaN or ``+inf``; masked or non-finite replicated marks; a
+        finite log intensity where the ground intensity is zero and the state
+        has mass; or a replicated mark with zero intensity at the state it was
+        drawn at (the sampler and the intensity disagree, or the intensity
+        underflowed before its log was taken). Errors name the events.
 
     See Also
     --------
@@ -621,7 +627,8 @@ def clusterless_event_diagnostics(
 
     With a finite set of marks, such as the units of spike-sorted data, use
     :func:`~statespacecheck.event_diagnostics`: its p-value is exact. Written
-    as a :class:`MarkModel` of integer marks, those marks give the same HPD
+    as a :class:`MarkModel` of integer marks whose ``log_intensity`` is
+    ``np.log`` of the same intensity table, those marks give the same HPD
     overlap, KL divergence and likelihood bit for bit, and the same p-values
     within Monte Carlo error.
 
@@ -670,12 +677,12 @@ def clusterless_event_diagnostics(
     ValueError
         If shapes are inconsistent, time indices are out of range, inputs are
         negative or non-finite, ``n_samples`` or ``batch_size`` is not a
-        positive integer, or ``coverage`` is outside ``(0, 1]``; if an event's
+        positive integer, or ``coverage`` is outside ``(0, 1)``; if an event's
         time bin has no predictive mass where the ground intensity is
-        positive, or its observed mark has zero intensity at every state; or
-        if a callable returns invalid output (see
-        :func:`monte_carlo_mark_pvalue`). Errors name events and time bins by
-        their index in the inputs.
+        positive, or its observed mark has zero intensity at every state or a
+        finite log intensity where the ground intensity is zero; or if a
+        callable returns invalid output (see :func:`monte_carlo_mark_pvalue`).
+        Errors name events and time bins by their index in the inputs.
 
     See Also
     --------
@@ -687,7 +694,15 @@ def clusterless_event_diagnostics(
     The p-values are :func:`monte_carlo_mark_pvalue`'s for
     ``predictive[event_time_ind]``: the same seed and ``batch_size`` give
     identical results. HPD overlap, KL divergence and the likelihood do not
-    depend on the seed or on ``batch_size``.
+    depend on the seed. They depend on ``batch_size`` only in the last bit,
+    and only if ``model.log_intensity`` computes a mark's values differently
+    depending on how many marks it is called with (a matrix product can).
+
+    The likelihood is exponentiated after normalizing in log space, so it is
+    exactly 0 at states where it is more than about ``exp(-745)`` below its
+    largest value. KL divergence is then ``+inf`` if the prediction has mass
+    there, as it is for disjoint supports. Single-spike likelihoods of
+    clusterless models rarely span that range.
 
     Examples
     --------

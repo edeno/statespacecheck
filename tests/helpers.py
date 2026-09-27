@@ -212,14 +212,15 @@ def gaussian_mark_model(
     """Units with place fields ``(n_bins, n_units)`` and Gaussian 1-D waveform amplitudes.
 
     ``lambda(x, y) = sum_u r_u(x) N(y; mu_u, sigma)``, so the ground intensity is
-    ``sum_u r_u(x)``. Marks have shape ``(n, 1)``.
+    ``sum_u r_u(x)``. Marks have shape ``(n, 1)``. ``place_fields`` must be positive
+    everywhere.
     """
     sample_unit = unit_sampler(place_fields)
 
     def log_mark_intensity(marks: np.ndarray) -> np.ndarray:
         # log sum_u r_u(x) N(y; mu_u, sigma), shape (n, n_bins), with the largest
         # log N(y; mu_u, sigma) factored out so the sum over units is a stable
-        # matrix product (every r_u > 0, so the sum is positive)
+        # matrix product (place_fields > 0, so the sum is positive)
         log_amplitude = norm.logpdf(np.asarray(marks)[:, :1], waveform_means, sigma)
         largest = log_amplitude.max(axis=1, keepdims=True)
         return largest + np.log(np.exp(log_amplitude - largest) @ place_fields.T)
