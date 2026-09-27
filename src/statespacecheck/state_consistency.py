@@ -129,7 +129,10 @@ def _log_space_kl(
     ``log_likelihood`` has ``-inf`` where the likelihood is zero.
     """
     p, _ = normalize_rows(np.asarray(state, dtype=np.float64))
-    log_q = log_likelihood - logsumexp(log_likelihood, axis=1, keepdims=True)
+    # Relative to each row's largest log value: log values of large magnitude
+    # (1e16) cannot hold the normalizer's small offset from them
+    shifted = log_likelihood - log_likelihood.max(axis=1, keepdims=True)
+    log_q = shifted - logsumexp(shifted, axis=1, keepdims=True)
     # Bins without state mass contribute 0; their 0 * -inf is discarded
     with np.errstate(divide="ignore", invalid="ignore"):
         terms = p * (np.log(p) - log_q)

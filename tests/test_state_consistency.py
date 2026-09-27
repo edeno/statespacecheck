@@ -415,3 +415,19 @@ def test_clusterless_kl_with_a_likelihood_that_underflows():
     )
     expected = _kl_from_logs([[0.5, 0.5]], log_intensity[None])
     assert_allclose(result.kl_divergence, expected, rtol=1e-13)
+
+
+@pytest.mark.parametrize("offset", [0.0, -1e16, 1e16])
+def test_clusterless_kl_with_a_large_log_intensity_offset(offset):
+    """At 1e16 the log normalizer's offset log 2 is below the spacing of floats, so
+    the logs are taken relative to their largest value; D = log 2 at any offset."""
+    log_intensity = offset + np.array([0.0, 0.0, -800.0])
+    model = MarkModel(
+        lambda m: np.tile(log_intensity, (len(m), 1)),
+        lambda bins, _rng: np.zeros(len(bins), dtype=int),
+        np.ones(3),
+    )
+    result = clusterless_event_diagnostics(
+        np.array([[1.0, 0.0, 1e-100]]), model, [0], [0], n_samples=10, rng=0
+    )
+    assert_allclose(result.kl_divergence, [np.log(2.0)], rtol=1e-13)
