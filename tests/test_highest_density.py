@@ -10,7 +10,9 @@ from helpers import (
     make_random_distribution_2d,
     sum_over_spatial,
 )
+from numpy.testing import assert_array_equal
 
+from statespacecheck import hpd_overlap
 from statespacecheck.highest_density import (
     highest_density_region,
 )
@@ -338,3 +340,15 @@ class TestHighestDensityRegion:
             assert abs(center2 - mean2) < 3, (
                 f"Second HD region center ({center2}) should be near mean2 ({mean2})"
             )
+
+
+def test_coverage_just_below_one_excludes_bins_without_mass():
+    """0.2 + 0.4 + 0.3 sums, in cumulative order, just short of the total times the
+    largest coverage below 1; the region must still stop at the last bin with mass,
+    not take a zero cutoff that includes every bin."""
+    coverage = np.nextafter(1.0, 0.0)
+    distribution = np.array([[0.2, 0.4, 0.3, 0.0]])
+    region = highest_density_region(distribution, coverage=coverage)
+    assert_array_equal(region, [[True, True, True, False]])
+    disjoint = np.array([[0.0, 0.0, 0.0, 1.0]])
+    assert_array_equal(hpd_overlap(distribution, disjoint, coverage=coverage), [0.0])

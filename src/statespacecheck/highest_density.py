@@ -107,8 +107,6 @@ def _highest_density_region_rows(
     # Flatten to (n_time, n_spatial) for vectorized operations
     flat = flatten_time_spatial(clean)
 
-    n_spatial = flat.shape[1]
-
     # Compute total mass and target mass for each time point
     # Shape: (n_time,)
     flat, totals = row_sums_rescaled(flat)
@@ -137,9 +135,12 @@ def _highest_density_region_rows(
     # Shape: (n_time,)
     idx = ge.argmax(axis=1)
 
-    # If a row never reaches target but has positive mass (rare numeric case),
-    # choose the last index. If it's truly empty, handle later.
-    idx = np.where(has_true, idx, n_spatial - 1)
+    # A row with mass can fall short of the target through rounding in the
+    # cumulative sum (coverage just below 1): take its last bin with mass. The
+    # last bin overall could have none, and a zero cutoff would include every bin,
+    # invalid ones too. Empty rows are handled below.
+    last_with_mass = np.maximum(np.count_nonzero(flat_sorted > 0, axis=1) - 1, 0)
+    idx = np.where(has_true, idx, last_with_mass)
 
     # Per-row cutoff (unnormalized)
     # Shape: (n_time,)
