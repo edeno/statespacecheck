@@ -144,6 +144,7 @@ much broader. See [Interpreting the diagnostics](https://edeno.github.io/statesp
 | Rank-based predictive p-value (exact sum over units) | `mark_predictive_pvalue` |
 | Rank-based predictive p-value by Monte Carlo (continuous marks) | `monte_carlo_mark_pvalue` |
 | All three diagnostics for every spike | `event_diagnostics` |
+| All three diagnostics for every spike, continuous marks (clusterless) | `clusterless_event_diagnostics` |
 | Thresholds from a baseline period; flagging | `baseline_threshold`, `flag_events` |
 
 The package also has tools the paper does not use: time-bin versions of the diagnostics
@@ -194,15 +195,30 @@ check = ssc.monte_carlo_mark_pvalue(
     rng=0,
 )
 print(check.pvalue.round(2))
+
+# All three diagnostics for every spike of a recording
+spikes = ssc.clusterless_event_diagnostics(
+    norm.pdf(position, [[35.0], [60.0]], 8),  # predictive of 2 time bins, (n_time, n_bins)
+    model,
+    event_time_ind=np.array([0, 0, 1]),  # each spike's time bin
+    event_marks=np.array([[60.0], [36.0], [58.0]]),  # each spike's mark
+    rng=0,
+)
+print(spikes.predictive_pvalue.round(2), spikes.hpd_overlap.round(2))
 ```
 
 ```text
 [0.08]
+[0.08 0.95 0.87] [0.46 1.   1.  ]
 ```
 
 The observed mark lies in the tail of the predictive mark distribution: the Monte Carlo
 p-value is about 0.08 (numerical integration gives 0.083), above the paper's 0.05 cutoff.
-Results are reproducible for a fixed seed and `batch_size`.
+`clusterless_event_diagnostics` computes HPD overlap, KL divergence and this p-value for
+every spike, as `event_diagnostics` does for sorted units: the first spike, the same
+mark in the same prediction, overlaps it least. Results are reproducible for a fixed
+seed and `batch_size`. The [clusterless tutorial](https://edeno.github.io/statespacecheck/tutorials/06_clusterless_diagnostics/)
+decodes a simulated clusterless recording and diagnoses a misspecified mark model.
 
 ## Documentation
 

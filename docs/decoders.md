@@ -104,10 +104,10 @@ in the paper repository.
 ## Clusterless decoders (non_local_detector KDE)
 
 This needs the same `non_local_detector` version as the section above. A clusterless
-spike's mark is its waveform features, so the predictive p-value comes from
-`monte_carlo_mark_pvalue`, which needs the model as a `MarkModel` of three pieces: the log
-joint mark intensity, a sampler of marks, and the ground intensity (the total spike rate
-at each position). For `non_local_detector`'s clusterless KDE model, all three follow from the
+spike's mark is its waveform features, so the per-spike diagnostics come from
+`clusterless_event_diagnostics` (and the p-value alone from `monte_carlo_mark_pvalue`),
+which need the model as a `MarkModel` of three pieces: the log joint mark intensity, a
+sampler of marks, and the ground intensity (the total spike rate at each position). For `non_local_detector`'s clusterless KDE model, all three follow from the
 fitted encoding model:
 
 - The electrode is part of the mark, `[electrode, feature_1, ..., feature_d]`: the
@@ -266,6 +266,10 @@ observed_marks = np.concatenate(blocks) if blocks else np.empty((0, 1))  # no sp
 
 check = ssc.monte_carlo_mark_pvalue(
     predictive[event_time_ind], mark_model, observed_marks, rng=0
+)
+# Or HPD overlap, KL divergence and the same p-values for every spike
+diagnostics = ssc.clusterless_event_diagnostics(
+    predictive, mark_model, event_time_ind, observed_marks, rng=0
 )
 ```
 

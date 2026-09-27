@@ -23,8 +23,9 @@ MODULES = [
         "continuous_marks",
         "Continuous marks",
         (
-            "The predictive p-value by Monte Carlo, for marks that cannot be enumerated, "
-            "such as the waveform features of clusterless decoding."
+            "The per-spike diagnostics, with the predictive p-value by Monte Carlo, for "
+            "marks that cannot be enumerated, such as the waveform features of clusterless "
+            "decoding."
         ),
     ),
     (
@@ -108,7 +109,7 @@ overview.append(
     "- `DEFAULT_COVERAGE`: the default coverage of HPD regions, 0.95, as in the paper.\n"
     "- [`LogMarkIntensity`](continuous_marks.md#statespacecheck.continuous_marks.LogMarkIntensity) "
     "and [`MarkSampler`](continuous_marks.md#statespacecheck.continuous_marks.MarkSampler): "
-    "the types of the model functions `monte_carlo_mark_pvalue` takes.\n"
+    "the types of the model functions a `MarkModel` holds.\n"
 )
 
 with mkdocs_gen_files.open("reference/index.md", "w") as fd:
