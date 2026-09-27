@@ -41,9 +41,10 @@ The test job uploads coverage from Python 3.12 on Linux using the
 
 ### Zenodo
 
-Not yet enabled. Once the repository is enabled at
-<https://zenodo.org/account/settings/github/>, Zenodo will archive each GitHub
-release and mint a DOI for it.
+Enabled for `edeno/statespacecheck` at <https://zenodo.org/account/settings/github/>
+(2026-09-27). Zenodo archives each GitHub release, which the `create-release` job
+makes, and mints a DOI for it plus a concept DOI that always resolves to the latest
+version. It takes the title, authors and license from `CITATION.cff`.
 
 ## How to release
 
