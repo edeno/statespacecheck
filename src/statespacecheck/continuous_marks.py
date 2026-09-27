@@ -48,7 +48,12 @@ from .events import (
     _validate_time_indices,
 )
 from .highest_density import DEFAULT_COVERAGE
-from .state_consistency import hpd_overlap, kl_divergence
+from .state_consistency import (
+    _log_space_kl,
+    _underflowed_likelihood_rows,
+    hpd_overlap,
+    kl_divergence,
+)
 
 LogMarkIntensity: TypeAlias = Callable[[NDArray[Any]], NDArray[np.floating]]
 """Log of the joint intensity of marks at every state.
@@ -701,11 +706,12 @@ def clusterless_event_diagnostics(
     and only if ``model.log_intensity`` computes a mark's values differently
     depending on how many marks it is called with (a matrix product can).
 
-    The likelihood is exponentiated after normalizing in log space, so it is
-    exactly 0 at states where its log is more than about 745 below the
-    largest (a ratio below the smallest float64, about ``5e-324``). KL divergence is then ``+inf`` if the prediction has mass
-    there, as it is for disjoint supports. Single-spike likelihoods of
-    clusterless models rarely span that range.
+    The returned likelihood is exponentiated after normalizing in log space, so
+    it is exactly 0 at states where its log is more than about 745 below the
+    largest (a ratio below the smallest float64, about ``5e-324``). The KL
+    divergence at such states is computed from the log intensity, so it is
+    ``+inf`` only where the prediction has mass and the intensity is zero
+    (disjoint supports).
 
     Examples
     --------
@@ -796,6 +802,14 @@ def clusterless_event_diagnostics(
             predictive_batch, likelihood_batch, coverage=coverage
         )
         event_kl[start:stop] = kl_divergence(predictive_batch, likelihood_batch)
+        # Where the likelihood underflowed, its log gives the divergence
+        rows = _underflowed_likelihood_rows(
+            predictive_batch, likelihood_batch, np.isfinite(observed_log_intensity)
+        )
+        if rows.size:
+            event_kl[start + rows] = _log_space_kl(
+                predictive_batch[rows], observed_log_intensity[rows]
+            )
         event_pvalue[start:stop], _, _ = _monte_carlo_batch(
             predictive_batch,
             ground,

@@ -43,7 +43,12 @@ from ._validation import (
     validate_coverage,
 )
 from .highest_density import DEFAULT_COVERAGE
-from .state_consistency import hpd_overlap, kl_divergence
+from .state_consistency import (
+    _log_space_kl,
+    _underflowed_likelihood_rows,
+    hpd_overlap,
+    kl_divergence,
+)
 
 # Events processed per batch in :func:`event_diagnostics`. Bounds the
 # (batch, n_bins) working arrays so recordings with ~10^6 events do not
@@ -698,12 +703,22 @@ def event_diagnostics(
         stop = min(start + batch_size, n_events)
         batch_marks = marks[start:stop]
         predictive_batch = predictive_flat[time_ind[start:stop]]
-        likelihood_batch = event_likelihood(rates[:, batch_marks].T)
+        rates_batch = rates[:, batch_marks].T
+        likelihood_batch = event_likelihood(rates_batch)
 
         event_hpd[start:stop] = hpd_overlap(
             predictive_batch, likelihood_batch, coverage=coverage
         )
         event_kl[start:stop] = kl_divergence(predictive_batch, likelihood_batch)
+        # Where the likelihood underflowed, its log gives the divergence
+        rows = _underflowed_likelihood_rows(
+            predictive_batch, likelihood_batch, rates_batch > 0.0
+        )
+        if rows.size:
+            with np.errstate(divide="ignore"):
+                event_kl[start + rows] = _log_space_kl(
+                    predictive_batch[rows], np.log(rates_batch[rows])
+                )
         event_pvalue[start:stop] = mark_predictive_pvalue(predictive_batch, rates, batch_marks)
         if likelihood is not None:
             likelihood[start:stop] = likelihood_batch

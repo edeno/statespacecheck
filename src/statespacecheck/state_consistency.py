@@ -12,7 +12,8 @@ and silent units, is an extension beyond the paper.
 """
 
 import numpy as np
-from numpy.typing import ArrayLike
+from numpy.typing import ArrayLike, NDArray
+from scipy.special import logsumexp
 from scipy.stats import entropy
 
 from ._validation import (
@@ -44,7 +45,7 @@ def _exclude_bins_invalid_in_either(
 
 def _validate_and_normalize_distributions(
     state_dist: DistributionArray, likelihood: DistributionArray
-) -> tuple[DistributionArray, DistributionArray]:
+) -> tuple[DistributionArray, DistributionArray, DistributionArray]:
     """Validate and normalize distributions, handling NaN values correctly.
 
     Parameters
@@ -62,6 +63,8 @@ def _validate_and_normalize_distributions(
     likelihood_normalized : np.ndarray, shape (n_time, ...)
         Normalized likelihood distributions. NaN/inf values in input are converted to 0.0.
         Each time slice normalized to sum to 1.0 over valid (non-zero) bins.
+    likelihood_flat : np.ndarray, shape (n_time, n_bins)
+        The validated likelihood before normalization, flattened.
 
     Raises
     ------
@@ -99,7 +102,39 @@ def _validate_and_normalize_distributions(
     state_norm = state_norm_flat.reshape(state.shape)
     like_norm = like_norm_flat.reshape(like.shape)
 
-    return state_norm, like_norm
+    return state_norm, like_norm, like_flat
+
+
+def _underflowed_likelihood_rows(
+    state: NDArray[np.floating],
+    likelihood: NDArray[np.floating],
+    has_likelihood: NDArray[np.bool_],
+) -> NDArray[np.intp]:
+    """Rows ``(n_rows, n_bins)`` whose normalized likelihood underflowed where it counts.
+
+    That is, below the smallest normal float64 (subnormal, or 0) at a bin where the
+    likelihood is positive (``has_likelihood``) and the state has mass. The KL
+    divergence of such a row is infinite or imprecise although finite.
+    """
+    underflowed = (likelihood < np.finfo(np.float64).tiny) & has_likelihood & (state > 0.0)
+    return np.flatnonzero(underflowed.any(axis=1))
+
+
+def _log_space_kl(
+    state: NDArray[np.floating], log_likelihood: NDArray[np.floating]
+) -> DistributionArray:
+    """D(state || likelihood) of each row, from the likelihood's unnormalized log.
+
+    ``state`` ``(n_rows, n_bins)`` is finite, nonnegative and has mass in each row;
+    ``log_likelihood`` has ``-inf`` where the likelihood is zero.
+    """
+    p, _ = normalize_rows(np.asarray(state, dtype=np.float64))
+    log_q = log_likelihood - logsumexp(log_likelihood, axis=1, keepdims=True)
+    # Bins without state mass contribute 0; their 0 * -inf is discarded
+    with np.errstate(divide="ignore", invalid="ignore"):
+        terms = p * (np.log(p) - log_q)
+    kl: DistributionArray = np.maximum(np.where(p > 0.0, terms, 0.0).sum(axis=1), 0.0)
+    return kl
 
 
 def kl_divergence(state_dist: ArrayLike, likelihood: ArrayLike) -> DistributionArray:
@@ -169,7 +204,11 @@ def kl_divergence(state_dist: ArrayLike, likelihood: ArrayLike) -> DistributionA
     that is NaN (or infinite) in either input is excluded from both, for
     normalization and for the divergence.
 
-    Time slices where distributions have no valid mass return inf for the divergence.
+    Time slices where distributions have no valid mass return inf for the divergence,
+    as do slices where the state has mass at a bin whose likelihood is zero
+    (disjoint supports). A likelihood that is positive but too small relative to
+    its total to represent once normalized (below about 2.2e-308) is taken from its
+    log instead, so its divergence stays finite and accurate.
 
     """
     state, like = as_paired_arrays(state_dist, likelihood)
@@ -279,7 +318,9 @@ def _kl_divergence_rows(
 ) -> DistributionArray:
     """Compute :func:`kl_divergence` for one chunk of time points."""
     # Validate and normalize distributions (handles NaN correctly)
-    state_norm, like_norm = _validate_and_normalize_distributions(state_dist, likelihood)
+    state_norm, like_norm, like_raw = _validate_and_normalize_distributions(
+        state_dist, likelihood
+    )
 
     n_time = state_norm.shape[0]
 
@@ -302,6 +343,13 @@ def _kl_divergence_rows(
     # NaN already converted to 0 by validation
     if np.any(valid):
         kl_div[valid] = entropy(state_flat[valid], like_flat[valid], axis=1)
+
+    # A likelihood that normalization made subnormal or 0 where the state has mass
+    # gives an infinite or imprecise divergence: those rows come from its log
+    rows = _underflowed_likelihood_rows(state_flat, like_flat, like_raw > 0.0)
+    if rows.size:
+        with np.errstate(divide="ignore"):
+            kl_div[rows] = _log_space_kl(state_flat[rows], np.log(like_raw[rows]))
 
     # Clip to non-negative values to handle floating point precision errors
     # scipy.stats.entropy can return tiny negative values (~1e-113) with subnormal numbers
