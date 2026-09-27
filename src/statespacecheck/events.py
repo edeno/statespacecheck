@@ -751,7 +751,8 @@ def baseline_threshold(baseline_values: ArrayLike, quantile: float) -> float:
         If the baseline values are complex.
     ValueError
         If ``quantile`` is outside ``[0, 1]``, the baseline contains ``-inf``,
-        or it has no finite values.
+        has no finite values, or is a masked array (use NaN for values to leave
+        out).
 
     Examples
     --------
@@ -763,11 +764,12 @@ def baseline_threshold(baseline_values: ArrayLike, quantile: float) -> float:
     if not 0.0 <= quantile <= 1.0:
         msg = f"quantile must lie in [0, 1]; got {quantile}"
         raise ValueError(msg)
-    values = np.asarray(baseline_values)
-    if np.iscomplexobj(values):
-        msg = f"baseline_values must be real; got {values.dtype} values"
-        raise TypeError(msg)
-    values = values.astype(float, copy=False).ravel()
+    values = as_array(
+        baseline_values,
+        "baseline_values",
+        "Pass an ndarray with NaN for values to leave out",
+        dtype=float,
+    ).ravel()
     if np.any(np.isneginf(values)):
         msg = "baseline_values contains -inf; a threshold cannot be estimated"
         raise ValueError(msg)
