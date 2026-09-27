@@ -860,8 +860,10 @@ def session_diagnostics(clusterless_session):
     }
 
 
-# Thresholds set from the fixture seed's observed values (true model: KS p = 0.88,
-# 6.9% of p <= 0.05, 14.5% for unit 0; misspecified: KS p = 1.6e-4, 12.0%, 57.9%)
+# Thresholds set from observed values (fixture seed, true model: KS p = 0.59, 4.7% of
+# p <= 0.05, 6.7% for unit 0; misspecified: KS p = 1.0e-6, 8.4%, 47.2%). Over seven
+# seeds, the misspecified fraction of p <= 0.05 ranged from 8.4% to 20.9%, always
+# above the true model's (4.3% to 6.4%), so the two are compared with each other.
 @pytest.mark.slow
 class TestSimulatedSession:
     def test_calibrated_under_the_true_model(self, session_diagnostics):
@@ -875,8 +877,9 @@ class TestSimulatedSession:
         position, so most spikes still agree with the prediction. The p-values are
         no longer uniform, and more of them are small."""
         pvalue = session_diagnostics["misspecified"].predictive_pvalue
+        true_pvalue = session_diagnostics["true"].predictive_pvalue
         assert kstest(pvalue, "uniform").pvalue < 0.01
-        assert np.mean(pvalue <= 0.05) > 0.10
+        assert np.mean(pvalue <= 0.05) > np.mean(true_pvalue <= 0.05)
 
     def test_flags_the_unit_the_misspecified_model_cannot_explain(
         self, clusterless_session, session_diagnostics

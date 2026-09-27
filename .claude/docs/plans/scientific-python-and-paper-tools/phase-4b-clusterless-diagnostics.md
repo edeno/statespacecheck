@@ -111,7 +111,7 @@
 | `test_clusterless_matches_event_diagnostics_for_discrete_marks` | Discrete model encoded as callables: `hpd_overlap`, `kl_divergence` and `likelihood` are **`np.array_equal`** to `event_diagnostics`; `predictive_pvalue` within 4 SE (`n_samples=20_000`, **slow**) |
 | `test_clusterless_pvalue_equals_monte_carlo_mark_pvalue` | Same seed and batch size: `predictive_pvalue` is bit-identical to `monte_carlo_mark_pvalue(predictive[time_ind], ...).pvalue` |
 | `TestSimulatedSession::test_calibrated_under_the_true_model` (**slow**) | Simulated session, true model: KS test of p-values against U(0,1) gives p > 0.01; fraction of p ≤ 0.05 at most 0.08 |
-| `TestSimulatedSession::test_detects_misspecified_marks` (**slow**) | Misspecified waveform means: KS p < 0.01; fraction of p ≤ 0.05 above 0.10 |
+| `TestSimulatedSession::test_detects_misspecified_marks` (**slow**) | Misspecified waveform means: KS p < 0.01; fraction of p ≤ 0.05 above the true model's |
 | `TestSimulatedSession::test_flags_the_unit_the_misspecified_model_cannot_explain` (**slow**) | Unit 0's spikes: fraction of p ≤ 0.05 above 0.4 misspecified, below 0.25 true |
 | `test_clusterless_repeated_time_bins` | Several events in one bin each get their own diagnostics against the same predictive row |
 | `test_clusterless_validation` | `ValueError` for: `event_time_ind` out of range, length mismatch with `event_marks`, bad coverage, `batch_size=0`, an observed-mark intensity that is zero everywhere (named by global event index), a NaN predictive bin that an event uses (bins no event uses are not checked) |
@@ -124,6 +124,8 @@
 Before choosing the thresholds (0.2, 0.08, 0.5), run the simulation once and record the observed values in the PR description. Set each threshold with margin from what is observed, **then** freeze it. Do not tune the simulation to pass a pre-set threshold.
 
 **Observed (seed 20260925; 2,000 bins of 10 ms, not the 2 ms of designs.md, so that the session has enough spikes; 60 position bins, reusing phase 4a's model; 691 events).** True model: KS p = 0.88, 6.9% of p ≤ 0.05, median HPD overlap 1.0, mean KL 0.74. Misspecified: KS p = 1.6e-4, 12.0%, median HPD overlap 1.0, mean KL 0.66. The planned "fraction > 0.2", "mean KL higher" and "median HPD > 0.5" did not fit (seeds 0–3 agree): the +0.8 shift exceeds the 0.6 spacing of the waveform means, so the misspecified model reads each spike as the neighboring unit's, the decoder follows a consistently shifted position, and prediction and likelihood stay consistent. Only unit 0, whose marks no shifted mean explains, is flagged (57.9% vs 14.5%). A single spike's likelihood covers the prediction's 95% region in both models. The user chose to keep the simulation and assert what it shows (2026-09-26); the tutorial explains it.
+
+**Revised after review.** The fixture first drew the first position uniformly; the filter's first prediction is `transition @ uniform`, so it now draws from that. That redraws the whole trajectory (703 events). Observed: true model KS p = 0.59, 4.7% of p ≤ 0.05, unit 0 6.7%; misspecified KS p = 1.0e-6, 8.4%, unit 0 47.2%. The frozen "misspecified fraction above 0.10" failed there; over seven seeds the misspecified fraction was 8.4–20.9% and the true one 4.3–6.4%, the misspecified always higher. The user chose to compare the two fractions (2026-09-26). Every other threshold held in all seven seeds (true KS p ≥ 0.21, misspecified ≤ 0.0059; unit 0 true 3.6–15.7%, misspecified 47.2–67.7%).
 
 ## Fixtures
 
