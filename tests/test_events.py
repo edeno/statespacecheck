@@ -33,6 +33,11 @@ def random_model() -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
 
 
 class TestEventLikelihood:
+    def test_masked_array_raises(self):
+        """Converting a masked array would use the values under the mask."""
+        with pytest.raises(ValueError, match="event_intensities is a masked array"):
+            event_likelihood(np.ma.masked_array([[1.0, 100.0, 1.0]], mask=[[0, 1, 0]]))
+
     def test_bit_identical_to_log_space_normalization_at_extreme_scales(self):
         """The paper's numbers depend on the exact bits: rows whose largest log is near
         the float64 limits (about 708, -710 and -743) must use exp(L - logsumexp(L))."""
@@ -649,6 +654,14 @@ class TestEventDiagnosticsErrors:
             event_diagnostics(
                 arrays["predictive"], arrays["mark_intensities"], np.array([0]), np.array([0])
             )
+
+    def test_object_predictive_is_converted(self, model):
+        predictive, fields = model
+        time_ind, marks = np.array([0, 3, 7]), np.array([0, 1, 2])
+        result = event_diagnostics(predictive.astype(object), fields, time_ind, marks)
+        expected = event_diagnostics(predictive, fields, time_ind, marks)
+        for field in ("hpd_overlap", "kl_divergence", "predictive_pvalue"):
+            assert_array_equal(getattr(result, field), getattr(expected, field))
 
     def test_masked_float_time_indices_are_reported_as_masked(self, model):
         predictive, fields = model

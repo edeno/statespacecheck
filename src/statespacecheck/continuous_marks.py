@@ -28,7 +28,6 @@ them).
 """
 
 from collections.abc import Callable
-from functools import partial
 from typing import Any, NamedTuple, TypeAlias
 
 import numpy as np
@@ -38,13 +37,14 @@ from scipy.special import logsumexp
 from ._validation import DistributionArray, flatten_time_spatial, validate_coverage
 from .events import (
     EventDiagnostics,
+    _as_array,
     _check_predictive_rows,
+    _check_time_bins,
     _first,
     _no_event_intensity_message,
     _normalize_log,
-    _reject_masked,
-    _used_time_bins,
     _validate_ground_intensity,
+    _validate_predictive,
     _validate_state_distribution,
     _validate_time_indices,
 )
@@ -150,26 +150,25 @@ def _evaluate_log_intensity(
         "the observed marks" if replicates_per_event is None else "marks drawn by model.sample"
     )
     marks_per_event = 1 if replicates_per_event is None else replicates_per_event
-    returned = log_intensity(marks)
-    _reject_masked(
-        returned,
+    returned = _as_array(
+        log_intensity(marks),
         "model.log_intensity's output",
         "Return an ndarray with -inf where the intensity is zero",
     )
-    dtype = np.asarray(returned).dtype
+    dtype = returned.dtype
     if dtype.kind != "f":
         msg = (
             "model.log_intensity must return real floating-point log intensities, with "
             f"-inf for zero intensity; it returned {dtype}"
         )
         raise ValueError(msg)
-    if np.issubdtype(dtype, np.floating) and dtype.itemsize < 8:
+    if dtype.itemsize < 8:
         msg = (
             f"model.log_intensity must return float64 values; it returned {dtype}, whose "
             "rounding (about 1e-7 for float32) splits marks of equal predictive density"
         )
         raise ValueError(msg)
-    values = np.asarray(returned, dtype=np.float64)
+    values = returned.astype(np.float64, copy=False)
     if values.shape != (n, *spatial_shape):
         msg = (
             f"model.log_intensity must return shape {(n, *spatial_shape)}, the log "
@@ -229,9 +228,9 @@ def _monte_carlo_batch(
     state: DistributionArray,
     ground: DistributionArray,
     observed_log_intensity: DistributionArray,
+    model: MarkModel,
+    *,
     mark_shape: tuple[int, ...],
-    log_intensity: LogMarkIntensity,
-    sample: MarkSampler,
     spatial_shape: tuple[int, ...],
     n_samples: int,
     rng: np.random.Generator,
@@ -248,16 +247,16 @@ def _monte_carlo_batch(
     observed_log_intensity : np.ndarray, shape (n_batch, n_bins)
         Log intensity of each observed mark at every state bin, from
         :func:`_evaluate_log_intensity`.
+    model : MarkModel
+        The model; its ground intensity is ``ground``, already validated.
     mark_shape : tuple of int
-        Shape of one mark, which ``sample`` must return per state bin.
-    log_intensity, sample
-        The model's functions (:class:`MarkModel`).
+        Shape of one mark, which ``model.sample`` must return per state bin.
     spatial_shape : tuple of int
-        Shape of the state grid, which ``log_intensity`` must return per mark.
+        Shape of the state grid, which ``model.log_intensity`` must return per mark.
     n_samples : int
         Replicated marks per event.
     rng : np.random.Generator
-        Used for the state draws, then by ``sample``.
+        Used for the state draws, then by ``model.sample``.
     first_event : int
         Index of the batch's first event, for error messages.
 
@@ -292,9 +291,9 @@ def _monte_carlo_batch(
     # between events without any check noticing
     flat_bins = state_bins.ravel()
     flat_bins.flags.writeable = False
-    returned_marks = sample(flat_bins, rng)
-    _reject_masked(returned_marks, "model.sample's output", "Return an ndarray of marks")
-    replicated_marks = np.asarray(returned_marks)
+    replicated_marks = _as_array(
+        model.sample(flat_bins, rng), "model.sample's output", "Return an ndarray of marks"
+    )
     if replicated_marks.shape != (n_batch * n_samples, *mark_shape):
         msg = (
             f"model.sample must return marks of shape {(n_batch * n_samples, *mark_shape)}, "
@@ -307,7 +306,7 @@ def _monte_carlo_batch(
         msg = f"model.sample returned non-finite marks for events {_first(events)}"
         raise ValueError(msg)
     replicated_log_intensity = _evaluate_log_intensity(
-        log_intensity, replicated_marks, spatial_shape, first_event, n_samples
+        model.log_intensity, replicated_marks, spatial_shape, first_event, n_samples
     ).reshape(n_batch, n_samples, n_bins)
     # A mark drawn at a state has positive intensity there. Zero intensity at its own
     # state means the sampler and the intensity disagree (for example, about the
@@ -421,15 +420,14 @@ def _check_mark_model(model: object) -> None:
 
 def _nonfinite_rows(marks: NDArray[Any]) -> NDArray[np.intp]:
     """Return the indices of the numeric marks ``(n, *mark_shape)`` that are not all finite."""
-    if not np.issubdtype(marks.dtype, np.number) or marks.size == 0:
+    if not np.issubdtype(marks.dtype, np.number):
         return np.empty(0, dtype=np.intp)
-    return np.flatnonzero(~np.isfinite(marks.reshape(marks.shape[0], -1)).all(axis=1))
+    return np.flatnonzero(~np.isfinite(marks).all(axis=tuple(range(1, marks.ndim))))
 
 
 def _validate_observed_marks(marks: ArrayLike, n_events: int, name: str) -> NDArray[Any]:
     """Check the marks of the events, returned read-only so the model cannot change them."""
-    _reject_masked(marks, name, "Pass an ndarray of the events' marks")
-    marks = np.asarray(marks)
+    marks = _as_array(marks, name, "Pass an ndarray of the events' marks")
     if marks.ndim == 0 or marks.shape[0] != n_events:
         msg = f"{name} must have one entry per event ({n_events}); got shape {marks.shape}"
         raise ValueError(msg)
@@ -588,28 +586,18 @@ def monte_carlo_mark_pvalue(
             _evaluate_log_intensity(
                 model.log_intensity, marks[start:stop], spatial_shape, start
             ),
-            marks.shape[1:],
-            model.log_intensity,
-            model.sample,
-            spatial_shape,
-            n_samples,
-            generator,
-            start,
+            model,
+            mark_shape=marks.shape[1:],
+            spatial_shape=spatial_shape,
+            n_samples=n_samples,
+            rng=generator,
+            first_event=start,
         )
         pvalue[start:stop] = batch_pvalue
         observed_log[start:stop] = batch_observed
         if simulated_log is not None:
             simulated_log[start:stop] = batch_simulated
     return MarkPredictiveCheck(pvalue, observed_log, simulated_log)
-
-
-def _no_likelihood_message(first_event: int, rows: NDArray[np.intp]) -> str:
-    """Error message for events whose observed mark has zero intensity everywhere."""
-    return (
-        f"The observed marks of events {_first(first_event + rows)} have zero intensity "
-        "at every state (model.log_intensity is -inf everywhere), so they have no "
-        "likelihood"
-    )
 
 
 def clusterless_event_diagnostics(
@@ -751,39 +739,32 @@ def clusterless_event_diagnostics(
     validate_coverage(coverage)
     _check_positive_integer(n_samples, "n_samples")
     _check_positive_integer(batch_size, "batch_size")
-    _reject_masked(predictive, "predictive")
-    predictive = np.asarray(predictive)
-    # Converted to float64 batch by batch, as a decoder's float32 predictive would
-    # double in size; other types (longdouble, whose values can overflow float64,
-    # or object) are converted now, so the checks see what is used
-    if predictive.dtype.kind not in "biuf" or predictive.dtype.itemsize > 8:
-        predictive = np.asarray(predictive, dtype=np.float64)
-    if predictive.ndim < 2:
-        msg = (
-            "predictive must have shape (n_time, ...) with at least one spatial axis; "
-            f"got shape {predictive.shape}"
-        )
-        raise ValueError(msg)
+    # Kept in its dtype and converted to float64 batch by batch: a decoder's
+    # float32 predictive would double in size
+    predictive = _validate_predictive(predictive)
     spatial_shape = predictive.shape[1:]
     ground = _validate_ground_intensity(model.ground_intensity, spatial_shape)
     time_ind = _validate_time_indices(event_time_ind, predictive.shape[0])
     n_events = time_ind.shape[0]
     marks = _validate_observed_marks(event_marks, n_events, "event_marks")
     predictive_flat = flatten_time_spatial(predictive)
-    used_time = _used_time_bins(predictive.shape[0], time_ind)
-    _check_predictive_rows(predictive_flat, used_time, time_ind)
+    _check_predictive_rows(predictive_flat, time_ind)
     # An event needs a state with predictive mass where events occur (checked here,
     # before the model is called, rather than batch by batch)
-    no_events = used_time & ~((predictive_flat > 0.0) & (ground > 0.0)).any(axis=1)
-    bad_time = np.flatnonzero(no_events)
-    if bad_time.size:
-        events = np.flatnonzero(np.isin(time_ind, bad_time))
-        msg = (
-            f"At time bins {_first(bad_time)} the predictive distribution puts no "
-            "probability where model.ground_intensity is positive, so the mark "
-            f"distribution is undefined; used by events {_first(events)}"
-        )
-        raise ValueError(msg)
+    has_events = ground > 0.0
+
+    def has_mass_where_events_occur(rows: NDArray[Any]) -> NDArray[np.bool_]:
+        overlap: NDArray[np.bool_] = np.count_nonzero((rows > 0) & has_events, axis=1) > 0
+        return overlap
+
+    _check_time_bins(
+        predictive_flat,
+        time_ind,
+        has_mass_where_events_occur,
+        "At time bins {bins} the predictive distribution puts no probability where "
+        "model.ground_intensity is positive, so the mark distribution is undefined; "
+        "used by events {events}",
+    )
 
     generator = np.random.default_rng(rng)
     event_hpd: DistributionArray = np.empty(n_events)
@@ -801,12 +782,17 @@ def clusterless_event_diagnostics(
         # The likelihood is normalized over every state, so the intensity must agree
         # with the ground intensity at states without predictive mass too
         _check_zero_ground(np.isfinite(observed_log_intensity) & (ground == 0.0), start)
+        no_likelihood = np.flatnonzero(np.isneginf(observed_log_intensity).all(axis=1))
+        if no_likelihood.size:
+            msg = (
+                f"The observed marks of events {_first(start + no_likelihood)} have zero "
+                "intensity at every state (model.log_intensity is -inf everywhere), so "
+                "they have no likelihood"
+            )
+            raise ValueError(msg)
         # C order, as event_likelihood receives it from event_diagnostics: the
         # normalizing sum's rounding depends on the layout
-        likelihood_batch = _normalize_log(
-            np.ascontiguousarray(observed_log_intensity),
-            partial(_no_likelihood_message, start),
-        )
+        likelihood_batch = _normalize_log(np.ascontiguousarray(observed_log_intensity))
         event_hpd[start:stop] = hpd_overlap(
             predictive_batch, likelihood_batch, coverage=coverage
         )
@@ -815,13 +801,12 @@ def clusterless_event_diagnostics(
             predictive_batch,
             ground,
             observed_log_intensity,
-            marks.shape[1:],
-            model.log_intensity,
-            model.sample,
-            spatial_shape,
-            n_samples,
-            generator,
-            start,
+            model,
+            mark_shape=marks.shape[1:],
+            spatial_shape=spatial_shape,
+            n_samples=n_samples,
+            rng=generator,
+            first_event=start,
         )
         if likelihood is not None:
             likelihood[start:stop] = likelihood_batch
