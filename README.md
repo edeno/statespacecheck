@@ -218,8 +218,8 @@ p-value is about 0.08 (numerical integration gives 0.083), above the paper's 0.0
 every spike, as `event_diagnostics` does for sorted units. The first spike repeats the
 example above (mark 60 under a prediction centred at 35): its single-event likelihood
 has the lowest HPD overlap with the prediction (0.46), and its p-value is again about
-0.08. Results are reproducible for a fixed
-seed and `batch_size`. The [clusterless tutorial](https://edeno.github.io/statespacecheck/tutorials/06_clusterless_diagnostics/)
+0.08. Results are reproducible for a fixed seed and `batch_size`. The
+[clusterless tutorial](https://edeno.github.io/statespacecheck/tutorials/06_clusterless_diagnostics/)
 decodes a simulated clusterless recording and diagnoses a misspecified mark model.
 
 ## Documentation

@@ -275,6 +275,11 @@ diagnostics = ssc.clusterless_event_diagnostics(
 )
 ```
 
+`clusterless_event_diagnostics` raises for a spike whose mark has zero intensity at
+every position, as `event_diagnostics` does for a unit that never fires: here, a spike
+on an electrode without (weighted) training spikes, to which `monte_carlo_mark_pvalue`
+gives p = 0. Leave such spikes out, or look at them separately.
+
 On a fitted two-electrode model, these p-values agreed with numerical integration over the
 marks to within Monte Carlo error, and the log intensity agreed with
 `non_local_detector`'s to float32 precision. Two cases need more than this adapter:

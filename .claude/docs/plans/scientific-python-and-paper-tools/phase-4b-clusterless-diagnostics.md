@@ -69,7 +69,7 @@
    Add a symlink `docs/tutorials/06_clusterless_diagnostics.ipynb -> ../../examples/06_clusterless_diagnostics.ipynb`, an entry in the hand-written `mkdocs.yml` nav, and one in `docs/tutorials/index.md`. The CI notebook step (phase 3) executes it.
 
 6. **User-facing docs.**
-   - README "Continuous marks" subsection (added in 4a): a short `clusterless_event_diagnostics` example and a link to tutorial 05.
+   - README "Continuous marks" subsection (added in 4a): a short `clusterless_event_diagnostics` example and a link to tutorial 06.
    - CHANGELOG: rename `[Unreleased]` to `## [0.3.0] - <release date>`, then add `clusterless_event_diagnostics()` under Added. Merge the phase 1–3 "Changed" lines under this version.
    - `CITATION.cff`: `version: 0.3.0` and `date-released`.
    - CLAUDE.md "Modules": the `continuous_marks.py` entry, now including this function.
@@ -106,17 +106,17 @@
 | `test_mark_with_no_intensity_reported_by_absolute_indices` (phase 3b) | A mark with zero intensity everywhere at event 6, `batch_size=2`: the message names event 6 and its mark |
 | `test_mark_range_error_lists_values` | An out-of-range mark: the message contains the offending value |
 | `test_empty_lists_are_accepted` (phase 3b) | Empty lists (float arrays) for both index arrays return empty outputs |
-| `test_baseline_threshold_rejects_complex` | Complex input raises `TypeError` |
-| `test_event_validation_branches` (parametrized) | `ValueError` for NaN, negative and infinite values in intensities and in the state distribution, `batch_size=0`, `ndim < 2` inputs, and zero marks |
-| `test_clusterless_matches_event_diagnostics_for_discrete_marks` | Discrete model encoded as callables: `hpd_overlap`, `kl_divergence` and `likelihood` are **`np.array_equal`** to `event_diagnostics`; `predictive_pvalue` within 4 SE (`n_samples=20_000`, **slow**) |
-| `test_clusterless_pvalue_equals_monte_carlo_mark_pvalue` | Same seed and batch size: `predictive_pvalue` is bit-identical to `monte_carlo_mark_pvalue(predictive[time_ind], ...).pvalue` |
+| `TestBaselineThreshold::test_complex_values_raise` | Complex input raises `TypeError` |
+| `TestEventDiagnosticsErrors::test_invalid_values_raise`, `test_no_marks_raises`, `test_mismatched_mark_intensities_shape_raises` (with phase 3b's `batch_size` and `ndim` tests) | `ValueError` for NaN, negative and infinite values in intensities and in the state distribution, `batch_size=0`, `ndim < 2` inputs, and zero marks |
+| `TestClusterlessMatchesDiscrete` (the p-value test is **slow**) | Discrete model encoded as callables: `hpd_overlap`, `kl_divergence` and `likelihood` are **`np.array_equal`** to `event_diagnostics`; `predictive_pvalue` within 4 SE (`n_samples=20_000`, **slow**) |
+| `TestClusterlessEventDiagnostics::test_pvalue_is_monte_carlo_mark_pvalue` | Same seed and batch size: `predictive_pvalue` is bit-identical to `monte_carlo_mark_pvalue(predictive[time_ind], ...).pvalue` |
 | `TestSimulatedSession::test_calibrated_under_the_true_model` (**slow**) | Simulated session, true model: KS test of p-values against U(0,1) gives p > 0.01; fraction of p ≤ 0.05 at most 0.08 |
 | `TestSimulatedSession::test_detects_misspecified_marks` (**slow**) | Misspecified waveform means: KS p < 0.01; fraction of p ≤ 0.05 above the true model's |
 | `TestSimulatedSession::test_flags_the_unit_the_misspecified_model_cannot_explain` (**slow**) | Unit 0's spikes: fraction of p ≤ 0.05 above 0.4 misspecified, below 0.25 true |
-| `test_clusterless_repeated_time_bins` | Several events in one bin each get their own diagnostics against the same predictive row |
-| `test_clusterless_validation` | `ValueError` for: `event_time_ind` out of range, length mismatch with `event_marks`, bad coverage, `batch_size=0`, an observed-mark intensity that is zero everywhere (named by global event index), a NaN predictive bin that an event uses (bins no event uses are not checked) |
-| `test_clusterless_return_likelihood` | `likelihood` has shape `(n_events, *spatial_shape)` for a 2-D spatial grid; `None` by default |
-| `test_clusterless_empty_events` | Zero events gives empty arrays; callables not called |
+| `TestClusterlessEventDiagnostics::test_repeated_time_bins` | Several events in one bin each get their own diagnostics against the same predictive row |
+| `TestClusterlessValidation`, `TestClusterlessChecks` | `ValueError` for: `event_time_ind` out of range, length mismatch with `event_marks`, bad coverage, `batch_size=0`, an observed-mark intensity that is zero everywhere (named by global event index), a NaN predictive bin that an event uses (bins no event uses are not checked) |
+| `TestClusterlessMatchesDiscrete::test_two_dimensional_grid`, `TestClusterlessEventDiagnostics::test_likelihood_omitted_by_default` | `likelihood` has shape `(n_events, *spatial_shape)` for a 2-D spatial grid; `None` by default |
+| `TestClusterlessEventDiagnostics::test_no_events_calls_nothing` | Zero events gives empty arrays; callables not called |
 | Tutorial 06 executes in CI | Notebook runs; its asserted agreement cell passes |
 | `uv run mkdocs build --strict` | Tutorial 06 and the API page render |
 | Release checks (task 7) | `pip install statespacecheck==0.3.0` in a clean env; `python -c "import statespacecheck as s; print(s.__version__, s.clusterless_event_diagnostics)"` |

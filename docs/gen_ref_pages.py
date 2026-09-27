@@ -33,8 +33,9 @@ MODULES = [
         "Comparing distributions",
         (
             "HPD overlap and KL divergence between a state distribution and a "
-            "likelihood, for each row; used per spike by `event_diagnostics`, or per "
-            "time bin with a whole-bin likelihood (an extension beyond the paper)."
+            "likelihood, for each row; used per spike by `event_diagnostics` and "
+            "`clusterless_event_diagnostics`, or per time bin with a whole-bin "
+            "likelihood (an extension beyond the paper)."
         ),
     ),
     (
