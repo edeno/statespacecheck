@@ -33,8 +33,8 @@ precise spike from a sparsely firing cell). Use it as a reference.
 
 A p-value near 1 means the observed unit was among the most probable ones. Only small
 p-values indicate misfit. With spike-sorted data the p-value is exact and takes only a
-few distinct values, so it is conservative (flagging at `p <= 0.05` flags at most 5% of
-well-fit spikes).
+few distinct values, so it is conservative: under a correct model, each spike has
+probability at most 5% of `p <= 0.05`.
 
 ## What passing a diagnostic means
 
@@ -52,10 +52,13 @@ show that the model is correct.
 - **Rare units get small p-values under a correct model.** The p-value of a spike is
   the predictive probability of all units at most as probable as the one that fired,
   so the least probable unit, predicted with probability 0.02, has p = 0.02 on every
-  spike, and all its spikes are flagged at 0.05. Across all spikes the flagged fraction still stays at or
-  below 5%. Flags concentrated in a few units therefore do not, alone, show that their
-  place fields are wrong: compare each unit's flagged fraction with its predictive
-  probability, or evaluate a revised model on the same spikes.
+  spike, and all its spikes are flagged at 0.05, although the probability that a spike
+  is flagged stays at most 5%. Flags concentrated in a few units therefore do not, alone,
+  show that their place fields are wrong. Compare each unit's flagged fraction with the
+  fraction the model itself would flag for that unit, which can be far above 5% (in
+  this example, 100%): estimate it by simulating spikes from the model (drawing each
+  spike's unit from its predictive probabilities in the same time bins) and flagging
+  them. Or evaluate a revised model on the same spikes.
 
 Each spike is checked on its own. A prediction that makes every unit equally probable
 gives every spike p = 1, however unbalanced the observed mixture of units:
@@ -82,8 +85,12 @@ against the summed predictive probabilities).
 
 ## Calibration
 
-Under a correct model, the fraction of spikes with `p <= alpha` is at most `alpha`.
-That holds only relative to the reference the p-value is computed from:
+Under a correct model, each spike has probability at most `alpha` of `p <= alpha`. That
+bounds the expected fraction of flagged spikes, not the fraction observed in a given
+recording, which varies around its expectation and can exceed `alpha` by chance; the
+variation is larger than for independent spikes, because spikes in the same time bin
+share a prediction and successive predictions depend on the same spikes. The guarantee
+holds only relative to the reference the p-value is computed from:
 
 - **The one-step predictive distribution**, which does not use the spike being tested.
   A filtered or smoothed posterior already includes the spike, so the spike looks more
@@ -94,7 +101,7 @@ That holds only relative to the reference the p-value is computed from:
 - **Monte Carlo p-values** (clusterless marks) add sampling error (see below).
 
 In the simulation below, with an exact filter and the true place fields, 4.4% of
-spikes had `p <= 0.05`.
+spikes had `p <= 0.05`, averaged over 12 recordings.
 
 ## Choosing thresholds
 
@@ -206,11 +213,16 @@ tail probability, with standard error `sqrt(p (1 - p) / B)`, and can be exactly 
 replicate is as unexpected as the observed mark. `predictive_pvalue` is computed the
 same way.
 
-A rank test with exact level `alpha` at a finite `B` would instead use `(r + 1) / (B + 1)`,
-which is valid when the observed mark and the replicates are exchangeable under the model
-(the observed mark drawn from the same predictive distribution as the replicates) and
-is never below `1 / (B + 1)`. The package reports `r / B`; to get the rank-test value,
-compute `(p * B + 1) / (B + 1)` from the returned `p`.
+A rank test at a finite `B` uses `(r + 1) / (B + 1)` instead (Phipson and Smyth, 2010,
+[*Permutation p-values should never be zero*](https://gksmyth.github.io/pubs/PermPValuesPreprint.pdf)).
+It is valid in finite samples when the observed mark and the replicates are
+exchangeable under the model (the observed mark drawn from the same predictive
+distribution as the replicates): rejecting at `p <= alpha` has probability at most
+`alpha`. It can be conservative: the smallest attainable value is `1 / (B + 1)`, so
+with `B = 10` no p-value reaches 0.05, and the level equals `alpha` only when
+`alpha (B + 1)` is an integer and the densities have no ties. The package reports
+`r / B`; to get the rank-test value, compute `(p * B + 1) / (B + 1)` from the returned
+`p`.
 
 ## What the diagnostics do not check
 

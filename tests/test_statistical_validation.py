@@ -205,7 +205,9 @@ def _exceeds(larger, smaller, n_se=3.0):
 @pytest.mark.slow
 class TestSimulatedMisspecification:
     def test_correct_model_pvalues_are_calibrated(self, scenarios):
-        """Exact discrete p-values are conservative: at most 5% at or below 0.05."""
+        """Exact discrete p-values are conservative: each spike has probability at most
+        5% of p <= 0.05, so the mean fraction over recordings stays within sampling
+        error of 5% or below."""
         pvalue = scenarios["correct"].pvalue
         assert pvalue.mean() <= 0.05 + 3 * _standard_error(pvalue)
 

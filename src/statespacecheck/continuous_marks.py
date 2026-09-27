@@ -549,10 +549,12 @@ def monte_carlo_mark_pvalue(
 
     The p-value is ``r / B``: the fraction of ``B = n_samples`` replicated marks at most as
     probable as the observation. It estimates the predictive tail probability,
-    with standard error ``sqrt(p (1 - p) / B)``. A rank test with exact level
-    ``alpha`` at a finite ``B`` would use ``(r + 1) / (B + 1)`` instead, valid when
-    the observation and the replicates are exchangeable under the model; compute it
-    from the returned ``p`` as ``(p * B + 1) / (B + 1)``.
+    with standard error ``sqrt(p (1 - p) / B)``. A rank test at a finite ``B``
+    would use ``(r + 1) / (B + 1)`` instead, computed from the returned ``p`` as
+    ``(p * B + 1) / (B + 1)``. It is valid in finite samples when the observation
+    and the replicates are exchangeable under the model, and possibly conservative:
+    it is never below ``1 / (B + 1)``, and its level equals ``alpha`` only when
+    ``alpha (B + 1)`` is an integer and there are no ties.
 
     Examples
     --------
