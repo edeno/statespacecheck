@@ -115,6 +115,14 @@ these inputs from your own decoder.
 | `event_time_ind` | `(n_spikes,)` | The time bin of each spike (an integer index) |
 | `event_marks` | `(n_spikes,)` | The unit of each spike (an integer index) |
 
+Every array is on the same **grid of states**, with bins of equal size: the
+diagnostics compare distributions over a discretized state space. A grid decoder
+already works this way. For a model whose distributions are continuous, such as a
+Kalman filter, evaluate the prediction and each observation's likelihood on a grid
+first; the [Kalman filter tutorial](https://edeno.github.io/statespacecheck/tutorials/07_kalman_filter/)
+shows how, and how to check that the grid is fine enough. The same diagnostics apply
+to any state space model, not only neural decoders.
+
 Common pitfalls:
 
 - **Place fields stored one unit per row**, `(n_units, n_bins)`: pass `place_fields.T`.

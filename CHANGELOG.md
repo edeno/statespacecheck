@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- A tutorial on a general, non-neural state space model (`examples/07_kalman_filter`): a Kalman filter tracking an object from a noisy sensor, its prediction and each observation's likelihood evaluated on a grid of states and checked against exact values, and the diagnostics finding a biased sensor and wrong noise settings. The README states that every input is on a shared grid of states with equal bins, and how to get a continuous model's distributions onto one.
+
 ## [0.3.0] - 2026-09-27
 
 ### Added
