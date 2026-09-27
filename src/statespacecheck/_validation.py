@@ -38,8 +38,10 @@ def as_array(
     """Convert ``values`` to an ndarray, raising where the conversion would lose information.
 
     A masked array (or a list or tuple of them) would lose its mask, and complex
-    values their imaginary part. The default ``hint`` suits the per-event state and
-    intensity inputs; other callers pass their own.
+    values converted to a real ``dtype`` their imaginary part; without a ``dtype``
+    (marks passed on to a model as they are), complex values are kept. The default
+    ``hint`` suits the per-event state and intensity inputs; other callers pass
+    their own.
     """
     if isinstance(values, np.ma.MaskedArray) or (
         isinstance(values, list | tuple)
@@ -51,7 +53,7 @@ def as_array(
         )
         raise ValueError(msg)
     array = np.asarray(values)
-    if np.iscomplexobj(array):
+    if dtype is not None and np.iscomplexobj(array):
         msg = f"{name} must be real; got {array.dtype} values"
         raise TypeError(msg)
     return array if dtype is None else array.astype(dtype, copy=False)

@@ -942,6 +942,7 @@ class TestModelChecks:
         [
             lambda m: np.ones((len(m), 3), dtype=bool),  # a support mask, not a log
             lambda m: np.zeros((len(m), 3), dtype=np.int64),  # cannot hold -inf
+            lambda m: np.zeros((len(m), 3), dtype=complex),  # np.emath.log of a negative
         ],
     )
     def test_non_real_float_log_intensity_raises(self, log_intensity):
@@ -949,12 +950,6 @@ class TestModelChecks:
             monte_carlo_mark_pvalue(
                 np.full((2, 3), 1 / 3), _uniform_model(log_intensity), np.zeros(2, dtype=int)
             )
-
-    def test_complex_log_intensity_raises(self):
-        """np.emath.log of a negative intensity gives complex values."""
-        model = _uniform_model(lambda m: np.zeros((len(m), 3), dtype=complex))
-        with pytest.raises(TypeError, match=r"model\.log_intensity's output must be real"):
-            monte_carlo_mark_pvalue(np.full((2, 3), 1 / 3), model, np.zeros(2, dtype=int))
 
     def test_nan_log_intensity_names_the_observed_event(self):
         model = _uniform_model(_mark_one_log_intensity(np.nan))
@@ -1197,3 +1192,43 @@ class TestInputTypes:
             clusterless_event_diagnostics(
                 predictive, _uniform_model(), [0, 1], np.zeros(2, dtype=int)
             )
+
+
+def test_complex_marks_are_passed_to_the_model():
+    """Marks are not converted to floats; a complex mark gives the p-value of its real
+    and imaginary parts as two features, with the same draws."""
+    centers = np.array([0.0 + 0.0j, 1.0 + 1.0j, 2.0 - 1.0j])
+
+    def sample_complex(bins, rng):
+        real, imaginary = rng.normal(size=len(bins)), rng.normal(size=len(bins))
+        return (centers[bins] + (real + 1j * imaginary) / np.sqrt(2))[:, None]
+
+    def sample_pairs(bins, rng):
+        real, imaginary = rng.normal(size=len(bins)), rng.normal(size=len(bins))
+        return np.column_stack(
+            [
+                centers[bins].real + real / np.sqrt(2),
+                centers[bins].imag + imaginary / np.sqrt(2),
+            ]
+        )
+
+    complex_model = MarkModel(
+        lambda m: -(np.abs(np.asarray(m)[:, :1] - centers) ** 2), sample_complex, np.ones(3)
+    )
+    pair_model = MarkModel(
+        lambda m: (
+            -((np.asarray(m)[:, :1] - centers.real) ** 2)
+            - (np.asarray(m)[:, 1:] - centers.imag) ** 2
+        ),
+        sample_pairs,
+        np.ones(3),
+    )
+    state = np.full((2, 3), 1 / 3)
+    observed = np.array([0.5 + 0.2j, 3.0 + 2.0j])
+    kwargs = {"n_samples": 500, "rng": 0}
+    complex_check = monte_carlo_mark_pvalue(state, complex_model, observed[:, None], **kwargs)
+    pair_check = monte_carlo_mark_pvalue(
+        state, pair_model, np.column_stack([observed.real, observed.imag]), **kwargs
+    )
+    assert_allclose(complex_check.pvalue, pair_check.pvalue, atol=1 / 500)
+    assert complex_check.pvalue[1] < complex_check.pvalue[0]

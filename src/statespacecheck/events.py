@@ -182,6 +182,9 @@ def _validate_predictive(predictive: ArrayLike) -> NDArray[Any]:
     the checks see the values that are used.
     """
     predictive = as_array(predictive, "predictive")
+    if np.iscomplexobj(predictive):
+        msg = f"predictive must be real; got {predictive.dtype} values"
+        raise TypeError(msg)
     if predictive.dtype.kind not in "biuf" or predictive.dtype.itemsize > 8:
         # Values beyond float64 become inf, which the checks then report
         with np.errstate(over="ignore"):
