@@ -552,7 +552,11 @@ def mark_predictive_pvalue(
     ``p = sum_c q[c] * 1{q[c] <= q[observed]}``.
 
     Small values mean the observed mark was unexpected given the predictive
-    state distribution. A small absolute tolerance on the ``<=`` comparison,
+    state distribution. A large value means only that this mark passes the
+    check: the least probable mark gets a small p-value on every event even
+    under a correct model, and marks the prediction makes equally probable all
+    get p = 1, however unbalanced their observed frequencies. A small absolute
+    tolerance on the ``<=`` comparison,
     ``16 * eps * n_bins`` times the event's largest predictive mark
     probability, absorbs floating-point reduction-order noise, so marks with
     equal predictive probability receive equal p-values across platforms.
@@ -746,6 +750,15 @@ def baseline_threshold(baseline_values: ArrayLike, quantile: float) -> float:
     flag events at or beyond the threshold (:func:`flag_events`). This is the
     paper's rule. NaN values are ignored.
 
+    Because the comparison is inclusive, every value tied at the threshold is
+    flagged, and the flagged fraction of the baseline can exceed ``quantile``.
+    Ties are common: HPD overlap is exactly 1 when one region is nested in the
+    other and 0 when they are disjoint, and KL divergence is exactly 0 when the
+    prediction equals the likelihood. If every baseline HPD overlap is 1, the
+    threshold is 1 and every event at 1 is flagged. Report the flagged fraction of
+    the baseline with the threshold. It describes the baseline the threshold was
+    estimated from, not the rate of false alarms to expect elsewhere.
+
     KL divergence is ``+inf`` when the prediction and the likelihood have
     disjoint support. Such values are allowed: when the requested quantile
     falls among them the threshold is ``+inf``, and then only infinite values
@@ -842,7 +855,8 @@ def flag_events(
     when its HPD overlap is **at or below** ``hpd_overlap_threshold``, its KL
     divergence is **at or above** ``kl_divergence_threshold``, or its
     predictive p-value is **at or below** ``pvalue_threshold``. Each
-    diagnostic is flagged separately; NaN values are never flagged.
+    diagnostic is flagged separately; NaN values are never flagged. Values tied
+    at a threshold are all flagged (see :func:`baseline_threshold`).
 
     Thresholds for HPD overlap and KL divergence depend on the model and the
     data, so they have no default. In its simulation the paper sets them from a

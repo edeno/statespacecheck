@@ -82,7 +82,7 @@ def test_uniform_prediction_over_units_gives_every_unit_p_one():
 
 
 def test_rare_unit_is_flagged_under_a_correct_model():
-    """A unit with predictive probability 0.02 always has p = 0.02, so all its spikes are
+    """The least probable unit, at 0.02, always has p = 0.02, so all its spikes are
     flagged at 0.05 although the model is correct; overall, 2% of spikes are."""
     place_fields = np.array([[0.49, 0.49, 0.02]])  # one state, three units
     rng = np.random.default_rng(5)
