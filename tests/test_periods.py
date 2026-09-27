@@ -184,6 +184,18 @@ class TestAggregateOverPeriod:
         # All-zero weights should return NaN (undefined weighted mean)
         assert np.isnan(result)
 
+    @pytest.mark.parametrize("excluded", [np.inf, -np.inf, np.nan])
+    def test_zero_weight_excludes_nonfinite_metric(self, excluded):
+        result = aggregate_over_period(
+            [1.0, excluded, 3.0], [True, True, True], weights=[1.0, 0.0, 3.0]
+        )
+        assert result == 2.5
+
+    @pytest.mark.parametrize("included", [np.inf, np.nan])
+    def test_positive_weight_preserves_nonfinite_metric(self, included):
+        result = aggregate_over_period([1.0, included], [True, True], weights=[1.0, 2.0])
+        np.testing.assert_equal(result, included)
+
 
 class TestContiguousRuns:
     """Test _contiguous_runs helper function."""

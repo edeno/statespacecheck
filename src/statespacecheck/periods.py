@@ -52,6 +52,7 @@ def aggregate_over_period(
     weights : np.ndarray, shape (n_time,), optional
         Optional weights for weighted mean (e.g., occupancy/time weighting).
         Must be non-negative and have same length as metric_values.
+        Zero weights exclude the corresponding values, including NaN and infinity.
         Only used when reduction='mean'. Ignored for 'sum' with a warning.
 
     Returns
@@ -191,7 +192,10 @@ def aggregate_over_period(
     if weight_sum == 0:
         # All weights are zero -> return NaN
         return np.nan
-    return float(np.sum(selected_values * selected_weights) / weight_sum)
+    # Zero-weight values do not contribute, even when they are NaN or infinite. They
+    # are zeroed rather than removed, so the sum adds the same terms in the same order.
+    values = np.where(selected_weights > 0, selected_values, 0.0)
+    return float(np.sum(values * selected_weights) / weight_sum)
 
 
 # ---------- Helper functions for period detection ----------
