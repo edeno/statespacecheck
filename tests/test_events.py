@@ -655,6 +655,14 @@ class TestEventDiagnosticsErrors:
                 arrays["predictive"], arrays["mark_intensities"], np.array([0]), np.array([0])
             )
 
+    def test_intensities_whose_total_overflows(self):
+        """Finite intensities whose sum over marks overflows: no events give empty
+        results, and an event raises the documented error, not an overflow warning."""
+        predictive, fields = np.full((1, 2), 0.5), np.full((2, 2), 1e308)
+        assert event_diagnostics(predictive, fields, [], []).hpd_overlap.shape == (0,)
+        with pytest.raises(ValueError, match="or the total overflows"):
+            event_diagnostics(predictive, fields, [0], [0])
+
     def test_object_predictive_is_converted(self, model):
         predictive, fields = model
         time_ind, marks = np.array([0, 3, 7]), np.array([0, 1, 2])

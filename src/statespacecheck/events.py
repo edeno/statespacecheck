@@ -264,7 +264,10 @@ def _check_event_inputs(
         )
         raise ValueError(msg)
 
-    ground = rates.sum(axis=1)
+    # Finite intensities can overflow in the sum over marks or in the product below;
+    # the check reports that as an error
+    with np.errstate(over="ignore"):
+        ground = rates.sum(axis=1)
 
     def has_events(rows: NDArray[Any]) -> NDArray[np.bool_]:
         # Expected total event intensity per time bin under the prediction
