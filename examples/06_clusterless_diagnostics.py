@@ -76,9 +76,17 @@ waveform_means = np.linspace(1.0, 5.2, n_units)  # 0.6 apart
 waveform_std = 0.3
 
 
+unit_cumulative = np.cumsum(place_fields / place_fields.sum(axis=1, keepdims=True), axis=1)
+
+
+def sample_unit(bins: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+    """Draw a unit for a spike at each position bin, in proportion to its rate there."""
+    u = rng.random(len(bins))
+    return np.minimum((unit_cumulative[bins] < u[:, np.newaxis]).sum(axis=1), n_units - 1)
+
+
 def clusterless_model(means: np.ndarray) -> ssc.MarkModel:
     """Return the MarkModel of units with ``place_fields`` and amplitude means ``means``."""
-    cumulative = np.cumsum(place_fields / place_fields.sum(axis=1, keepdims=True), axis=1)
 
     def log_intensity(marks: np.ndarray) -> np.ndarray:
         # log sum_u r_u(x) N(y; mu_u, sigma), shape (n, n_bins). The largest log
@@ -90,9 +98,7 @@ def clusterless_model(means: np.ndarray) -> ssc.MarkModel:
 
     def sample(bins: np.ndarray, rng: np.random.Generator) -> np.ndarray:
         # A unit in proportion to its rate at each bin, then its amplitude
-        u = rng.random(len(bins))
-        unit = np.minimum((cumulative[bins] < u[:, np.newaxis]).sum(axis=1), n_units - 1)
-        return rng.normal(means[unit], waveform_std)[:, np.newaxis]
+        return rng.normal(means[sample_unit(bins, rng)], waveform_std)[:, np.newaxis]
 
     return ssc.MarkModel(log_intensity, sample, place_fields.sum(axis=1))
 
@@ -311,15 +317,6 @@ for name, result in [("true", diagnostics), ("misspecified", misspecified)]:
 # and p-values within Monte Carlo error.
 
 # %%
-unit_cumulative = np.cumsum(place_fields / place_fields.sum(axis=1, keepdims=True), axis=1)
-
-
-def sample_unit(bins: np.ndarray, rng: np.random.Generator) -> np.ndarray:
-    """Draw a unit for a spike at each position bin, in proportion to its rate there."""
-    u = rng.random(len(bins))
-    return np.minimum((unit_cumulative[bins] < u[:, np.newaxis]).sum(axis=1), n_units - 1)
-
-
 sorted_model = ssc.MarkModel(
     log_intensity=lambda units: np.log(place_fields[:, units].T),  # (n, n_bins)
     sample=sample_unit,
