@@ -428,6 +428,18 @@ def _exclude_bins_with_nan_likelihood(
     return state_dist
 
 
+def _log_probabilities(state_rows: DistributionArray) -> DistributionArray:
+    """Log of each row ``(n_rows, n_bins)`` normalized to sum to 1, computed in log space.
+
+    Used for probabilities that underflow to 0 when divided by the row sum; for
+    the others, dividing first is more accurate.
+    """
+    with np.errstate(divide="ignore"):
+        log_rows = np.log(state_rows)
+    normalized: DistributionArray = log_rows - logsumexp(log_rows, axis=1, keepdims=True)
+    return normalized
+
+
 def _predictive_density_rows(
     state_dist: DistributionArray, observation_likelihood: DistributionArray
 ) -> tuple[DistributionArray, bool]:
@@ -455,6 +467,19 @@ def _predictive_density_rows(
     # f_predictive(y) = ∑_x p(x) * p(y|x)
     # Note: likelihood is NOT normalized (critical!)
     predictive: DistributionArray = (state_normalized * like_flat).sum(axis=1)
+    # A state probability below the smallest float64 underflows to 0 on division by
+    # the row sum, yet a large likelihood can still make it count: add those terms
+    # from log space, where their products can be represented
+    lost = (state_normalized == 0.0) & (state_flat > 0.0) & (like_flat > 0.0)
+    if lost.any():
+        rows = np.flatnonzero(lost.any(axis=1))
+        with np.errstate(divide="ignore"):
+            log_terms = np.where(
+                lost[rows],
+                _log_probabilities(state_flat[rows]) + np.log(like_flat[rows]),
+                -np.inf,
+            )
+        predictive[rows] += np.exp(logsumexp(log_terms, axis=1))
 
     # Set zero-sum rows to NaN (they have no valid state mass)
     predictive[zero_rows] = np.nan
@@ -511,10 +536,9 @@ def _log_predictive_density_rows(
     lost = (state_normalized == 0.0) & (state_flat > 0.0)
     if lost.any():
         rows = np.flatnonzero(lost.any(axis=1))
-        with np.errstate(divide="ignore"):
-            log_rows = np.log(state_flat[rows])
-        log_rows -= logsumexp(log_rows, axis=1, keepdims=True)
-        log_state_normalized[rows] = np.where(lost[rows], log_rows, log_state_normalized[rows])
+        log_state_normalized[rows] = np.where(
+            lost[rows], _log_probabilities(state_flat[rows]), log_state_normalized[rows]
+        )
 
     # Compute log predictive density using logsumexp
     # log ∑_x p(x) * p(y|x) = logsumexp(log p(x) + log p(y|x))
