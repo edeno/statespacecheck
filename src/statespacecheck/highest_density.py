@@ -145,8 +145,8 @@ def _highest_density_region_rows(
     # orders, so with coverage just below 1 a row with mass can fall short of the
     # target through rounding: take its last bin with mass. The last bin overall
     # could have none, and a zero cutoff would include every bin, invalid ones too.
-    # Empty rows are handled below.
-    last_with_mass = np.maximum(np.count_nonzero(flat_sorted > 0, axis=1) - 1, 0)
+    # (Only a row with mass can fall short: an empty row's target is 0.)
+    last_with_mass = np.count_nonzero(flat_sorted > 0, axis=1) - 1
     idx = np.where(has_true, idx, last_with_mass)
 
     # Per-row cutoff (unnormalized)
