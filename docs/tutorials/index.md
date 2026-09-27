@@ -23,6 +23,14 @@ can and cannot see, and that sorted units give the same HPD overlap and KL diver
 `event_diagnostics`, and p-values within Monte Carlo error. Needs only
 `pip install statespacecheck matplotlib`.
 
+### [7. A general state space model: a Kalman filter](07_kalman_filter.ipynb)
+
+The diagnostics for any state space model, not only neural decoders: run a Kalman
+filter that tracks an object from a noisy sensor, put its prediction and each
+observation's likelihood on a grid of states, check the grid, and find a biased
+sensor and wrong noise settings with HPD overlap, the predictive p-value and KL
+divergence. Needs only `pip install statespacecheck matplotlib`.
+
 ## Background and extensions
 
 These tutorials explain the building blocks and the package's tools beyond the paper.

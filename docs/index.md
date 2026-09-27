@@ -28,6 +28,9 @@ pip install statespacecheck
 - **[Using your decoder](decoders.md)**: getting the inputs from a grid filter,
   `non_local_detector`, or a Kalman filter.
 - **[API reference](reference/index.md)**: every function, grouped by task.
+- **[A general state space model](tutorials/07_kalman_filter.ipynb)**: a Kalman
+  filter on a non-neural tracking problem, and how to put continuous distributions
+  on the grid of states the diagnostics take.
 - **[Background tutorials](tutorials/index.md)**: highest-density regions, and the
   package's tools for time bins.
 
