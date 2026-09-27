@@ -43,15 +43,22 @@ def check_pairs() -> list[str]:
 
 
 def _text_outputs(path: Path) -> list[list[tuple[str, str]]]:
-    """Each code cell's printed text and text results, as (stream name or "result", text)."""
+    """Each code cell's printed text and text results, as (stream name or "result", text).
+
+    Consecutive outputs of one stream are joined: where a kernel splits printed text
+    into outputs depends on when it flushes, which varies between runs.
+    """
     cells = []
     for cell in nbformat.read(path, as_version=4).cells:
         if cell.cell_type != "code":
             continue
-        texts = []
+        texts: list[tuple[str, str]] = []
         for output in cell.outputs:
             if output.output_type == "stream":
-                texts.append((output.name, output.text))
+                if texts and texts[-1][0] == output.name:
+                    texts[-1] = (output.name, texts[-1][1] + output.text)
+                else:
+                    texts.append((output.name, output.text))
             elif "text/plain" in output.get("data", {}) and not any(
                 key.startswith("image/") for key in output.data
             ):
