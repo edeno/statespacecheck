@@ -3,6 +3,7 @@
 import numpy as np
 import pytest
 from helpers import (
+    integer_mark_model,
     make_gaussian_1d,
     make_gaussian_2d,
     make_random_distribution_1d,
@@ -370,6 +371,28 @@ class TestKLDivergenceUnderflow:
         assert np.isfinite(expected[0])
         assert_allclose(kl_divergence(state, likelihood), expected, rtol=1e-13)
 
+    @pytest.mark.parametrize("spatial_shape", [(4,), (2, 2)])
+    @pytest.mark.parametrize(
+        "state",
+        [[2.0, 0.0, 5e-324, 0.0], [1e308, 1e308, 1e-100, 0.0]],
+        ids=["division_underflow", "overflow_rescaling"],
+    )
+    def test_state_underflow_preserves_support(self, state, spatial_shape):
+        state = np.array([state]).reshape(1, *spatial_shape)
+        likelihood = np.array([[1.0, 1.0, 0.0, 0.0]]).reshape(state.shape)
+        assert kl_divergence(state, likelihood)[0] == np.inf
+
+    def test_state_support_check_excludes_invalid_bins(self):
+        state = [[2.0, 5e-324, 5e-324, np.nan, np.inf, 0.0]]
+        likelihood = [[1.0, np.nan, np.inf, 0.0, 0.0, 0.0]]
+        assert kl_divergence(state, likelihood)[0] == 0.0
+
+    def test_state_underflow_and_likelihood_underflow_in_same_row(self):
+        # The second bin needs log-space KL; the third still requires infinity.
+        state = [[1.0, 1.0, 5e-324]]
+        likelihood = [[1.0, 5e-324, 0.0]]
+        assert kl_divergence(state, likelihood)[0] == np.inf
+
     def test_rows_of_a_2d_grid_with_an_excluded_bin(self):
         """Only the row whose likelihood underflows changes; a NaN bin stays excluded
         and a truly disjoint row stays infinite."""
@@ -400,6 +423,20 @@ def test_event_diagnostics_kl_with_a_likelihood_that_underflows():
     result = event_diagnostics(np.array([[0.5, 0.5]]), rates, [0], [0])
     expected = _kl_from_logs([[0.5, 0.5]], np.log([[1e300, 1e-30]]))
     assert_allclose(result.kl_divergence, expected, rtol=1e-13)
+
+
+@pytest.mark.parametrize("clusterless", [False, True], ids=["sorted", "clusterless"])
+@pytest.mark.parametrize("small", [0.1, 5e-324], ids=["linear_kl", "log_kl"])
+def test_event_kl_preserves_state_support_after_underflow(clusterless, small):
+    rates = np.array([[1.0, 1.0], [small, 1.0], [0.0, 1.0]])
+    state = np.array([[1.0, 1.0, 5e-324]])
+    if clusterless:
+        result = clusterless_event_diagnostics(
+            state, integer_mark_model(rates), [0], [0], n_samples=10, rng=0
+        )
+    else:
+        result = event_diagnostics(state, rates, [0], [0])
+    assert result.kl_divergence[0] == np.inf
 
 
 def test_clusterless_kl_with_a_likelihood_that_underflows():

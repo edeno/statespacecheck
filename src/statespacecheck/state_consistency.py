@@ -45,7 +45,7 @@ def _exclude_bins_invalid_in_either(
 
 def _validate_and_normalize_distributions(
     state_dist: DistributionArray, likelihood: DistributionArray
-) -> tuple[DistributionArray, DistributionArray, DistributionArray]:
+) -> tuple[DistributionArray, DistributionArray, DistributionArray, NDArray[np.bool_]]:
     """Validate and normalize distributions, handling NaN values correctly.
 
     Parameters
@@ -65,6 +65,8 @@ def _validate_and_normalize_distributions(
         Each time slice normalized to sum to 1.0 over valid (non-zero) bins.
     likelihood_flat : np.ndarray, shape (n_time, n_bins)
         The validated likelihood before normalization, flattened.
+    unsupported_rows : np.ndarray of bool, shape (n_time,)
+        Rows with positive state mass at a zero-likelihood bin before normalization.
 
     Raises
     ------
@@ -92,6 +94,10 @@ def _validate_and_normalize_distributions(
     # Flatten for vectorized operations
     state_flat = flatten_time_spatial(state)
     like_flat = flatten_time_spatial(like)
+    # Normalization can underflow positive mass to zero; it must still give
+    # infinite KL when the likelihood there is truly zero. Invalid bins have
+    # already been excluded from both distributions.
+    unsupported_rows = ((state_flat > 0.0) & (like_flat == 0.0)).any(axis=1)
 
     # Normalize each time slice (after validation, NaN/inf are already 0); rows
     # with no mass stay zero
@@ -102,7 +108,7 @@ def _validate_and_normalize_distributions(
     state_norm = state_norm_flat.reshape(state.shape)
     like_norm = like_norm_flat.reshape(like.shape)
 
-    return state_norm, like_norm, like_flat
+    return state_norm, like_norm, like_flat, unsupported_rows
 
 
 def _underflowed_likelihood_rows(
@@ -137,6 +143,8 @@ def _log_space_kl(
     with np.errstate(divide="ignore", invalid="ignore"):
         terms = p * (np.log(p) - log_q)
     kl: DistributionArray = np.maximum(np.where(p > 0.0, terms, 0.0).sum(axis=1), 0.0)
+    # The original state retains support that normalization may have rounded away.
+    kl[((state > 0.0) & np.isneginf(log_likelihood)).any(axis=1)] = np.inf
     return kl
 
 
@@ -324,7 +332,7 @@ def _kl_divergence_rows(
 ) -> DistributionArray:
     """Compute :func:`kl_divergence` for one chunk of time points."""
     # Validate and normalize distributions (handles NaN correctly)
-    state_norm, like_norm, like_raw = _validate_and_normalize_distributions(
+    state_norm, like_norm, like_raw, unsupported_rows = _validate_and_normalize_distributions(
         state_dist, likelihood
     )
 
@@ -356,6 +364,8 @@ def _kl_divergence_rows(
     if rows.size:
         with np.errstate(divide="ignore"):
             kl_div[rows] = _log_space_kl(state_flat[rows], np.log(like_raw[rows]))
+
+    kl_div[unsupported_rows] = np.inf
 
     # Clip to non-negative values to handle floating point precision errors
     # scipy.stats.entropy can return tiny negative values (~1e-113) with subnormal numbers
