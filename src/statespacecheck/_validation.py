@@ -24,7 +24,8 @@ def row_chunks(shape: tuple[int, ...]) -> Iterator[slice]:
         yield slice(start, min(start + step, n_rows))
 
 
-# For distributions whose invalid bins are excluded when marked NaN
+# Hint for inputs (distributions and observation likelihoods) whose bins are
+# excluded when marked NaN
 EXCLUDE_WITH_NAN = "Pass an ndarray with NaN in the bins to exclude"
 
 
@@ -34,14 +35,26 @@ def as_array(
     hint: str = "Pass an ndarray (zero where a state has no mass or intensity)",
     dtype: DTypeLike = None,
 ) -> NDArray[Any]:
-    """Convert ``values`` to an ndarray, raising for a masked array, whose mask would drop."""
-    if isinstance(values, np.ma.MaskedArray):
+    """Convert ``values`` to an ndarray, raising where the conversion would lose information.
+
+    A masked array (or a list or tuple of them) would lose its mask, and complex
+    values their imaginary part. The default ``hint`` suits the per-event state and
+    intensity inputs; other callers pass their own.
+    """
+    if isinstance(values, np.ma.MaskedArray) or (
+        isinstance(values, list | tuple)
+        and any(isinstance(value, np.ma.MaskedArray) for value in values)
+    ):
         msg = (
             f"{name} is a masked array; converting it would drop the mask and use the "
             f"values under it. {hint}"
         )
         raise ValueError(msg)
-    return np.asarray(values, dtype=dtype)
+    array = np.asarray(values)
+    if np.iscomplexobj(array):
+        msg = f"{name} must be real; got {array.dtype} values"
+        raise TypeError(msg)
+    return array if dtype is None else array.astype(dtype, copy=False)
 
 
 def check_threshold_not_nan(value: float, name: str) -> None:

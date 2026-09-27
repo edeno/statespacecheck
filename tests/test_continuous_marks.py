@@ -942,7 +942,6 @@ class TestModelChecks:
         [
             lambda m: np.ones((len(m), 3), dtype=bool),  # a support mask, not a log
             lambda m: np.zeros((len(m), 3), dtype=np.int64),  # cannot hold -inf
-            lambda m: np.zeros((len(m), 3), dtype=complex),  # np.emath.log of a negative
         ],
     )
     def test_non_real_float_log_intensity_raises(self, log_intensity):
@@ -950,6 +949,12 @@ class TestModelChecks:
             monte_carlo_mark_pvalue(
                 np.full((2, 3), 1 / 3), _uniform_model(log_intensity), np.zeros(2, dtype=int)
             )
+
+    def test_complex_log_intensity_raises(self):
+        """np.emath.log of a negative intensity gives complex values."""
+        model = _uniform_model(lambda m: np.zeros((len(m), 3), dtype=complex))
+        with pytest.raises(TypeError, match=r"model\.log_intensity's output must be real"):
+            monte_carlo_mark_pvalue(np.full((2, 3), 1 / 3), model, np.zeros(2, dtype=int))
 
     def test_nan_log_intensity_names_the_observed_event(self):
         model = _uniform_model(_mark_one_log_intensity(np.nan))

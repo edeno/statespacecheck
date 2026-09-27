@@ -244,3 +244,25 @@ def test_masked_arrays_raise(call, name):
     divergence infinite, although excluding that bin gives 1 and 0."""
     with pytest.raises(ValueError, match=f"{name} is a masked array"):
         call()
+
+
+def test_list_of_masked_rows_raises():
+    """A list of masked rows converts without its masks, like a masked array."""
+    rows = [np.ma.masked_array([0.2, 1e6, 0.3], mask=[False, True, False])]
+    with pytest.raises(ValueError, match="observation_likelihood is a masked array"):
+        predictive_density(np.array([[0.2, 0.5, 0.3]]), observation_likelihood=rows)
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        lambda: hpd_overlap(_LIKE + 0j, _LIKE),
+        lambda: kl_divergence(_LIKE, _LIKE + 1j),
+        lambda: highest_density_region(_LIKE + 0j),
+        lambda: predictive_density(_LIKE, observation_likelihood=_LIKE + 5j),
+    ],
+)
+def test_complex_values_raise(call):
+    """Converting to float would drop the imaginary part with only a warning."""
+    with pytest.raises(TypeError, match="must be real"):
+        call()
