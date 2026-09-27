@@ -5,6 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![CI](https://github.com/edeno/statespacecheck/actions/workflows/ci.yml/badge.svg)](https://github.com/edeno/statespacecheck/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/edeno/statespacecheck/branch/main/graph/badge.svg)](https://codecov.io/gh/edeno/statespacecheck)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.22999988.svg)](https://doi.org/10.5281/zenodo.22999988)
 
 **Local goodness-of-fit diagnostics for state space models: find the observations, down
 to individual spikes, where a decoder disagrees with the data.**
@@ -30,9 +31,6 @@ interactive website are at
 ```bash
 pip install statespacecheck
 ```
-
-Until version 0.3 is on PyPI, the quick start below needs the development version:
-`pip install git+https://github.com/edeno/statespacecheck`.
 
 ## Quick start
 
@@ -256,11 +254,16 @@ the repository records the version and release date:
 @software{statespacecheck,
   title={statespacecheck: Goodness-of-fit diagnostics for state space models},
   author={Denovellis, Eric and Zeng, Sirui and Eden, Uri T.},
-  url={https://github.com/edeno/statespacecheck}
+  url={https://github.com/edeno/statespacecheck},
+  doi={10.5281/zenodo.22999988}
 }
 ```
 
-A DOI will be added once releases are archived on Zenodo.
+Releases are archived on Zenodo. The DOI above,
+[10.5281/zenodo.22999988](https://doi.org/10.5281/zenodo.22999988), covers all versions
+and resolves to the latest; to cite a specific version, use its DOI from the
+[Zenodo record](https://doi.org/10.5281/zenodo.22999988) (version 0.3.0 is
+[10.5281/zenodo.22999989](https://doi.org/10.5281/zenodo.22999989)).
 
 Please also cite the companion paper for the methods: *Local goodness-of-fit measures
 for neural decoding* (Zeng, Comrie, Frank, Eden and Denovellis); its analysis code is
