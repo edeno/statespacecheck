@@ -13,6 +13,15 @@ p-value and KL divergence for every spike, set thresholds from a baseline period
 when and for which units the model fails, and check whether a revised model fixes it.
 Needs only `pip install statespacecheck matplotlib`.
 
+### [6. Clusterless per-spike diagnostics](06_clusterless_diagnostics.ipynb)
+
+The same per-spike diagnostics for spikes described by waveform features rather than
+sorted units: build the observation model as a `MarkModel`, decode a simulated
+clusterless recording with a correct and a misspecified mark model, and compute the
+diagnostics with `clusterless_event_diagnostics`. Shows what a consistency diagnostic
+can and cannot see, and that sorted units give the same results as
+`event_diagnostics`.
+
 ## Background and extensions
 
 These tutorials explain the building blocks and the package's tools beyond the paper.

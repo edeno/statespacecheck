@@ -128,6 +128,7 @@ nav:
   - Tutorials:
     - tutorials/index.md
     - "Per-spike diagnostics: the paper's workflow": tutorials/05_per_event_diagnostics.ipynb
+    - "Clusterless per-spike diagnostics": tutorials/06_clusterless_diagnostics.ipynb
     - Introduction: tutorials/01_introduction.ipynb
     - Highest Density Regions: tutorials/02_highest_density_regions.ipynb
     - Time-Resolved Diagnostics: tutorials/03_time_resolved_diagnostics.ipynb
