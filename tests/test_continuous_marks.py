@@ -342,6 +342,16 @@ def test_sampler_inconsistent_with_intensity_raises():
         )
 
 
+def _never(*_):
+    msg = "called with no events"
+    raise AssertionError(msg)
+
+
+def _mark_one_log_intensity(value):
+    """Log intensity 0 at every one of 3 bins, except ``value`` for mark 1."""
+    return lambda m: np.where(np.asarray(m)[:, None] == 1, value, np.zeros((len(m), 3)))
+
+
 def _uniform_model(log_intensity=None, sample=None, ground_intensity=None):
     """A 3-bin model with one mark (0) at log intensity 0 everywhere; parts can be replaced."""
     return MarkModel(
@@ -420,13 +430,9 @@ class TestValidation:
 
 
 def test_no_events_calls_nothing():
-    def never(*_):
-        msg = "called with no events"
-        raise AssertionError(msg)
-
     check = monte_carlo_mark_pvalue(
         np.empty((0, 3)),
-        MarkModel(never, never, np.ones(3)),
+        MarkModel(_never, _never, np.ones(3)),
         np.empty(0, dtype=int),
         n_samples=5,
         return_samples=True,
@@ -661,13 +667,9 @@ class TestClusterlessEventDiagnostics:
         assert result.likelihood is None
 
     def test_no_events_calls_nothing(self):
-        def never(*_):
-            msg = "called with no events"
-            raise AssertionError(msg)
-
         result = clusterless_event_diagnostics(
             np.full((4, 3), 1 / 3),
-            MarkModel(never, never, np.ones(3)),
+            MarkModel(_never, _never, np.ones(3)),
             [],
             np.empty((0, 2)),
             return_likelihood=True,
@@ -702,6 +704,18 @@ class TestClusterlessValidation:
                 {"predictive": np.full(3, 1 / 3)},
                 r"predictive must have shape \(n_time, \.\.\.\)",
             ),
+            (
+                {"predictive": np.ma.masked_array(np.full((6, 3), 1 / 3))},
+                "predictive is a masked array",
+            ),
+            (
+                {"event_time_ind": np.ma.masked_array([0, 2, 5])},
+                "event_time_ind is a masked array",
+            ),
+            (
+                {"event_marks": np.ma.masked_array(np.zeros(3, dtype=int))},
+                "event_marks is a masked array",
+            ),
         ],
     )
     def test_bad_arguments_raise(self, inputs, change, match):
@@ -723,9 +737,7 @@ class TestClusterlessValidation:
 
     def test_zero_likelihood_names_the_event(self):
         """An observed mark with zero intensity everywhere has no likelihood."""
-        model = _uniform_model(
-            lambda m: np.where(np.asarray(m)[:, None] == 1, -np.inf, np.zeros((len(m), 3)))
-        )
+        model = _uniform_model(_mark_one_log_intensity(-np.inf))
         marks = np.array([0, 0, 0, 0, 0, 1, 0])
         with pytest.raises(
             ValueError, match=r"events \[5\] have zero intensity at every state"
@@ -760,6 +772,53 @@ class TestClusterlessValidation:
         )
         for field in ("hpd_overlap", "kl_divergence", "predictive_pvalue"):
             assert_array_equal(getattr(result, field), getattr(clean, field))
+
+    def test_intensity_where_ground_intensity_is_zero_raises_without_predictive_mass(self):
+        """The likelihood is normalized over every state, so a finite intensity where
+        the model has no events would take likelihood mass even where the prediction
+        has none."""
+        model = _uniform_model(ground_intensity=np.array([1.0, 1.0, 0.0]))
+        predictive = np.full((7, 3), 0.5)
+        predictive[:, 2] = 0.0
+        with pytest.raises(ValueError, match=r"ground_intensity is zero \(events \[0, 1\]\)"):
+            clusterless_event_diagnostics(
+                predictive, model, np.arange(7), np.zeros(7, dtype=int), batch_size=2
+            )
+
+    def test_zero_ground_error_names_the_global_event(self):
+        # Mark 1 has intensity at bin 2, where the ground intensity is zero; the
+        # sampler draws only mark 0, so only event 5's observed mark is inconsistent
+        model = integer_mark_model(np.array([[1.0, 1.0], [1.0, 1.0], [0.0, 1.0]]))._replace(
+            sample=lambda bins, _rng: np.zeros(len(bins), dtype=int),
+            ground_intensity=np.array([1.0, 1.0, 0.0]),
+        )
+        with pytest.raises(ValueError, match=r"zero \(events \[5\]\)"):
+            clusterless_event_diagnostics(
+                np.full((7, 3), 1 / 3),
+                model,
+                np.arange(7),
+                np.array([0, 0, 0, 0, 0, 1, 0]),
+                n_samples=5,
+                batch_size=2,
+                rng=0,
+            )
+
+    def test_invalid_coverage_raises_before_any_event(self):
+        with pytest.raises(ValueError, match="coverage"):
+            clusterless_event_diagnostics(
+                np.full((3, 3), 1 / 3), _uniform_model(), [], np.empty(0), coverage=1.5
+            )
+
+    def test_coverage_is_used(self, discrete_mark_model, discrete_session):
+        rates, model = discrete_mark_model
+        predictive, time_ind, marks = discrete_session
+        result = clusterless_event_diagnostics(
+            predictive, model, time_ind, marks, coverage=0.5, n_samples=10, rng=0
+        )
+        expected = event_diagnostics(predictive, rates, time_ind, marks, coverage=0.5)
+        default = event_diagnostics(predictive, rates, time_ind, marks)
+        assert not np.array_equal(expected.hpd_overlap, default.hpd_overlap)
+        assert_array_equal(result.hpd_overlap, expected.hpd_overlap)
 
 
 class TestClusterlessScale:
@@ -806,37 +865,13 @@ class TestClusterlessScale:
     def test_mark_possible_only_where_the_prediction_has_no_mass(self):
         """The observed mark's likelihood lies where the prediction is zero: no overlap,
         infinite KL divergence, and p = 0, without warnings."""
-        with np.errstate(divide="ignore"):  # (n_marks, n_bins)
-            log_rates = np.log(np.array([[1.0, 1.0, 0.0], [0.0, 0.0, 1.0]]))
-        model = MarkModel(
-            lambda m: log_rates[np.asarray(m)],
-            lambda bins, _rng: (bins == 2).astype(int),
-            np.ones(3),
-        )
+        model = integer_mark_model(np.array([[1.0, 0.0], [1.0, 0.0], [0.0, 1.0]]))
         result = clusterless_event_diagnostics(
             np.array([[0.5, 0.5, 0.0]]), model, np.array([0]), np.array([1]), rng=0
         )
         assert_array_equal(result.hpd_overlap, [0.0])
         assert_array_equal(result.kl_divergence, [np.inf])
         assert_array_equal(result.predictive_pvalue, [0.0])
-
-    def test_likelihood_of_tiny_log_intensity_differences(self):
-        """Log intensities 1e6 + (0, log 2, log 4): the likelihood is 1:2:4."""
-        model = MarkModel(
-            lambda m: np.tile(1e6 + np.log([1.0, 2.0, 4.0]), (len(m), 1)),
-            lambda bins, _rng: np.zeros(len(bins), dtype=int),
-            np.ones(3),
-        )
-        result = clusterless_event_diagnostics(
-            np.full((1, 3), 1 / 3),
-            model,
-            np.array([0]),
-            np.array([0]),
-            n_samples=10,
-            rng=0,
-            return_likelihood=True,
-        )
-        assert_allclose(result.likelihood, [[1 / 7, 2 / 7, 4 / 7]], rtol=1e-9)
 
 
 @pytest.fixture(scope="module")
@@ -917,9 +952,7 @@ class TestModelChecks:
             )
 
     def test_nan_log_intensity_names_the_observed_event(self):
-        model = _uniform_model(
-            lambda m: np.where(np.asarray(m)[:, None] == 1, np.nan, np.zeros((len(m), 3)))
-        )
+        model = _uniform_model(_mark_one_log_intensity(np.nan))
         marks = np.array([0, 0, 0, 0, 0, 1, 0])
         with pytest.raises(
             ValueError, match=r"NaN or \+inf for the observed marks of events \[5\]"
@@ -931,7 +964,7 @@ class TestModelChecks:
     @pytest.mark.parametrize("n_samples", [1, 5])
     def test_nan_log_intensity_names_the_replicated_event(self, n_samples):
         model = _uniform_model(
-            lambda m: np.where(np.asarray(m)[:, None] == 1, np.nan, np.zeros((len(m), 3))),
+            _mark_one_log_intensity(np.nan),
             sample=lambda bins, _rng: np.ones(len(bins), dtype=int),
         )
         with pytest.raises(
@@ -956,7 +989,7 @@ class TestModelChecks:
                 marks[::2] = np.nan
             return marks
 
-        model = _uniform_model(lambda m: np.zeros((len(m), 3)), sample)
+        model = _uniform_model(sample=sample)
         with pytest.raises(ValueError, match=r"non-finite marks for events \[2, 3\]"):
             monte_carlo_mark_pvalue(
                 np.full((4, 3), 1 / 3), model, np.zeros((4, 1)), n_samples=4, batch_size=2
@@ -967,10 +1000,8 @@ class TestModelChecks:
         draws the other one; every replicate is possible somewhere with predictive mass,
         so only the check at the drawn state catches it."""
         rates = np.array([[1.0, 0.0], [0.0, 1.0], [0.0, 1.0]])
-        model = MarkModel(
-            integer_mark_model(rates).log_intensity,
-            lambda bins, _rng: (bins == 0).astype(int),
-            rates.sum(axis=1),
+        model = integer_mark_model(rates)._replace(
+            sample=lambda bins, _rng: (bins == 0).astype(int)
         )
         with pytest.raises(ValueError, match="at the state bin they were drawn at"):
             monte_carlo_mark_pvalue(
@@ -987,7 +1018,7 @@ class TestModelChecks:
             wrong = len(calls) > 2
             return ((bins == 0) == wrong).astype(int)
 
-        model = MarkModel(integer_mark_model(rates).log_intensity, sample, rates.sum(axis=1))
+        model = integer_mark_model(rates)._replace(sample=sample)
         with pytest.raises(ValueError, match=r"of 10 marks .*\(events \[4, 5\]\)"):
             monte_carlo_mark_pvalue(
                 np.full((6, 3), 1 / 3),
@@ -998,9 +1029,7 @@ class TestModelChecks:
             )
 
     def test_infinite_log_intensity_names_the_observed_event(self):
-        model = _uniform_model(
-            lambda m: np.where(np.asarray(m)[:, None] == 1, np.inf, np.zeros((len(m), 3)))
-        )
+        model = _uniform_model(_mark_one_log_intensity(np.inf))
         with pytest.raises(ValueError, match=r"observed marks of events \[3\]"):
             monte_carlo_mark_pvalue(
                 np.full((5, 3), 1 / 3), model, np.array([0, 0, 0, 1, 0]), batch_size=2
@@ -1008,9 +1037,7 @@ class TestModelChecks:
 
     def test_one_non_finite_feature_makes_a_mark_non_finite(self):
         """A dead channel's NaN, in a feature the model might ignore."""
-        model = _uniform_model(
-            lambda m: np.zeros((len(m), 3)), lambda bins, _rng: np.zeros((len(bins), 2))
-        )
+        model = _uniform_model(sample=lambda bins, _rng: np.zeros((len(bins), 2)))
         marks = np.array([[0.5, 0.0], [0.5, np.nan], [0.5, 0.0]])
         with pytest.raises(ValueError, match=r"observed_marks must be finite; events \[1\]"):
             monte_carlo_mark_pvalue(np.full((3, 3), 1 / 3), model, marks)
@@ -1023,7 +1050,7 @@ class TestModelChecks:
         with pytest.raises(ValueError, match=r"non-finite marks for events \[0\]"):
             monte_carlo_mark_pvalue(
                 np.full((3, 3), 1 / 3),
-                _uniform_model(lambda m: np.zeros((len(m), 3)), sample),
+                _uniform_model(sample=sample),
                 np.zeros((3, 2)),
             )
 
@@ -1057,67 +1084,6 @@ class TestModelChecks:
         assert_array_equal(marks, [[5.0], [7.0]])
 
 
-class TestClusterlessChecks:
-    def test_intensity_where_ground_intensity_is_zero_raises_without_predictive_mass(self):
-        """The likelihood is normalized over every state, so a finite intensity where
-        the model has no events would take likelihood mass even where the prediction
-        has none."""
-        model = _uniform_model(ground_intensity=np.array([1.0, 1.0, 0.0]))
-        predictive = np.full((7, 3), 0.5)
-        predictive[:, 2] = 0.0
-        with pytest.raises(ValueError, match=r"ground_intensity is zero \(events \[0, 1\]\)"):
-            clusterless_event_diagnostics(
-                predictive, model, np.arange(7), np.zeros(7, dtype=int), batch_size=2
-            )
-
-    def test_zero_ground_error_names_the_global_event(self):
-        log_rates = np.array([[0.0, 0.0, -np.inf], [0.0, 0.0, 0.0]])  # mark 1 finite at bin 2
-        model = MarkModel(
-            lambda m: log_rates[np.asarray(m)],
-            lambda bins, _rng: np.zeros(len(bins), dtype=int),
-            np.array([1.0, 1.0, 0.0]),
-        )
-        with pytest.raises(ValueError, match=r"zero \(events \[5\]\)"):
-            clusterless_event_diagnostics(
-                np.full((7, 3), 1 / 3),
-                model,
-                np.arange(7),
-                np.array([0, 0, 0, 0, 0, 1, 0]),
-                n_samples=5,
-                batch_size=2,
-                rng=0,
-            )
-
-    @pytest.mark.parametrize("argument", ["predictive", "event_time_ind", "event_marks"])
-    def test_masked_inputs_raise(self, argument):
-        arguments = {
-            "predictive": np.full((3, 3), 1 / 3),
-            "model": _uniform_model(),
-            "event_time_ind": np.array([0, 2]),
-            "event_marks": np.zeros(2, dtype=int),
-        }
-        arguments[argument] = np.ma.masked_array(arguments[argument])
-        with pytest.raises(ValueError, match=f"{argument} is a masked array"):
-            clusterless_event_diagnostics(**arguments)
-
-    def test_invalid_coverage_raises_before_any_event(self):
-        with pytest.raises(ValueError, match="coverage"):
-            clusterless_event_diagnostics(
-                np.full((3, 3), 1 / 3), _uniform_model(), [], np.empty(0), coverage=1.5
-            )
-
-    def test_coverage_is_used(self, discrete_mark_model, discrete_session):
-        rates, model = discrete_mark_model
-        predictive, time_ind, marks = discrete_session
-        result = clusterless_event_diagnostics(
-            predictive, model, time_ind, marks, coverage=0.5, n_samples=10, rng=0
-        )
-        expected = event_diagnostics(predictive, rates, time_ind, marks, coverage=0.5)
-        default = event_diagnostics(predictive, rates, time_ind, marks)
-        assert not np.array_equal(expected.hpd_overlap, default.hpd_overlap)
-        assert_array_equal(result.hpd_overlap, expected.hpd_overlap)
-
-
 class TestLargeLogIntensities:
     @pytest.mark.parametrize("mark", [1e8, -1e8, 3e5])
     def test_likelihood_of_a_state_independent_mark_is_uniform(self, mark):
@@ -1141,11 +1107,10 @@ class TestLargeLogIntensities:
 
     @pytest.mark.parametrize("offset", [-1e12, -1e6, -2000.0, 2000.0, 1e6, 1e12])
     def test_likelihood_rows_sum_to_one_at_any_offset(self, offset):
-        """The offset's rounding (ulp 1.2e-4 at 1e12) limits the shape, not the sum."""
-        model = MarkModel(
-            lambda m: np.tile(offset + np.log([1.0, 2.0, 4.0]), (len(m), 1)),
-            lambda bins, _rng: np.zeros(len(bins), dtype=int),
-            np.ones(3),
+        """Log intensities offset + (0, log 2, log 4) give a likelihood of 1:2:4. The
+        offset's own rounding (ulp 1.2e-4 at 1e12) limits the shape, not the sum."""
+        model = _uniform_model(
+            lambda m: np.tile(offset + np.log([1.0, 2.0, 4.0]), (len(m), 1))
         )
         result = clusterless_event_diagnostics(
             np.full((1, 3), 1 / 3),
@@ -1157,7 +1122,8 @@ class TestLargeLogIntensities:
             return_likelihood=True,
         )
         assert_allclose(result.likelihood.sum(), 1.0, rtol=1e-15)
-        assert_allclose(result.likelihood, [[1 / 7, 2 / 7, 4 / 7]], rtol=1e-3)
+        rtol = 4 * np.finfo(float).eps * abs(offset)
+        assert_allclose(result.likelihood, [[1 / 7, 2 / 7, 4 / 7]], rtol=rtol)
 
 
 def test_float32_predictive_is_not_copied_whole():

@@ -64,8 +64,8 @@ def clusterless_session(clusterless_1d_model):
 
     Attributes: ``predictive`` and ``misspecified_predictive`` ``(n_time, n_bins)``,
     ``event_time_ind`` ``(n_events,)``, ``event_marks`` ``(n_events, 1)``, the unit
-    that fired each event ``event_unit`` ``(n_events,)``, ``state_bin``
-    ``(n_time,)``, ``model`` and ``misspecified_model``.
+    that fired each event ``event_unit`` ``(n_events,)``, ``model`` and
+    ``misspecified_model``.
     """
     clusterless = clusterless_1d_model
     rng = np.random.default_rng(20260925)
@@ -116,7 +116,6 @@ def clusterless_session(clusterless_1d_model):
         event_time_ind=event_time_ind,
         event_marks=event_marks,
         event_unit=event_unit,
-        state_bin=state_bin,
         model=clusterless.model,
         misspecified_model=misspecified_model,
     )
