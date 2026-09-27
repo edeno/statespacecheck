@@ -626,6 +626,12 @@ class TestEventDiagnosticsErrors:
         with pytest.raises(ValueError, match=f"{argument} is a masked array"):
             event_diagnostics(predictive, fields, **indices)
 
+    def test_masked_float_time_indices_are_reported_as_masked(self, model):
+        predictive, fields = model
+        time_ind = np.ma.masked_array([0.0, 1.0], mask=[False, True])
+        with pytest.raises(ValueError, match="event_time_ind is a masked array"):
+            event_diagnostics(predictive, fields, time_ind, np.array([0, 1]))
+
     def test_empty_lists_are_accepted(self, model):
         predictive, fields = model
         result = event_diagnostics(predictive, fields, [], [])

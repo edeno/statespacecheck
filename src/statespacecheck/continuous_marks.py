@@ -55,7 +55,8 @@ LogMarkIntensity: TypeAlias = Callable[[NDArray[Any]], NDArray[np.floating]]
 Called with marks of shape ``(n, *mark_shape)``; returns ``log lambda(x, y)`` for
 each mark at every state bin, shape ``(n, *spatial_shape)``: finite, or ``-inf``
 where the intensity is zero. Compute it in log space (for example with
-``scipy.stats.norm.logpdf``); exponentiating first can underflow.
+``scipy.stats.norm.logpdf``); exponentiating first can underflow. Observed marks
+are passed read-only; copy them before modifying them.
 """
 
 MarkSampler: TypeAlias = Callable[[NDArray[np.intp], np.random.Generator], NDArray[Any]]
@@ -132,17 +133,20 @@ def _evaluate_log_intensity(
     marks: NDArray[Any],
     spatial_shape: tuple[int, ...],
     first_event: int,
-    marks_per_event: int = 1,
+    replicates_per_event: int | None = None,
 ) -> DistributionArray:
     """Evaluate ``log_intensity`` at marks, checked, as a float64 ``(n, n_bins)`` array.
 
-    ``marks`` holds ``marks_per_event`` consecutive marks for each event from
-    ``first_event`` on: one per event for observed marks, ``n_samples`` for
-    replicates. Errors name the events. The result may share memory with the
-    callable's output; do not modify it.
+    ``marks`` are the observed marks of consecutive events from ``first_event``
+    on or, with ``replicates_per_event``, that many replicated marks for each.
+    Errors name the events. The result may share memory with the callable's
+    output; do not modify it.
     """
     n = marks.shape[0]
-    what = "the observed marks" if marks_per_event == 1 else "marks drawn by model.sample"
+    what = (
+        "the observed marks" if replicates_per_event is None else "marks drawn by model.sample"
+    )
+    marks_per_event = 1 if replicates_per_event is None else replicates_per_event
     returned = log_intensity(marks)
     _reject_masked(
         returned,
@@ -346,9 +350,10 @@ def _monte_carlo_batch(
 
 
 def _check_zero_ground(finite_at_zero_ground: NDArray[np.bool_], first_event: int) -> None:
-    """Raise if a log intensity is finite at a state with mass but no ground intensity.
+    """Raise if a log intensity is finite at a state with no ground intensity.
 
-    ``finite_at_zero_ground`` has shape ``(n_batch, n_bins)``.
+    ``finite_at_zero_ground`` has shape ``(n_batch, n_bins)``; the caller chooses
+    which states it covers.
     """
     events = np.flatnonzero(finite_at_zero_ground.any(axis=1))
     if events.size:

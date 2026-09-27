@@ -162,6 +162,9 @@ def _first(indices: NDArray[np.intp]) -> list[int]:
 
 def _validate_time_indices(event_time_ind: ArrayLike, n_time: int) -> NDArray[np.intp]:
     """Check that ``event_time_ind`` holds time-bin indices in ``[0, n_time)``."""
+    _reject_masked(
+        event_time_ind, "event_time_ind", "Pass an ndarray of the events to include"
+    )
     # An empty list is a float array too; empty event lists are accepted
     time_values = np.asarray(event_time_ind)
     if time_values.size and np.issubdtype(time_values.dtype, np.floating):

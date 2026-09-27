@@ -929,7 +929,8 @@ class TestModelChecks:
                 np.full((7, 3), 1 / 3), model, marks, n_samples=5, batch_size=2
             )
 
-    def test_nan_log_intensity_names_the_replicated_event(self):
+    @pytest.mark.parametrize("n_samples", [1, 5])
+    def test_nan_log_intensity_names_the_replicated_event(self, n_samples):
         model = _uniform_model(
             lambda m: np.where(np.asarray(m)[:, None] == 1, np.nan, np.zeros((len(m), 3))),
             sample=lambda bins, _rng: np.ones(len(bins), dtype=int),
@@ -941,7 +942,7 @@ class TestModelChecks:
                 np.full((4, 3), 1 / 3),
                 model,
                 np.zeros(4, dtype=int),
-                n_samples=5,
+                n_samples=n_samples,
                 batch_size=2,
             )
 
