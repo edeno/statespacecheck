@@ -3,6 +3,14 @@
 import numpy as np
 import pytest
 
+from statespacecheck import (
+    highest_density_region,
+    hpd_overlap,
+    kl_divergence,
+    log_predictive_density,
+    predictive_density,
+    predictive_pvalue,
+)
 from statespacecheck._validation import (
     flatten_time_spatial,
     get_spatial_axes,
@@ -203,3 +211,75 @@ class TestGetSpatialAxes:
         arr = np.zeros(10)
         axes = get_spatial_axes(arr)
         assert axes == ()
+
+
+_MASKED = np.ma.masked_array([[1.0, 1000.0]], mask=[[False, True]])
+_LIKE = np.array([[1.0, 0.0]])
+
+
+@pytest.mark.parametrize(
+    ("call", "name"),
+    [
+        pytest.param(lambda: hpd_overlap(_MASKED, _LIKE), "state_dist", id="hpd-state"),
+        pytest.param(lambda: hpd_overlap(_LIKE, _MASKED), "likelihood", id="hpd-likelihood"),
+        pytest.param(lambda: kl_divergence(_MASKED, _LIKE), "state_dist", id="kl-state"),
+        pytest.param(lambda: highest_density_region(_MASKED), "distribution", id="hdr"),
+        pytest.param(
+            lambda: predictive_density(_MASKED, observation_likelihood=_LIKE),
+            "state_dist",
+            id="density-state",
+        ),
+        pytest.param(
+            lambda: predictive_density(_LIKE, observation_likelihood=_MASKED),
+            "observation_likelihood",
+            id="density-likelihood",
+        ),
+        pytest.param(
+            lambda: log_predictive_density(_MASKED, log_observation_likelihood=_LIKE),
+            "state_dist",
+            id="log-density-state",
+        ),
+        pytest.param(
+            lambda: log_predictive_density(_LIKE, log_observation_likelihood=_MASKED),
+            "log_observation_likelihood",
+            id="log-density-likelihood",
+        ),
+        pytest.param(
+            lambda: predictive_pvalue(np.ma.masked_array([1.0]), lambda n: np.zeros((n, 1))),
+            "observed_log_pred",
+            id="pvalue-observed",
+        ),
+        pytest.param(
+            lambda: predictive_pvalue(np.ones(1), lambda n: np.ma.zeros((n, 1))),
+            "sample_log_pred's output",
+            id="pvalue-sampled",
+        ),
+    ],
+)
+def test_masked_arrays_raise(call, name):
+    """The mask would be dropped: with the second bin masked, HPD overlap was 0 and KL
+    divergence infinite, although excluding that bin gives 1 and 0."""
+    with pytest.raises(ValueError, match=f"^{name} is a masked array"):
+        call()
+
+
+def test_list_of_masked_rows_raises():
+    """A list of masked rows converts without its masks, like a masked array."""
+    rows = [np.ma.masked_array([0.2, 1e6, 0.3], mask=[False, True, False])]
+    with pytest.raises(ValueError, match="observation_likelihood is a masked array"):
+        predictive_density(np.array([[0.2, 0.5, 0.3]]), observation_likelihood=rows)
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        lambda: hpd_overlap(_LIKE + 0j, _LIKE),
+        lambda: kl_divergence(_LIKE, _LIKE + 1j),
+        lambda: highest_density_region(_LIKE + 0j),
+        lambda: predictive_density(_LIKE, observation_likelihood=_LIKE + 5j),
+    ],
+)
+def test_complex_values_raise(call):
+    """Converting to float would drop the imaginary part with only a warning."""
+    with pytest.raises(TypeError, match="must be real"):
+        call()

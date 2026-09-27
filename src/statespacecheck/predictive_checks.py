@@ -13,11 +13,13 @@ from collections.abc import Callable
 from functools import partial
 
 import numpy as np
-from numpy.typing import ArrayLike
+from numpy.typing import ArrayLike, NDArray
 from scipy.special import logsumexp
 
 from ._validation import (
+    EXCLUDE_WITH_NAN,
     DistributionArray,
+    as_array,
     as_paired_arrays,
     flatten_time_spatial,
     normalize_rows,
@@ -63,8 +65,10 @@ def predictive_density(
     ------
     ValueError
         If state_dist and observation_likelihood have different shapes, if
-        they contain negative values, or if observation_likelihood contains
-        +inf.
+        they contain negative values, if observation_likelihood contains
+        +inf, or if an input is a masked array (mark bins to exclude with NaN).
+    TypeError
+        If an input is complex.
 
     Examples
     --------
@@ -151,8 +155,11 @@ def log_predictive_density(
     ------
     ValueError
         If neither or both of the likelihood arguments are provided,
-        if shapes don't match, if distributions contain negative values, or if
-        the (log) observation likelihood contains +inf.
+        if shapes don't match, if distributions contain negative values, if
+        the (log) observation likelihood contains +inf, or if an input is a
+        masked array (mark bins to exclude with NaN).
+    TypeError
+        If an input is complex.
 
     Examples
     --------
@@ -204,9 +211,14 @@ def log_predictive_density(
             state_dist, observation_likelihood, "observation_likelihood"
         )
     else:
-        state = np.asarray(state_dist, dtype=float)
+        state = as_array(state_dist, "state_dist", EXCLUDE_WITH_NAN, dtype=float)
         # Validate the log likelihood manually (it's in log-space, can be negative!)
-        like = np.asarray(log_observation_likelihood, dtype=float)
+        like = as_array(
+            log_observation_likelihood,
+            "log_observation_likelihood",
+            EXCLUDE_WITH_NAN,
+            dtype=float,
+        )
         if like.ndim < 2:
             msg = (
                 f"log_observation_likelihood must be at least 2D with shape (n_time, ...), "
@@ -275,10 +287,11 @@ def predictive_pvalue(
     ------
     ValueError
         If observed_log_pred is not 1-dimensional, if n_samples <= 0,
-        or if sample_log_pred returns an array with the wrong shape or
-        containing NaN.
+        if sample_log_pred returns an array with the wrong shape or
+        containing NaN, or if observed_log_pred or the sampler's output is a
+        masked array (use NaN for missing observations).
     TypeError
-        If sample_log_pred is not callable.
+        If sample_log_pred is not callable, or an input is complex.
 
     Examples
     --------
@@ -327,7 +340,12 @@ def predictive_pvalue(
         sampler = lambda n: rng.normal(size=(n, n_time))
     """
     # Validate observed_log_pred
-    observed_arr = np.asarray(observed_log_pred, dtype=float)
+    observed_arr = as_array(
+        observed_log_pred,
+        "observed_log_pred",
+        "Pass an ndarray with NaN for missing values",
+        dtype=float,
+    )
     if observed_arr.ndim != 1:
         msg = (
             f"observed_log_pred must be 1-dimensional, "
@@ -346,7 +364,9 @@ def predictive_pvalue(
     simulated = sample_log_pred(n_samples)
 
     # Validate shape of simulated samples
-    simulated_arr = np.asarray(simulated, dtype=float)
+    simulated_arr = as_array(
+        simulated, "sample_log_pred's output", "Return an ndarray", dtype=float
+    )
     if simulated_arr.shape != (n_samples, n_time):
         msg = (
             f"sample_log_pred output must have shape (n_samples, n_time) = "
@@ -414,6 +434,27 @@ def _exclude_bins_with_nan_likelihood(
     return state_dist
 
 
+def _underflowed_log_state(
+    state_normalized: DistributionArray,
+    state_flat: DistributionArray,
+    has_likelihood: NDArray[np.bool_],
+) -> tuple[NDArray[np.intp], NDArray[np.bool_], DistributionArray]:
+    """Find state probabilities that underflow on division by the row sum.
+
+    A state probability below the smallest normal float64 (about 2.2e-308) keeps
+    few or no bits on division (it is subnormal, or 0), yet a large likelihood can
+    still make it count. Returns the rows with such entries, the entries ``(n_lost_rows,
+    n_bins)``, and those rows' log probabilities computed in log space (for the other
+    entries, dividing first is more accurate).
+    """
+    lost = (state_normalized < np.finfo(np.float64).tiny) & (state_flat > 0.0) & has_likelihood
+    rows = np.flatnonzero(lost.any(axis=1))
+    with np.errstate(divide="ignore"):
+        log_rows = np.log(state_flat[rows])
+    log_state: DistributionArray = log_rows - logsumexp(log_rows, axis=1, keepdims=True)
+    return rows, lost[rows], log_state
+
+
 def _predictive_density_rows(
     state_dist: DistributionArray, observation_likelihood: DistributionArray
 ) -> tuple[DistributionArray, bool]:
@@ -440,7 +481,15 @@ def _predictive_density_rows(
     # Compute predictive density: sum over spatial dimensions
     # f_predictive(y) = ∑_x p(x) * p(y|x)
     # Note: likelihood is NOT normalized (critical!)
+    # Underflowed terms are added from log space, where their products can be represented
+    rows, lost, log_state = _underflowed_log_state(
+        state_normalized, state_flat, like_flat > 0.0
+    )
+    state_normalized[rows] = np.where(lost, 0.0, state_normalized[rows])
     predictive: DistributionArray = (state_normalized * like_flat).sum(axis=1)
+    with np.errstate(divide="ignore"):
+        log_terms = np.where(lost, log_state + np.log(like_flat[rows]), -np.inf)
+    predictive[rows] += np.exp(logsumexp(log_terms, axis=1))
 
     # Set zero-sum rows to NaN (they have no valid state mass)
     predictive[zero_rows] = np.nan
@@ -491,6 +540,10 @@ def _log_predictive_density_rows(
         log_state_normalized = np.where(
             state_normalized > 0, np.log(state_normalized), -np.inf
         )
+    rows, lost, log_state = _underflowed_log_state(
+        state_normalized, state_flat, log_like_flat > -np.inf
+    )
+    log_state_normalized[rows] = np.where(lost, log_state, log_state_normalized[rows])
 
     # Compute log predictive density using logsumexp
     # log ∑_x p(x) * p(y|x) = logsumexp(log p(x) + log p(y|x))

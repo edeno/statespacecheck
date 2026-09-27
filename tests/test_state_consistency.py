@@ -8,7 +8,10 @@ from helpers import (
     make_random_distribution_1d,
     make_random_distribution_2d,
 )
+from numpy.testing import assert_allclose
+from scipy.special import logsumexp
 
+from statespacecheck import MarkModel, clusterless_event_diagnostics, event_diagnostics
 from statespacecheck.state_consistency import (
     hpd_overlap,
     kl_divergence,
@@ -345,3 +348,86 @@ class TestInvalidBinInOneInput:
         np.testing.assert_array_equal(
             hpd_overlap(bad["state"], bad["likelihood"]), hpd_overlap(state_nan, like_nan)
         )
+
+
+def _kl_from_logs(state, log_likelihood):
+    """D(state || likelihood) with the likelihood given by its unnormalized log."""
+    state = np.asarray(state, dtype=float)
+    p = state / state.sum(axis=1, keepdims=True)
+    log_q = log_likelihood - logsumexp(log_likelihood, axis=1, keepdims=True)
+    return np.sum(np.where(p > 0, p * (np.log(np.where(p > 0, p, 1.0)) - log_q), 0.0), axis=1)
+
+
+class TestKLDivergenceUnderflow:
+    """A likelihood that normalization makes subnormal or zero where the state has
+    mass gave an infinite or imprecise divergence; the true value is finite."""
+
+    @pytest.mark.parametrize("small", [1e-30, 1e-15, 3e-22])
+    def test_likelihood_normalized_to_zero(self, small):
+        state = np.array([[0.5, 0.5]])
+        likelihood = np.array([[1e300, small]])  # normalized: [1, small / 1e300]
+        expected = _kl_from_logs(state, np.log(likelihood))
+        assert np.isfinite(expected[0])
+        assert_allclose(kl_divergence(state, likelihood), expected, rtol=1e-13)
+
+    def test_rows_of_a_2d_grid_with_an_excluded_bin(self):
+        """Only the row whose likelihood underflows changes; a NaN bin stays excluded
+        and a truly disjoint row stays infinite."""
+        state = np.array(
+            [
+                [[0.25, 0.25], [0.5, 0.0]],
+                [[0.25, 0.25], [0.25, 0.25]],
+                [[1.0, 0.0], [0.0, 0.0]],
+            ]
+        )
+        likelihood = np.array(
+            [
+                [[1e300, 1e-20], [np.nan, 1.0]],
+                [[1.0, 2.0], [3.0, 4.0]],
+                [[0.0, 1.0], [1.0, 1.0]],
+            ]
+        )
+        result = kl_divergence(state, likelihood)
+        expected_first = _kl_from_logs([[0.25, 0.25]], np.log([[1e300, 1e-20]]))
+        assert_allclose(result[0], expected_first[0], rtol=1e-13)
+        assert_allclose(result[1], kl_divergence(state[1:2], likelihood[1:2])[0])
+        assert result[2] == np.inf
+
+
+def test_event_diagnostics_kl_with_a_likelihood_that_underflows():
+    """event_likelihood makes a unit's rates [1e300, 1e-30] a likelihood of [1, 0]."""
+    rates = np.array([[1e300, 1.0], [1e-30, 1.0]])  # (n_bins, n_marks)
+    result = event_diagnostics(np.array([[0.5, 0.5]]), rates, [0], [0])
+    expected = _kl_from_logs([[0.5, 0.5]], np.log([[1e300, 1e-30]]))
+    assert_allclose(result.kl_divergence, expected, rtol=1e-13)
+
+
+def test_clusterless_kl_with_a_likelihood_that_underflows():
+    """A log likelihood spanning 800 nats underflows on exponentiation."""
+    log_intensity = np.array([0.0, -800.0])
+    model = MarkModel(
+        lambda m: np.tile(log_intensity, (len(m), 1)),
+        lambda bins, _rng: np.zeros(len(bins), dtype=int),
+        np.ones(2),
+    )
+    result = clusterless_event_diagnostics(
+        np.array([[0.5, 0.5]]), model, [0], [0], n_samples=10, rng=0
+    )
+    expected = _kl_from_logs([[0.5, 0.5]], log_intensity[None])
+    assert_allclose(result.kl_divergence, expected, rtol=1e-13)
+
+
+@pytest.mark.parametrize("offset", [0.0, -1e16, 1e16])
+def test_clusterless_kl_with_a_large_log_intensity_offset(offset):
+    """At 1e16 the log normalizer's offset log 2 is below the spacing of floats, so
+    the logs are taken relative to their largest value; D = log 2 at any offset."""
+    log_intensity = offset + np.array([0.0, 0.0, -800.0])
+    model = MarkModel(
+        lambda m: np.tile(log_intensity, (len(m), 1)),
+        lambda bins, _rng: np.zeros(len(bins), dtype=int),
+        np.ones(3),
+    )
+    result = clusterless_event_diagnostics(
+        np.array([[1.0, 0.0, 1e-100]]), model, [0], [0], n_samples=10, rng=0
+    )
+    assert_allclose(result.kl_divergence, [np.log(2.0)], rtol=1e-13)

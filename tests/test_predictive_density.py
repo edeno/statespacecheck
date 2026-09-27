@@ -299,6 +299,73 @@ class TestLogPredictiveDensity:
             log_predictive_density(state, log_observation_likelihood=log_likelihood)
 
 
+def _log_without_warning(values):
+    with np.errstate(divide="ignore"):
+        return np.log(values)
+
+
+# The predictive density three ways: linear, and exponentiated from the log density
+# computed from the likelihood or from its log
+_DENSITIES = {
+    "linear": lambda state, like: predictive_density(state, observation_likelihood=like),
+    "log": lambda state, like: np.exp(
+        log_predictive_density(state, observation_likelihood=like)
+    ),
+    "log_input": lambda state, like: np.exp(
+        log_predictive_density(state, log_observation_likelihood=_log_without_warning(like))
+    ),
+}
+
+
+@pytest.mark.parametrize("density", _DENSITIES.values(), ids=_DENSITIES.keys())
+class TestPredictiveDensityScale:
+    """State probabilities too small to represent after normalization still count."""
+
+    @pytest.mark.parametrize("tiny", [1e-300, 1e-303, 7e-304, 3e-304, 2e-304, 1e-330])
+    def test_tiny_state_probability_with_large_likelihood(self, density, tiny):
+        """Normalized, tiny / 1e20 is subnormal (1e-320 to 3e-324), with few bits left,
+        or 0; the likelihood of 1e300 at that bin makes it the whole density."""
+        state, like = np.array([[tiny, 1e20]]), np.array([[1e300, 0.0]])
+        np.testing.assert_allclose(density(state, like), [tiny * 1e280], rtol=1e-13)
+
+    def test_underflowed_and_ordinary_terms_both_count(self, density):
+        state = np.array([[1e-300, 1e100]])  # normalized [1e-400, 1]
+        like = np.array([[1e300, 1e-100]])  # each term contributes 1e-100
+        np.testing.assert_allclose(density(state, like), [2e-100], rtol=1e-13)
+
+    def test_rows_of_a_2d_grid_with_an_excluded_bin_and_an_empty_row(self, density):
+        """Only rows with underflowed entries are recomputed; the NaN bin's state mass
+        (as large as the rest of its row) is excluded from the normalization."""
+        state = np.array(
+            [
+                [[1e-300, 1e100], [1e100, 0.0]],
+                [[1.0, 1.0], [1.0, 1.0]],
+                [[0.0, 0.0], [0.0, 0.0]],
+            ]
+        )
+        like = np.array(
+            [
+                [[1e300, 0.0], [np.nan, 1.0]],
+                [[1.0, 2.0], [3.0, 4.0]],
+                [[1.0, 1.0], [1.0, 1.0]],
+            ]
+        )
+        with pytest.warns(UserWarning, match="zero-sum rows"):
+            result = density(state, like)
+        np.testing.assert_allclose(result, [1e-100, 2.5, np.nan], rtol=1e-13)
+
+    @pytest.mark.parametrize(("tiny", "expected"), [(1e-20, 5e-29), (1e-280, 5e-289)])
+    def test_underflowed_entry_in_a_row_whose_sum_overflows(self, density, tiny, expected):
+        state = np.array([[1e308, 1e308, tiny]])
+        like = np.array([[0.0, 0.0, 1e300]])
+        np.testing.assert_allclose(density(state, like), [expected], rtol=1e-13)
+
+    def test_state_whose_sum_overflows(self, density):
+        state = np.array([[1e308, 1e308, 0.0]])
+        like = np.array([[2.0, 4.0, 8.0]])
+        np.testing.assert_allclose(density(state, like), [3.0], rtol=1e-14)
+
+
 class TestArgumentNames:
     """The observation likelihood p(y|x) is not normalized over states, unlike the
     ``likelihood`` of kl_divergence and hpd_overlap; its name says so."""
@@ -321,17 +388,7 @@ class TestArgumentNames:
 class TestInvalidLikelihoodBins:
     """A NaN likelihood bin is excluded from both inputs; +inf is an error."""
 
-    @pytest.mark.parametrize(
-        "compute",
-        [
-            lambda s, like: predictive_density(s, like),
-            lambda s, like: np.exp(log_predictive_density(s, like)),
-            lambda s, like: np.exp(
-                log_predictive_density(s, log_observation_likelihood=np.log(like))
-            ),
-        ],
-        ids=["linear", "log", "log-likelihood"],
-    )
+    @pytest.mark.parametrize("compute", _DENSITIES.values(), ids=_DENSITIES.keys())
     def test_nan_bin_is_excluded_from_both(self, compute):
         state = np.array([[0.5, 0.25, 0.25]])
         like = np.array([[np.nan, 2.0, 4.0]])

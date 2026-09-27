@@ -481,6 +481,12 @@ class TestBaselineThreshold:
         with pytest.raises(ValueError, match="quantile"):
             baseline_threshold(np.arange(3.0), quantile)
 
+    def test_masked_values_raise(self):
+        """The masked 1e6 would set the threshold; NaN leaves a value out."""
+        values = np.ma.masked_array([0.1, 0.2, 0.3, 1e6], mask=[0, 0, 0, 1])
+        with pytest.raises(ValueError, match="baseline_values is a masked array"):
+            baseline_threshold(values, 1.0)
+
     @pytest.mark.parametrize("values", [np.array([1.0 + 2.0j, 3.0]), [1.0, 2.0j]])
     def test_complex_values_raise(self, values):
         # Converting to float would drop the imaginary part with only a warning

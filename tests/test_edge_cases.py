@@ -177,7 +177,9 @@ class TestKLDivergenceEdgeCases:
         state_dist = np.array([[0.2, 0.4, np.nan, 0.8]])  # bins 0, 3 sum to 1.0
         likelihood = np.array([[0.3, np.nan, 0.3, 0.6]])  # bins 0, 3 sum to 0.9
 
-        state_norm, like_norm = _validate_and_normalize_distributions(state_dist, likelihood)
+        state_norm, like_norm, _ = _validate_and_normalize_distributions(
+            state_dist, likelihood
+        )
 
         # Check valid bins sum to 1.0
         assert np.isclose(state_norm.sum(), 1.0)

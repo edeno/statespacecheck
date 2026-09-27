@@ -4,7 +4,9 @@ import numpy as np
 from numpy.typing import ArrayLike, NDArray
 
 from ._validation import (
+    EXCLUDE_WITH_NAN,
     DistributionArray,
+    as_array,
     flatten_time_spatial,
     row_chunks,
     row_sums_rescaled,
@@ -23,7 +25,9 @@ def highest_density_region(
 
     Vectorized HPD mask for arrays shaped (n_time, *spatial). For each time t,
     includes all bins with value >= threshold_t, where threshold_t is chosen so
-    cumulative mass >= coverage * total_t.
+    cumulative mass >= coverage * total_t (when rounding keeps the cumulative mass
+    just short of that, with coverage just below 1, the region ends at the last
+    bin with mass).
 
     Parameters
     ----------
@@ -43,7 +47,11 @@ def highest_density_region(
     Raises
     ------
     ValueError
-        If coverage is not in the range (0, 1).
+        If coverage is not in the range (0, 1), if distribution is not at least
+        2-D with spatial bins, if it contains negative values, or if it is a
+        masked array (mark bins to exclude with NaN).
+    TypeError
+        If an input is complex.
 
     Examples
     --------
@@ -64,8 +72,8 @@ def highest_density_region(
 
     Notes
     -----
-    - NaNs are ignored (treated as 0 mass).
-    - If total mass at time t <= 0 or not finite, returns all-False for that t.
+    - NaN and infinite values are ignored (treated as 0 mass).
+    - If total mass at time t is 0, returns all-False for that t.
     - Works in unnormalized space to avoid numerical issues.
     - Vectorized within chunks of time points; the chunks bound memory.
     - The input is probability mass per bin, so the region is the highest
@@ -80,7 +88,7 @@ def highest_density_region(
 
     """
     validate_coverage(coverage)
-    values = np.asarray(distribution, dtype=float)
+    values = as_array(distribution, "distribution", EXCLUDE_WITH_NAN, dtype=float)
     if values.ndim < 2:
         # Raise the usual error, which explains the expected shape
         validate_distribution(values, name="distribution", min_ndim=2, allow_nan=True)
@@ -105,8 +113,6 @@ def _highest_density_region_rows(
     # Flatten to (n_time, n_spatial) for vectorized operations
     flat = flatten_time_spatial(clean)
 
-    n_spatial = flat.shape[1]
-
     # Compute total mass and target mass for each time point
     # Shape: (n_time,)
     flat, totals = row_sums_rescaled(flat)
@@ -127,17 +133,17 @@ def _highest_density_region_rows(
     # Shape: (n_time, n_spatial) boolean
     ge = csum >= target[:, None]
 
-    # Check if each row has at least one True value
-    # Shape: (n_time,)
-    has_true = ge.any(axis=1)
-
-    # argmax gives first True index; if none True, returns 0 (we fix below)
+    # argmax gives the first True index; a row with none gets 0, fixed below
     # Shape: (n_time,)
     idx = ge.argmax(axis=1)
 
-    # If a row never reaches target but has positive mass (rare numeric case),
-    # choose the last index. If it's truly empty, handle later.
-    idx = np.where(has_true, idx, n_spatial - 1)
+    # The sorted cumulative sum and the row total add the same values in different
+    # orders, so with coverage just below 1 a row with mass can fall short of the
+    # target through rounding: take its last bin with mass. The last bin overall
+    # could have none, and a zero cutoff would include every bin, invalid ones too.
+    # (Only a row with mass can fall short: an empty row's target is 0.)
+    short = np.flatnonzero(~ge.any(axis=1))
+    idx[short] = np.count_nonzero(flat_sorted[short] > 0, axis=1) - 1
 
     # Per-row cutoff (unnormalized)
     # Shape: (n_time,)

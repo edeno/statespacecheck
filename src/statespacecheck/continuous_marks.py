@@ -34,10 +34,9 @@ import numpy as np
 from numpy.typing import ArrayLike, NDArray
 from scipy.special import logsumexp
 
-from ._validation import DistributionArray, flatten_time_spatial, validate_coverage
+from ._validation import DistributionArray, as_array, flatten_time_spatial, validate_coverage
 from .events import (
     EventDiagnostics,
-    _as_array,
     _check_predictive_rows,
     _check_time_bins,
     _first,
@@ -49,7 +48,12 @@ from .events import (
     _validate_time_indices,
 )
 from .highest_density import DEFAULT_COVERAGE
-from .state_consistency import hpd_overlap, kl_divergence
+from .state_consistency import (
+    _log_space_kl,
+    _underflowed_likelihood_rows,
+    hpd_overlap,
+    kl_divergence,
+)
 
 LogMarkIntensity: TypeAlias = Callable[[NDArray[Any]], NDArray[np.floating]]
 """Log of the joint intensity of marks at every state.
@@ -150,7 +154,7 @@ def _evaluate_log_intensity(
         "the observed marks" if replicates_per_event is None else "marks drawn by model.sample"
     )
     marks_per_event = 1 if replicates_per_event is None else replicates_per_event
-    returned = _as_array(
+    returned = as_array(
         log_intensity(marks),
         "model.log_intensity's output",
         "Return an ndarray with -inf where the intensity is zero",
@@ -291,7 +295,7 @@ def _monte_carlo_batch(
     # between events without any check noticing
     flat_bins = state_bins.ravel()
     flat_bins.flags.writeable = False
-    replicated_marks = _as_array(
+    replicated_marks = as_array(
         model.sample(flat_bins, rng), "model.sample's output", "Return an ndarray of marks"
     )
     if replicated_marks.shape != (n_batch * n_samples, *mark_shape):
@@ -427,7 +431,7 @@ def _nonfinite_rows(marks: NDArray[Any]) -> NDArray[np.intp]:
 
 def _validate_observed_marks(marks: ArrayLike, n_events: int, name: str) -> NDArray[Any]:
     """Check the marks of the events, returned read-only so the model cannot change them."""
-    marks = _as_array(marks, name, "Pass an ndarray of the events' marks")
+    marks = as_array(marks, name, "Pass an ndarray of the events' marks")
     if marks.ndim == 0 or marks.shape[0] != n_events:
         msg = f"{name} must have one entry per event ({n_events}); got shape {marks.shape}"
         raise ValueError(msg)
@@ -702,11 +706,12 @@ def clusterless_event_diagnostics(
     and only if ``model.log_intensity`` computes a mark's values differently
     depending on how many marks it is called with (a matrix product can).
 
-    The likelihood is exponentiated after normalizing in log space, so it is
-    exactly 0 at states where its log is more than about 745 below the
-    largest (a ratio below the smallest float64, about ``5e-324``). KL divergence is then ``+inf`` if the prediction has mass
-    there, as it is for disjoint supports. Single-spike likelihoods of
-    clusterless models rarely span that range.
+    The returned likelihood is exponentiated after normalizing in log space, so
+    it is exactly 0 at states where its log is more than about 745 below the
+    largest (a ratio below the smallest float64, about ``5e-324``). The KL
+    divergence at such states is computed from the log intensity, so it is
+    ``+inf`` only where the prediction has mass and the intensity is zero
+    (disjoint supports).
 
     Examples
     --------
@@ -797,6 +802,14 @@ def clusterless_event_diagnostics(
             predictive_batch, likelihood_batch, coverage=coverage
         )
         event_kl[start:stop] = kl_divergence(predictive_batch, likelihood_batch)
+        # Where the likelihood underflowed, its log gives the divergence
+        rows = _underflowed_likelihood_rows(
+            predictive_batch, likelihood_batch, np.isfinite(observed_log_intensity)
+        )
+        if rows.size:
+            event_kl[start + rows] = _log_space_kl(
+                predictive_batch[rows], observed_log_intensity[rows]
+            )
         event_pvalue[start:stop], _, _ = _monte_carlo_batch(
             predictive_batch,
             ground,
