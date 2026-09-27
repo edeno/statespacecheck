@@ -31,11 +31,12 @@ from collections.abc import Callable
 from typing import Any, NamedTuple
 
 import numpy as np
-from numpy.typing import ArrayLike, DTypeLike, NDArray
+from numpy.typing import ArrayLike, NDArray
 from scipy.special import logsumexp
 
 from ._validation import (
     DistributionArray,
+    as_array,
     check_threshold_not_nan,
     flatten_time_spatial,
     row_chunks,
@@ -85,7 +86,7 @@ def _flatten_mark_intensities(
     mark_intensities: ArrayLike, spatial_shape: tuple[int, ...]
 ) -> DistributionArray:
     """Validate a ``(..., n_marks)`` table and flatten it to ``(n_bins, n_marks)``."""
-    table = _as_array(mark_intensities, "mark_intensities", dtype=np.float64)
+    table = as_array(mark_intensities, "mark_intensities", dtype=np.float64)
     if table.shape[:-1] != spatial_shape or table.ndim < 2:
         msg = (
             f"mark_intensities must have shape {(*spatial_shape, 'n_marks')} to match the "
@@ -111,25 +112,9 @@ def _flatten_mark_intensities(
     return table.reshape(-1, table.shape[-1])
 
 
-def _as_array(
-    values: object,
-    name: str,
-    hint: str = "Pass an ndarray (zero where a state has no mass or intensity)",
-    dtype: DTypeLike = None,
-) -> NDArray[Any]:
-    """Convert ``values`` to an ndarray, raising for a masked array, whose mask would drop."""
-    if isinstance(values, np.ma.MaskedArray):
-        msg = (
-            f"{name} is a masked array; converting it would drop the mask and use the "
-            f"values under it. {hint}"
-        )
-        raise ValueError(msg)
-    return np.asarray(values, dtype=dtype)
-
-
 def _validate_state_distribution(state_dist: ArrayLike, name: str) -> DistributionArray:
     """Validate a ``(n_events, ...)`` distribution and flatten it to ``(n_events, n_bins)``."""
-    state_dist = _as_array(state_dist, name, dtype=float)
+    state_dist = as_array(state_dist, name, dtype=float)
     if state_dist.ndim < 2:
         msg = (
             f"{name} must have shape (n_events, ...) with at least one spatial axis; "
@@ -144,7 +129,7 @@ def _validate_state_distribution(state_dist: ArrayLike, name: str) -> Distributi
 
 def _validate_marks(marks: ArrayLike, n_marks: int, name: str) -> NDArray[np.intp]:
     """Check that ``marks`` is a 1-D integer array of valid mark indices."""
-    marks = _as_array(marks, name, _INDEX_HINT)
+    marks = as_array(marks, name, _INDEX_HINT)
     if marks.ndim == 1 and marks.size == 0:
         return np.empty(0, dtype=np.intp)
     if marks.ndim != 1 or not np.issubdtype(marks.dtype, np.integer):
@@ -172,7 +157,7 @@ def _first(indices: NDArray[np.integer]) -> list[int]:
 
 def _validate_time_indices(event_time_ind: ArrayLike, n_time: int) -> NDArray[np.intp]:
     """Check that ``event_time_ind`` holds time-bin indices in ``[0, n_time)``."""
-    time_values = _as_array(event_time_ind, "event_time_ind", _INDEX_HINT)
+    time_values = as_array(event_time_ind, "event_time_ind", _INDEX_HINT)
     # An empty list is a float array too; empty event lists are accepted
     if time_values.size and np.issubdtype(time_values.dtype, np.floating):
         msg = (
@@ -191,7 +176,7 @@ def _validate_predictive(predictive: ArrayLike) -> NDArray[Any]:
     values can overflow float64, or object) are converted to float64, so that
     the checks see the values that are used.
     """
-    predictive = _as_array(predictive, "predictive")
+    predictive = as_array(predictive, "predictive")
     if predictive.dtype.kind not in "biuf" or predictive.dtype.itemsize > 8:
         # Values beyond float64 become inf, which the checks then report
         with np.errstate(over="ignore"):
@@ -331,7 +316,7 @@ def event_likelihood(event_intensities: ArrayLike) -> DistributionArray:
     >>> event_likelihood(np.array([[1.0, 2.0, 1.0]]))
     array([[0.25, 0.5 , 0.25]])
     """
-    event_intensities = _as_array(event_intensities, "event_intensities", dtype=np.float64)
+    event_intensities = as_array(event_intensities, "event_intensities", dtype=np.float64)
     if event_intensities.ndim < 2 or np.prod(event_intensities.shape[1:]) == 0:
         msg = (
             "event_intensities must have shape (n_events, ...) with a non-empty spatial "
@@ -459,7 +444,7 @@ def _validate_ground_intensity(
     ground_intensity: ArrayLike, spatial_shape: tuple[int, ...]
 ) -> DistributionArray:
     """Check the ground intensity against the state grid and flatten it to ``(n_bins,)``."""
-    ground = _as_array(ground_intensity, "ground_intensity", dtype=np.float64)
+    ground = as_array(ground_intensity, "ground_intensity", dtype=np.float64)
     if ground.shape != spatial_shape:
         msg = (
             f"ground_intensity must have shape {spatial_shape} to match the state "

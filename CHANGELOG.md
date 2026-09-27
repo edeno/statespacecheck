@@ -44,6 +44,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - `event_diagnostics()` and `mark_predictive_pvalue()` raise `ValueError` for masked event or mark indices, and `event_likelihood()` for masked intensities; converting them used the values under the mask. `event_diagnostics()` converts a predictive of object or extended-precision dtype to float64 before checking it (an object array raised an unhelpful `TypeError`).
+- `hpd_overlap()`, `kl_divergence()`, `highest_density_region()`, `predictive_density()`, `log_predictive_density()` and `predictive_pvalue()` raise `ValueError` for masked arrays. Converting them dropped the mask and used the values under it: a masked bin holding most of the state's mass gave HPD overlap 0 and infinite KL divergence where excluding it gives 1 and 0. Mark bins to exclude with NaN.
 - `baseline_threshold()` raises `TypeError` for complex values; converting them to float dropped the imaginary part with only a warning.
 - `predictive_mark_probabilities()`, `mark_predictive_pvalue()` and `event_diagnostics()` raise `ValueError` for a masked state distribution or intensity table; converting it dropped the mask and used the values under it.
 - `event_likelihood()`, `predictive_mark_probabilities()` and `mark_predictive_pvalue()` return empty results for zero events, and `event_diagnostics()` for zero time bins, instead of raising `IndexError` or a reshape error.

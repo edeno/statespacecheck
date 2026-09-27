@@ -17,7 +17,9 @@ from numpy.typing import ArrayLike
 from scipy.special import logsumexp
 
 from ._validation import (
+    EXCLUDE_WITH_NAN,
     DistributionArray,
+    as_array,
     as_paired_arrays,
     flatten_time_spatial,
     normalize_rows,
@@ -204,9 +206,14 @@ def log_predictive_density(
             state_dist, observation_likelihood, "observation_likelihood"
         )
     else:
-        state = np.asarray(state_dist, dtype=float)
+        state = as_array(state_dist, "state_dist", EXCLUDE_WITH_NAN, dtype=float)
         # Validate the log likelihood manually (it's in log-space, can be negative!)
-        like = np.asarray(log_observation_likelihood, dtype=float)
+        like = as_array(
+            log_observation_likelihood,
+            "log_observation_likelihood",
+            EXCLUDE_WITH_NAN,
+            dtype=float,
+        )
         if like.ndim < 2:
             msg = (
                 f"log_observation_likelihood must be at least 2D with shape (n_time, ...), "
@@ -327,7 +334,12 @@ def predictive_pvalue(
         sampler = lambda n: rng.normal(size=(n, n_time))
     """
     # Validate observed_log_pred
-    observed_arr = np.asarray(observed_log_pred, dtype=float)
+    observed_arr = as_array(
+        observed_log_pred,
+        "observed_log_pred",
+        "Pass an ndarray with NaN for missing values",
+        dtype=float,
+    )
     if observed_arr.ndim != 1:
         msg = (
             f"observed_log_pred must be 1-dimensional, "
@@ -346,7 +358,9 @@ def predictive_pvalue(
     simulated = sample_log_pred(n_samples)
 
     # Validate shape of simulated samples
-    simulated_arr = np.asarray(simulated, dtype=float)
+    simulated_arr = as_array(
+        simulated, "sample_log_pred's output", "Return an ndarray", dtype=float
+    )
     if simulated_arr.shape != (n_samples, n_time):
         msg = (
             f"sample_log_pred output must have shape (n_samples, n_time) = "

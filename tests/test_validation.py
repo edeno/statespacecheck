@@ -3,6 +3,14 @@
 import numpy as np
 import pytest
 
+from statespacecheck import (
+    highest_density_region,
+    hpd_overlap,
+    kl_divergence,
+    log_predictive_density,
+    predictive_density,
+    predictive_pvalue,
+)
 from statespacecheck._validation import (
     flatten_time_spatial,
     get_spatial_axes,
@@ -203,3 +211,36 @@ class TestGetSpatialAxes:
         arr = np.zeros(10)
         axes = get_spatial_axes(arr)
         assert axes == ()
+
+
+_MASKED = np.ma.masked_array([[1.0, 1000.0]], mask=[[False, True]])
+_LIKE = np.array([[1.0, 0.0]])
+
+
+@pytest.mark.parametrize(
+    ("call", "name"),
+    [
+        (lambda: hpd_overlap(_MASKED, _LIKE), "state_dist"),
+        (lambda: hpd_overlap(_LIKE, _MASKED), "likelihood"),
+        (lambda: kl_divergence(_MASKED, _LIKE), "state_dist"),
+        (lambda: highest_density_region(_MASKED), "distribution"),
+        (lambda: predictive_density(_MASKED, observation_likelihood=_LIKE), "state_dist"),
+        (
+            lambda: log_predictive_density(_LIKE, log_observation_likelihood=_MASKED),
+            "log_observation_likelihood",
+        ),
+        (
+            lambda: predictive_pvalue(np.ma.masked_array([1.0]), lambda n: np.zeros((n, 1))),
+            "observed_log_pred",
+        ),
+        (
+            lambda: predictive_pvalue(np.ones(1), lambda n: np.ma.zeros((n, 1))),
+            "sample_log_pred's output",
+        ),
+    ],
+)
+def test_masked_arrays_raise(call, name):
+    """The mask would be dropped: with the second bin masked, HPD overlap was 0 and KL
+    divergence infinite, although excluding that bin gives 1 and 0."""
+    with pytest.raises(ValueError, match=f"{name} is a masked array"):
+        call()

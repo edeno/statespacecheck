@@ -4,7 +4,9 @@ import numpy as np
 from numpy.typing import ArrayLike, NDArray
 
 from ._validation import (
+    EXCLUDE_WITH_NAN,
     DistributionArray,
+    as_array,
     flatten_time_spatial,
     row_chunks,
     row_sums_rescaled,
@@ -80,7 +82,7 @@ def highest_density_region(
 
     """
     validate_coverage(coverage)
-    values = np.asarray(distribution, dtype=float)
+    values = as_array(distribution, "distribution", EXCLUDE_WITH_NAN, dtype=float)
     if values.ndim < 2:
         # Raise the usual error, which explains the expected shape
         validate_distribution(values, name="distribution", min_ndim=2, allow_nan=True)

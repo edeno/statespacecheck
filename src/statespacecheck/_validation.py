@@ -4,7 +4,7 @@ from collections.abc import Iterator
 from typing import Any
 
 import numpy as np
-from numpy.typing import ArrayLike, NDArray
+from numpy.typing import ArrayLike, DTypeLike, NDArray
 
 # Arrays of float64 values the package returns (inputs may be any array-like)
 DistributionArray = NDArray[np.float64]
@@ -22,6 +22,26 @@ def row_chunks(shape: tuple[int, ...]) -> Iterator[slice]:
     step = max(1, _CHUNK_ELEMENTS // row_size)
     for start in range(0, n_rows, step):
         yield slice(start, min(start + step, n_rows))
+
+
+# For distributions whose invalid bins are excluded when marked NaN
+EXCLUDE_WITH_NAN = "Pass an ndarray with NaN in the bins to exclude"
+
+
+def as_array(
+    values: object,
+    name: str,
+    hint: str = "Pass an ndarray (zero where a state has no mass or intensity)",
+    dtype: DTypeLike = None,
+) -> NDArray[Any]:
+    """Convert ``values`` to an ndarray, raising for a masked array, whose mask would drop."""
+    if isinstance(values, np.ma.MaskedArray):
+        msg = (
+            f"{name} is a masked array; converting it would drop the mask and use the "
+            f"values under it. {hint}"
+        )
+        raise ValueError(msg)
+    return np.asarray(values, dtype=dtype)
 
 
 def check_threshold_not_nan(value: float, name: str) -> None:
@@ -137,7 +157,7 @@ def validate_distribution(
     ValueError
         If validation fails
     """
-    arr = np.asarray(distribution, dtype=float)
+    arr = as_array(distribution, name, EXCLUDE_WITH_NAN, dtype=float)
 
     if arr.ndim < min_ndim:
         if min_ndim == 1:
@@ -239,8 +259,8 @@ def as_paired_arrays(
 
     The time-bin functions call this once, before processing time in chunks.
     """
-    state = np.asarray(state_dist, dtype=float)
-    like = np.asarray(likelihood, dtype=float)
+    state = as_array(state_dist, "state_dist", EXCLUDE_WITH_NAN, dtype=float)
+    like = as_array(likelihood, likelihood_name, EXCLUDE_WITH_NAN, dtype=float)
     if state.ndim < 2 or state.shape != like.shape:
         # Raise the usual error, which reports both full shapes
         validate_paired_distributions(

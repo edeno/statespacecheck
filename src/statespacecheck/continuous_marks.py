@@ -34,10 +34,9 @@ import numpy as np
 from numpy.typing import ArrayLike, NDArray
 from scipy.special import logsumexp
 
-from ._validation import DistributionArray, flatten_time_spatial, validate_coverage
+from ._validation import DistributionArray, as_array, flatten_time_spatial, validate_coverage
 from .events import (
     EventDiagnostics,
-    _as_array,
     _check_predictive_rows,
     _check_time_bins,
     _first,
@@ -150,7 +149,7 @@ def _evaluate_log_intensity(
         "the observed marks" if replicates_per_event is None else "marks drawn by model.sample"
     )
     marks_per_event = 1 if replicates_per_event is None else replicates_per_event
-    returned = _as_array(
+    returned = as_array(
         log_intensity(marks),
         "model.log_intensity's output",
         "Return an ndarray with -inf where the intensity is zero",
@@ -291,7 +290,7 @@ def _monte_carlo_batch(
     # between events without any check noticing
     flat_bins = state_bins.ravel()
     flat_bins.flags.writeable = False
-    replicated_marks = _as_array(
+    replicated_marks = as_array(
         model.sample(flat_bins, rng), "model.sample's output", "Return an ndarray of marks"
     )
     if replicated_marks.shape != (n_batch * n_samples, *mark_shape):
@@ -427,7 +426,7 @@ def _nonfinite_rows(marks: NDArray[Any]) -> NDArray[np.intp]:
 
 def _validate_observed_marks(marks: ArrayLike, n_events: int, name: str) -> NDArray[Any]:
     """Check the marks of the events, returned read-only so the model cannot change them."""
-    marks = _as_array(marks, name, "Pass an ndarray of the events' marks")
+    marks = as_array(marks, name, "Pass an ndarray of the events' marks")
     if marks.ndim == 0 or marks.shape[0] != n_events:
         msg = f"{name} must have one entry per event ({n_events}); got shape {marks.shape}"
         raise ValueError(msg)
