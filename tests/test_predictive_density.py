@@ -300,7 +300,7 @@ class TestLogPredictiveDensity:
 
 
 class TestPredictiveDensityScale:
-    """State probabilities below the smallest float64 after normalization still count."""
+    """State probabilities too small to represent after normalization still count."""
 
     STATE = np.array([[1e-300, 1e100]])  # normalized: [1e-400, 1], below float64
     LIKELIHOOD = np.array([[1e300, 0.0]])  # only the tiny state has likelihood
@@ -318,6 +318,35 @@ class TestPredictiveDensityScale:
     def test_linear_density_of_tiny_state_probability(self):
         result = predictive_density(self.STATE, observation_likelihood=self.LIKELIHOOD)
         np.testing.assert_allclose(result, [1e-100], rtol=1e-13)
+
+    @pytest.mark.parametrize("tiny", [1e-300, 1e-303, 7e-304, 3e-304, 2e-304])
+    def test_subnormal_state_probabilities(self, tiny):
+        """Normalized, tiny / 1e20 is subnormal (1e-320 to 3e-324), with few bits
+        left, or 0; the likelihood of 1e300 at that bin makes it the whole density."""
+        state, likelihood = np.array([[tiny, 1e20]]), np.array([[1e300, 0.0]])
+        expected = tiny * 1e280
+        np.testing.assert_allclose(
+            predictive_density(state, observation_likelihood=likelihood),
+            [expected],
+            rtol=1e-13,
+        )
+        np.testing.assert_allclose(
+            log_predictive_density(state, observation_likelihood=likelihood),
+            [np.log(expected)],
+            rtol=1e-13,
+        )
+
+    def test_lost_entry_in_a_row_whose_sum_overflows(self):
+        state = np.array([[1e308, 1e308, 1e-280]])
+        likelihood = np.array([[0.0, 0.0, 1e300]])
+        np.testing.assert_allclose(
+            predictive_density(state, observation_likelihood=likelihood), [5e-289], rtol=1e-13
+        )
+        np.testing.assert_allclose(
+            log_predictive_density(state, observation_likelihood=likelihood),
+            [np.log(5e-289)],
+            rtol=1e-13,
+        )
 
     def test_state_whose_sum_overflows(self):
         state = np.array([[1e308, 1e308, 0.0]])

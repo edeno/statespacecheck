@@ -13,7 +13,7 @@ from collections.abc import Callable
 from functools import partial
 
 import numpy as np
-from numpy.typing import ArrayLike
+from numpy.typing import ArrayLike, NDArray
 from scipy.special import logsumexp
 
 from ._validation import (
@@ -65,8 +65,10 @@ def predictive_density(
     ------
     ValueError
         If state_dist and observation_likelihood have different shapes, if
-        they contain negative values, or if observation_likelihood contains
-        +inf.
+        they contain negative values, if observation_likelihood contains
+        +inf, or if an input is a masked array (mark bins to exclude with NaN).
+    TypeError
+        If an input is complex.
 
     Examples
     --------
@@ -153,8 +155,11 @@ def log_predictive_density(
     ------
     ValueError
         If neither or both of the likelihood arguments are provided,
-        if shapes don't match, if distributions contain negative values, or if
-        the (log) observation likelihood contains +inf.
+        if shapes don't match, if distributions contain negative values, if
+        the (log) observation likelihood contains +inf, or if an input is a
+        masked array (mark bins to exclude with NaN).
+    TypeError
+        If an input is complex.
 
     Examples
     --------
@@ -282,10 +287,11 @@ def predictive_pvalue(
     ------
     ValueError
         If observed_log_pred is not 1-dimensional, if n_samples <= 0,
-        or if sample_log_pred returns an array with the wrong shape or
-        containing NaN.
+        if sample_log_pred returns an array with the wrong shape or
+        containing NaN, or if observed_log_pred or the sampler's output is a
+        masked array (use NaN for missing observations).
     TypeError
-        If sample_log_pred is not callable.
+        If sample_log_pred is not callable, or an input is complex.
 
     Examples
     --------
@@ -440,6 +446,16 @@ def _log_probabilities(state_rows: DistributionArray) -> DistributionArray:
     return normalized
 
 
+def _underflowed(
+    state_normalized: DistributionArray, state_flat: DistributionArray
+) -> NDArray[np.bool_]:
+    """Entries with mass whose normalized value is below the smallest normal float64."""
+    lost: NDArray[np.bool_] = (state_normalized < np.finfo(np.float64).tiny) & (
+        state_flat > 0.0
+    )
+    return lost
+
+
 def _predictive_density_rows(
     state_dist: DistributionArray, observation_likelihood: DistributionArray
 ) -> tuple[DistributionArray, bool]:
@@ -466,11 +482,14 @@ def _predictive_density_rows(
     # Compute predictive density: sum over spatial dimensions
     # f_predictive(y) = ∑_x p(x) * p(y|x)
     # Note: likelihood is NOT normalized (critical!)
+    # A state probability below the smallest normal float64 (about 2.2e-308) keeps
+    # few or no bits on division by the row sum (it is subnormal, or 0), yet a large
+    # likelihood can still make it count: those terms are added from log space,
+    # where their products can be represented, instead of from the division
+    lost = _underflowed(state_normalized, state_flat) & (like_flat > 0.0)
+    if lost.any():
+        state_normalized = np.where(lost, 0.0, state_normalized)
     predictive: DistributionArray = (state_normalized * like_flat).sum(axis=1)
-    # A state probability below the smallest float64 underflows to 0 on division by
-    # the row sum, yet a large likelihood can still make it count: add those terms
-    # from log space, where their products can be represented
-    lost = (state_normalized == 0.0) & (state_flat > 0.0) & (like_flat > 0.0)
     if lost.any():
         rows = np.flatnonzero(lost.any(axis=1))
         with np.errstate(divide="ignore"):
@@ -530,10 +549,11 @@ def _log_predictive_density_rows(
         log_state_normalized = np.where(
             state_normalized > 0, np.log(state_normalized), -np.inf
         )
-    # A state probability below the smallest float64 underflows to 0 on division by
-    # the row sum, yet a large likelihood can still make it count: take those
-    # entries' logs in log space. Dividing first is more accurate for the others.
-    lost = (state_normalized == 0.0) & (state_flat > 0.0)
+    # A state probability below the smallest normal float64 keeps few or no bits on
+    # division by the row sum (it is subnormal, or 0), yet a large likelihood can
+    # still make it count: take those entries' logs in log space. Dividing first is
+    # more accurate for the others.
+    lost = _underflowed(state_normalized, state_flat) & (log_like_flat > -np.inf)
     if lost.any():
         rows = np.flatnonzero(lost.any(axis=1))
         log_state_normalized[rows] = np.where(
