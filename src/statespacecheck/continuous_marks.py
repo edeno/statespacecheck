@@ -741,7 +741,8 @@ def clusterless_event_diagnostics(
     _check_positive_integer(n_samples, "n_samples")
     _check_positive_integer(batch_size, "batch_size")
     _reject_masked(predictive, "predictive")
-    predictive = np.asarray(predictive, dtype=np.float64)
+    # Converted to float64 batch by batch: a decoder's predictive can be float32
+    predictive = np.asarray(predictive)
     if predictive.ndim < 2:
         msg = (
             "predictive must have shape (n_time, ...) with at least one spatial axis; "
@@ -778,7 +779,7 @@ def clusterless_event_diagnostics(
     )
     for start in range(0, n_events, batch_size):
         stop = min(start + batch_size, n_events)
-        predictive_batch = predictive_flat[time_ind[start:stop]]
+        predictive_batch = np.asarray(predictive_flat[time_ind[start:stop]], dtype=np.float64)
         observed_log_intensity = _evaluate_log_intensity(
             model.log_intensity, marks[start:stop], spatial_shape, start
         )

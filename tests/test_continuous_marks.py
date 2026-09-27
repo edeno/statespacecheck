@@ -1104,3 +1104,25 @@ class TestLargeLogIntensities:
         )
         assert_allclose(result.likelihood.sum(), 1.0, rtol=1e-15)
         assert_allclose(result.likelihood, [[1 / 7, 2 / 7, 4 / 7]], rtol=1e-3)
+
+
+def test_float32_predictive_is_not_copied_whole():
+    """A decoder's float32 predictive (non_local_detector's) is converted batch by
+    batch; converting it all would allocate twice its size in float64."""
+    import tracemalloc
+
+    predictive = np.full((4096, 256), 1 / 256, dtype=np.float32)
+    model = MarkModel(
+        lambda m: np.zeros((len(m), 256)),
+        lambda bins, _rng: np.zeros((len(bins), 1)),
+        np.ones(256),
+    )
+    tracemalloc.start()
+    try:
+        clusterless_event_diagnostics(
+            predictive, model, [5], np.zeros((1, 1)), n_samples=10, rng=0, batch_size=1
+        )
+        peak = tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+    assert peak < predictive.nbytes  # a float64 copy alone is twice predictive.nbytes
