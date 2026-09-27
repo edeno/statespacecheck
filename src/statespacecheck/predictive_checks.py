@@ -505,6 +505,16 @@ def _log_predictive_density_rows(
         log_state_normalized = np.where(
             state_normalized > 0, np.log(state_normalized), -np.inf
         )
+    # A state probability below the smallest float64 underflows to 0 on division by
+    # the row sum, yet a large likelihood can still make it count: take those
+    # entries' logs in log space. Dividing first is more accurate for the others.
+    lost = (state_normalized == 0.0) & (state_flat > 0.0)
+    if lost.any():
+        rows = np.flatnonzero(lost.any(axis=1))
+        with np.errstate(divide="ignore"):
+            log_rows = np.log(state_flat[rows])
+        log_rows -= logsumexp(log_rows, axis=1, keepdims=True)
+        log_state_normalized[rows] = np.where(lost[rows], log_rows, log_state_normalized[rows])
 
     # Compute log predictive density using logsumexp
     # log ∑_x p(x) * p(y|x) = logsumexp(log p(x) + log p(y|x))

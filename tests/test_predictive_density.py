@@ -299,6 +299,29 @@ class TestLogPredictiveDensity:
             log_predictive_density(state, log_observation_likelihood=log_likelihood)
 
 
+class TestLogPredictiveDensityScale:
+    """The state is normalized in log space, so no state mass is lost to underflow."""
+
+    STATE = np.array([[1e-300, 1e100]])  # normalized: [1e-400, 1], below float64
+    LIKELIHOOD = np.array([[1e300, 0.0]])  # only the tiny state has likelihood
+
+    def test_tiny_state_probability_with_large_likelihood(self):
+        result = log_predictive_density(self.STATE, observation_likelihood=self.LIKELIHOOD)
+        np.testing.assert_allclose(result, [np.log(1e-100)], rtol=1e-13)
+
+    def test_tiny_state_probability_with_log_likelihood(self):
+        with np.errstate(divide="ignore"):
+            log_likelihood = np.log(self.LIKELIHOOD)
+        result = log_predictive_density(self.STATE, log_observation_likelihood=log_likelihood)
+        np.testing.assert_allclose(result, [np.log(1e-100)], rtol=1e-13)
+
+    def test_state_whose_sum_overflows(self):
+        state = np.array([[1e308, 1e308, 0.0]])
+        likelihood = np.array([[2.0, 4.0, 8.0]])
+        result = log_predictive_density(state, observation_likelihood=likelihood)
+        np.testing.assert_allclose(result, [np.log(3.0)], rtol=1e-14)
+
+
 class TestArgumentNames:
     """The observation likelihood p(y|x) is not normalized over states, unlike the
     ``likelihood`` of kl_divergence and hpd_overlap; its name says so."""
