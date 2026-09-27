@@ -50,7 +50,10 @@ DEFAULT_EVENT_BATCH_SIZE = 50_000
 
 
 class EventDiagnostics(NamedTuple):
-    """Per-event diagnostic values returned by :func:`event_diagnostics`.
+    """Per-event diagnostic values: HPD overlap, KL divergence and the p-value.
+
+    Returned by :func:`event_diagnostics` and
+    :func:`~statespacecheck.clusterless_event_diagnostics`.
 
     Attributes
     ----------
@@ -61,8 +64,11 @@ class EventDiagnostics(NamedTuple):
         KL divergence from the predictive distribution to each event's
         likelihood. High values indicate poor local fit.
     predictive_pvalue : np.ndarray, shape (n_events,)
-        Exact predictive p-value of each event's observed mark (see
-        :func:`mark_predictive_pvalue`). Low values indicate poor local fit.
+        Rank-based predictive p-value of each event's observed mark: exact
+        from :func:`event_diagnostics` (see :func:`mark_predictive_pvalue`),
+        a Monte Carlo estimate from
+        :func:`~statespacecheck.clusterless_event_diagnostics`. Low values
+        indicate poor local fit.
     likelihood : np.ndarray, shape (n_events, ...), or None
         Normalized single-event likelihood of each event over the state space.
         ``None`` unless ``return_likelihood=True``.
@@ -78,6 +84,7 @@ def _flatten_mark_intensities(
     mark_intensities: ArrayLike, spatial_shape: tuple[int, ...]
 ) -> DistributionArray:
     """Validate a ``(..., n_marks)`` table and flatten it to ``(n_bins, n_marks)``."""
+    _reject_masked(mark_intensities, "mark_intensities")
     table = np.asarray(mark_intensities, dtype=np.float64)
     if table.shape[:-1] != spatial_shape or table.ndim < 2:
         msg = (
@@ -332,9 +339,10 @@ def _normalize_log(
     normalized: DistributionArray = np.exp(log_values - log_norm)
     # Subtracting a log normalizer of large magnitude rounds by about eps times it
     # (by 1 at 5e15), leaving the row summing to exp(error) instead of 1. Rows whose
-    # largest log value is beyond the log of any float64 (|log| < 745), which only a
-    # log-space model gives, are normalized relative to that largest value instead;
-    # other rows, including every np.log of an intensity table, are unchanged
+    # largest log value exceeds _LARGE_LOG in magnitude, beyond the log of any
+    # float64 (|log| < 745) so that only a log-space model gives them, are
+    # normalized relative to that largest value instead; other rows, including
+    # every np.log of an intensity table, are unchanged
     largest = np.max(log_values, axis=-1)
     far = np.flatnonzero(np.abs(largest) > _LARGE_LOG)
     if far.size:
@@ -549,8 +557,9 @@ def mark_predictive_pvalue(
     Raises
     ------
     ValueError
-        If shapes are inconsistent, marks are out of range, or the predictive
-        mark distribution is undefined (see :func:`predictive_mark_probabilities`).
+        If shapes are inconsistent, marks are out of range, inputs are masked,
+        or the predictive mark distribution is undefined (see
+        :func:`predictive_mark_probabilities`).
 
     Examples
     --------
@@ -633,7 +642,7 @@ def event_diagnostics(
     ------
     ValueError
         If shapes are inconsistent, indices are out of range, or inputs are
-        negative or non-finite; if an event's mark has zero intensity at every
+        negative, non-finite or masked; if an event's mark has zero intensity at every
         position; or if the predictive distribution of an event's time bin
         puts no mass where any mark has intensity (or the total overflows).
 
@@ -653,6 +662,7 @@ def event_diagnostics(
     if batch_size < 1:
         msg = f"batch_size must be at least 1; got {batch_size}"
         raise ValueError(msg)
+    _reject_masked(predictive, "predictive")
     predictive = np.asarray(predictive)
     if predictive.ndim < 2:
         msg = (

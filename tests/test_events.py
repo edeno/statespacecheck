@@ -3,6 +3,7 @@
 import numpy as np
 import pytest
 from numpy.testing import assert_allclose, assert_array_equal
+from scipy.special import logsumexp
 
 from statespacecheck import (
     EventDiagnostics,
@@ -32,6 +33,19 @@ def random_model() -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
 
 
 class TestEventLikelihood:
+    def test_bit_identical_to_log_space_normalization_at_extreme_scales(self):
+        """The paper's numbers depend on the exact bits: rows whose largest log is near
+        the float64 limits (about 708, -710 and -743) must use exp(L - logsumexp(L))."""
+        rng = np.random.default_rng(4)
+        table = rng.gamma(2.0, size=(4, 30))
+        table[1] *= 1e307 / table[1].max()
+        table[2] *= 1e-309 / table[2].max()
+        table[3] *= 1.5e-323 / table[3].max()
+        with np.errstate(divide="ignore"):  # some entries underflow to 0
+            log_table = np.log(table)
+        expected = np.exp(log_table - logsumexp(log_table, axis=1, keepdims=True))
+        assert_array_equal(event_likelihood(table), expected)
+
     def test_matches_normalized_intensity_and_rows_sum_to_one(self):
         intensities = np.array([[2.0, 0.5, 1.0], [0.1, 0.4, 0.2]])
         out = event_likelihood(intensities)
@@ -625,6 +639,16 @@ class TestEventDiagnosticsErrors:
         indices[argument] = np.ma.masked_array(indices[argument], mask=[False, True])
         with pytest.raises(ValueError, match=f"{argument} is a masked array"):
             event_diagnostics(predictive, fields, **indices)
+
+    @pytest.mark.parametrize("argument", ["predictive", "mark_intensities"])
+    def test_masked_arrays_raise(self, model, argument):
+        """Converting a masked array would use the values under the mask."""
+        arrays = dict(zip(("predictive", "mark_intensities"), model, strict=True))
+        arrays[argument] = np.ma.masked_array(arrays[argument])
+        with pytest.raises(ValueError, match=f"{argument} is a masked array"):
+            event_diagnostics(
+                arrays["predictive"], arrays["mark_intensities"], np.array([0]), np.array([0])
+            )
 
     def test_masked_float_time_indices_are_reported_as_masked(self, model):
         predictive, fields = model

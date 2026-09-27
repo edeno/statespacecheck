@@ -781,8 +781,7 @@ class TestClusterlessScale:
         kwargs = {"n_samples": 10, "rng": 0, "return_likelihood": True}
         result = clusterless_event_diagnostics(predictive, shifted, time_ind, marks, **kwargs)
         reference = clusterless_event_diagnostics(predictive, model, time_ind, marks, **kwargs)
-        # exp(log + offset - (norm + offset)) rounds the offset away only to within
-        # eps * |offset| in the exponent
+        # The model's own log + offset rounds to within eps * |offset|
         rtol = 16 * np.finfo(float).eps * abs(offset)
         assert_allclose(result.likelihood, reference.likelihood, rtol=rtol)
         assert_allclose(result.kl_divergence, reference.kl_divergence, rtol=rtol, atol=rtol)
@@ -862,7 +861,7 @@ def session_diagnostics(clusterless_session):
 
 # Thresholds set from observed values (fixture seed, true model: KS p = 0.59, 4.7% of
 # p <= 0.05, 6.7% for unit 0; misspecified: KS p = 1.0e-6, 8.4%, 47.2%). Over seven
-# seeds, the misspecified fraction of p <= 0.05 ranged from 8.4% to 20.9%, always
+# seeds (20260925 and 0 to 5), the misspecified fraction of p <= 0.05 ranged from 8.4% to 20.9%, always
 # above the true model's (4.3% to 6.4%), so the two are compared with each other.
 @pytest.mark.slow
 class TestSimulatedSession:
@@ -978,6 +977,61 @@ class TestModelChecks:
                 np.full((1, 3), 1 / 3), model, np.array([0]), n_samples=50, rng=0
             )
 
+    def test_drawn_state_error_counts_and_names_the_events(self):
+        """The sampler draws correctly for the first two batches, then the other mark."""
+        rates = np.array([[1.0, 0.0], [0.0, 1.0], [0.0, 1.0]])
+        calls = []
+
+        def sample(bins, _rng):
+            calls.append(len(bins))
+            wrong = len(calls) > 2
+            return ((bins == 0) == wrong).astype(int)
+
+        model = MarkModel(integer_mark_model(rates).log_intensity, sample, rates.sum(axis=1))
+        with pytest.raises(ValueError, match=r"of 10 marks .*\(events \[4, 5\]\)"):
+            monte_carlo_mark_pvalue(
+                np.full((6, 3), 1 / 3),
+                model,
+                np.zeros(6, dtype=int),
+                n_samples=5,
+                batch_size=2,
+            )
+
+    def test_infinite_log_intensity_names_the_observed_event(self):
+        model = _uniform_model(
+            lambda m: np.where(np.asarray(m)[:, None] == 1, np.inf, np.zeros((len(m), 3)))
+        )
+        with pytest.raises(ValueError, match=r"observed marks of events \[3\]"):
+            monte_carlo_mark_pvalue(
+                np.full((5, 3), 1 / 3), model, np.array([0, 0, 0, 1, 0]), batch_size=2
+            )
+
+    def test_one_non_finite_feature_makes_a_mark_non_finite(self):
+        """A dead channel's NaN, in a feature the model might ignore."""
+        model = _uniform_model(
+            lambda m: np.zeros((len(m), 3)), lambda bins, _rng: np.zeros((len(bins), 2))
+        )
+        marks = np.array([[0.5, 0.0], [0.5, np.nan], [0.5, 0.0]])
+        with pytest.raises(ValueError, match=r"observed_marks must be finite; events \[1\]"):
+            monte_carlo_mark_pvalue(np.full((3, 3), 1 / 3), model, marks)
+
+        def sample(bins, _rng):
+            replicated = np.zeros((len(bins), 2))
+            replicated[0, 1] = np.nan
+            return replicated
+
+        with pytest.raises(ValueError, match=r"non-finite marks for events \[0\]"):
+            monte_carlo_mark_pvalue(
+                np.full((3, 3), 1 / 3),
+                _uniform_model(lambda m: np.zeros((len(m), 3)), sample),
+                np.zeros((3, 2)),
+            )
+
+    def test_callers_marks_stay_writable(self):
+        marks = np.zeros(2, dtype=int)
+        monte_carlo_mark_pvalue(np.full((2, 3), 1 / 3), _uniform_model(), marks, n_samples=5)
+        assert marks.flags.writeable
+
     def test_masked_sampler_output_raises(self):
         model = _uniform_model(
             sample=lambda bins, _rng: np.ma.masked_array(np.zeros(len(bins), dtype=int))
@@ -1085,7 +1139,7 @@ class TestLargeLogIntensities:
         )
         assert_allclose(result.likelihood, [[0.5, 0.5]], rtol=1e-15)
 
-    @pytest.mark.parametrize("offset", [-1e12, 1e12])
+    @pytest.mark.parametrize("offset", [-1e12, -1e6, -2000.0, 2000.0, 1e6, 1e12])
     def test_likelihood_rows_sum_to_one_at_any_offset(self, offset):
         """The offset's rounding (ulp 1.2e-4 at 1e12) limits the shape, not the sum."""
         model = MarkModel(
@@ -1126,3 +1180,49 @@ def test_float32_predictive_is_not_copied_whole():
     finally:
         tracemalloc.stop()
     assert peak < predictive.nbytes  # a float64 copy alone is twice predictive.nbytes
+
+
+class TestInputTypes:
+    def test_sampler_cannot_reorder_the_state_bins(self):
+        """Sorting the bins in place would move replicates between events."""
+
+        def sample(bins, _rng):
+            bins.sort()
+            return np.zeros(len(bins), dtype=int)
+
+        with pytest.raises(ValueError, match="read-only"):
+            monte_carlo_mark_pvalue(
+                np.full((2, 3), 1 / 3), _uniform_model(sample=sample), np.zeros(2, dtype=int)
+            )
+
+    def test_object_log_intensity_raises(self):
+        """float32 or integer values wrapped in an object array would pass unchecked."""
+        model = _uniform_model(
+            lambda m: np.zeros((len(m), 3), dtype=np.float32).astype(object)
+        )
+        with pytest.raises(ValueError, match="real floating-point"):
+            monte_carlo_mark_pvalue(np.full((2, 3), 1 / 3), model, np.zeros(2, dtype=int))
+
+    def test_object_predictive_is_converted(self, discrete_mark_model, discrete_session):
+        _, model = discrete_mark_model
+        predictive, time_ind, marks = discrete_session
+        kwargs = {"n_samples": 10, "rng": 0}
+        result = clusterless_event_diagnostics(
+            predictive.astype(object), model, time_ind, marks, **kwargs
+        )
+        expected = clusterless_event_diagnostics(predictive, model, time_ind, marks, **kwargs)
+        for field in ("hpd_overlap", "kl_divergence", "predictive_pvalue"):
+            assert_array_equal(getattr(result, field), getattr(expected, field))
+
+    @pytest.mark.skipif(
+        np.finfo(np.longdouble).max <= np.finfo(np.float64).max,
+        reason="longdouble is float64 on this platform",
+    )
+    def test_longdouble_predictive_beyond_float64_raises(self):
+        """1e400 is finite in extended precision but overflows float64."""
+        predictive = np.ones((2, 3), dtype=np.longdouble)
+        predictive[0, 0] = np.longdouble("1e400")
+        with pytest.raises(ValueError, match=r"predictive must contain only finite"):
+            clusterless_event_diagnostics(
+                predictive, _uniform_model(), [0, 1], np.zeros(2, dtype=int)
+            )

@@ -16,7 +16,9 @@ the joint intensity of given marks at every state (:data:`LogMarkIntensity`), a
 function that draws a mark for an event at a given state (:data:`MarkSampler`),
 and the ground intensity. The intensity is taken as its log because densities of
 many-dimensional marks are often too small to represent: the density of a mark
-with 32 waveform features can be ``exp(-140)``, below the smallest float32.
+with 32 waveform features can be ``exp(-140)``, below the smallest float32, in
+which some decoders compute, and more features or distant marks go below the
+smallest float64 (about ``exp(-745)``).
 :func:`clusterless_event_diagnostics` computes all three per-event diagnostics
 (HPD overlap, KL divergence and this p-value) from the same :class:`MarkModel`.
 
@@ -53,8 +55,8 @@ LogMarkIntensity: TypeAlias = Callable[[NDArray[Any]], NDArray[np.floating]]
 """Log of the joint intensity of marks at every state.
 
 Called with marks of shape ``(n, *mark_shape)``; returns ``log lambda(x, y)`` for
-each mark at every state bin, shape ``(n, *spatial_shape)``: finite, or ``-inf``
-where the intensity is zero. Compute it in log space (for example with
+each mark at every state bin as float64, shape ``(n, *spatial_shape)``: finite, or
+``-inf`` where the intensity is zero. Compute it in log space (for example with
 ``scipy.stats.norm.logpdf``); exponentiating first can underflow. Observed marks
 are passed read-only; copy them before modifying them.
 """
@@ -65,7 +67,7 @@ MarkSampler: TypeAlias = Callable[[NDArray[np.intp], np.random.Generator], NDArr
 Called with flat state-bin indices of shape ``(n,)`` and a random number
 generator; returns marks of shape ``(n, *mark_shape)``, each drawn from
 ``lambda(x, y) / Lambda(x)`` at its bin. It must draw only from the generator it
-is given, so that seeded results are reproducible.
+is given, so that seeded results are reproducible. The indices are read-only.
 """
 
 
@@ -97,8 +99,9 @@ class MarkModel(NamedTuple):
 # :func:`clusterless_event_diagnostics`. Memory is
 # dominated by arrays over every replicated mark at every state, batch x
 # n_samples x n_bins x 8 B (8 x 1000 x 512 x 8 B ~ 33 MB); the peak is about two
-# of them plus what the model's log_intensity allocates, ~90 MB in a measured
-# example. Larger batches are not faster.
+# of them plus what the model's log_intensity allocates: ~90 MB for a model that
+# allocates only its output, ~200 MB for a scipy.stats logpdf model. Larger batches
+# are not faster.
 DEFAULT_MONTE_CARLO_BATCH_SIZE = 8
 
 
@@ -154,7 +157,7 @@ def _evaluate_log_intensity(
         "Return an ndarray with -inf where the intensity is zero",
     )
     dtype = np.asarray(returned).dtype
-    if dtype.kind in "biuc":
+    if dtype.kind != "f":
         msg = (
             "model.log_intensity must return real floating-point log intensities, with "
             f"-inf for zero intensity; it returned {dtype}"
@@ -285,7 +288,11 @@ def _monte_carlo_batch(
     observed_sum = logsumexp(observed_terms, axis=1)
 
     state_bins = _sample_state_bins(event_weighted, n_samples, rng)
-    returned_marks = sample(state_bins.ravel(), rng)
+    # Read-only: a sampler that reordered them in place would move replicates
+    # between events without any check noticing
+    flat_bins = state_bins.ravel()
+    flat_bins.flags.writeable = False
+    returned_marks = sample(flat_bins, rng)
     _reject_masked(returned_marks, "model.sample's output", "Return an ndarray of marks")
     replicated_marks = np.asarray(returned_marks)
     if replicated_marks.shape != (n_batch * n_samples, *mark_shape):
@@ -498,8 +505,10 @@ def monte_carlo_mark_pvalue(
     batch_size : int, optional
         Events processed at a time. Peak memory is about
         ``2 * batch_size * n_samples * n_bins * 8`` bytes plus what
-        ``model.log_intensity`` allocates (about 90 MB at the default 8 with 1000
-        samples and 512 bins); lower it for larger grids or more samples.
+        ``model.log_intensity`` allocates (at the default 8 with 1000 samples and
+        512 bins, about 90 MB for a model that allocates only its output, and
+        about twice that for one built on ``scipy.stats`` log densities); lower
+        it for larger grids or more samples.
 
     Returns
     -------
@@ -516,7 +525,8 @@ def monte_carlo_mark_pvalue(
         ``n_samples`` or ``batch_size`` is not a positive integer, or an
         event's total predictive event intensity is zero. Also if a callable
         returns invalid output: log intensities of the wrong shape, not real
-        float64, or NaN or ``+inf``; masked or non-finite replicated marks; a
+        floating point of at least float64 precision, or NaN or ``+inf``;
+        replicated marks of the wrong shape, masked or non-finite; a
         finite log intensity where the ground intensity is zero and the state
         has mass; or a replicated mark with zero intensity at the state it was
         drawn at (the sampler and the intensity disagree, or the intensity
@@ -633,7 +643,7 @@ def clusterless_event_diagnostics(
     With a finite set of marks, such as the units of spike-sorted data, use
     :func:`~statespacecheck.event_diagnostics`: its p-value is exact. Written
     as a :class:`MarkModel` of integer marks whose ``log_intensity`` is
-    ``np.log`` of the same intensity table, those marks give the same HPD
+    ``np.log`` of the same (float64) intensity table, those marks give the same HPD
     overlap, KL divergence and likelihood bit for bit, and the same p-values
     within Monte Carlo error.
 
@@ -680,8 +690,9 @@ def clusterless_event_diagnostics(
     TypeError
         If ``model`` is not a :class:`MarkModel`.
     ValueError
-        If shapes are inconsistent, time indices are out of range, inputs are
-        negative or non-finite, ``n_samples`` or ``batch_size`` is not a
+        If shapes are inconsistent, ``event_time_ind`` is not integer time-bin
+        indices or is out of range, inputs are negative, non-finite or masked,
+        ``n_samples`` or ``batch_size`` is not a
         positive integer, or ``coverage`` is outside ``(0, 1)``; if an event's
         time bin has no predictive mass where the ground intensity is
         positive, or its observed mark has zero intensity at every state or a
@@ -704,8 +715,8 @@ def clusterless_event_diagnostics(
     depending on how many marks it is called with (a matrix product can).
 
     The likelihood is exponentiated after normalizing in log space, so it is
-    exactly 0 at states where it is more than about ``exp(-745)`` below its
-    largest value. KL divergence is then ``+inf`` if the prediction has mass
+    exactly 0 at states where its log is more than about 745 below the
+    largest (a ratio below the smallest float64, about ``5e-324``). KL divergence is then ``+inf`` if the prediction has mass
     there, as it is for disjoint supports. Single-spike likelihoods of
     clusterless models rarely span that range.
 
@@ -741,8 +752,12 @@ def clusterless_event_diagnostics(
     _check_positive_integer(n_samples, "n_samples")
     _check_positive_integer(batch_size, "batch_size")
     _reject_masked(predictive, "predictive")
-    # Converted to float64 batch by batch: a decoder's predictive can be float32
     predictive = np.asarray(predictive)
+    # Converted to float64 batch by batch, as a decoder's float32 predictive would
+    # double in size; other types (longdouble, whose values can overflow float64,
+    # or object) are converted now, so the checks see what is used
+    if predictive.dtype.kind not in "biuf" or predictive.dtype.itemsize > 8:
+        predictive = np.asarray(predictive, dtype=np.float64)
     if predictive.ndim < 2:
         msg = (
             "predictive must have shape (n_time, ...) with at least one spatial axis; "
@@ -783,8 +798,8 @@ def clusterless_event_diagnostics(
         observed_log_intensity = _evaluate_log_intensity(
             model.log_intensity, marks[start:stop], spatial_shape, start
         )
-        # The likelihood is normalized over every state, so the model's consistency
-        # matters at states without predictive mass too
+        # The likelihood is normalized over every state, so the intensity must agree
+        # with the ground intensity at states without predictive mass too
         _check_zero_ground(np.isfinite(observed_log_intensity) & (ground == 0.0), start)
         # C order, as event_likelihood receives it from event_diagnostics: the
         # normalizing sum's rounding depends on the layout
