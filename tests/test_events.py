@@ -3,6 +3,7 @@
 import numpy as np
 import pytest
 from numpy.testing import assert_allclose, assert_array_equal
+from scipy.special import logsumexp
 
 from statespacecheck import (
     EventDiagnostics,
@@ -32,6 +33,24 @@ def random_model() -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
 
 
 class TestEventLikelihood:
+    def test_masked_array_raises(self):
+        """Converting a masked array would use the values under the mask."""
+        with pytest.raises(ValueError, match="event_intensities is a masked array"):
+            event_likelihood(np.ma.masked_array([[1.0, 100.0, 1.0]], mask=[[0, 1, 0]]))
+
+    def test_bit_identical_to_log_space_normalization_at_extreme_scales(self):
+        """The paper's numbers depend on the exact bits: rows whose largest log is near
+        the float64 limits (about 708, -710 and -743) must use exp(L - logsumexp(L))."""
+        rng = np.random.default_rng(4)
+        table = rng.gamma(2.0, size=(4, 30))
+        table[1] *= 1e307 / table[1].max()
+        table[2] *= 1e-309 / table[2].max()
+        table[3] *= 1.5e-323 / table[3].max()
+        with np.errstate(divide="ignore"):  # some entries underflow to 0
+            log_table = np.log(table)
+        expected = np.exp(log_table - logsumexp(log_table, axis=1, keepdims=True))
+        assert_array_equal(event_likelihood(table), expected)
+
     def test_matches_normalized_intensity_and_rows_sum_to_one(self):
         intensities = np.array([[2.0, 0.5, 1.0], [0.1, 0.4, 0.2]])
         out = event_likelihood(intensities)
@@ -289,6 +308,16 @@ class TestMarkPredictivePvalue:
         with pytest.raises(ValueError, match=r"observed_marks must lie in \[0, 3\)"):
             mark_predictive_pvalue(np.full((2, 2), 0.5), np.ones((2, 3)), marks)
 
+    def test_mark_range_error_lists_values(self):
+        marks = np.array([0, 7, 1, -2, 2])
+        with pytest.raises(ValueError, match=r"positions \[1, 3\] have values \[7, -2\]"):
+            mark_predictive_pvalue(np.full((5, 2), 0.5), np.ones((2, 3)), marks)
+
+    def test_mark_range_error_lists_at_most_ten_values(self):
+        marks = np.arange(3, 15)  # all 12 out of range
+        with pytest.raises(ValueError, match=r"values \[3, 4, 5, 6, 7, 8, 9, 10, 11, 12\]$"):
+            mark_predictive_pvalue(np.full((12, 2), 0.5), np.ones((2, 3)), marks)
+
     def test_non_integer_marks_raise(self):
         with pytest.raises(ValueError, match="observed_marks must be a 1-D integer array"):
             mark_predictive_pvalue(np.full((2, 2), 0.5), np.ones((2, 3)), np.array([0.0, 1.0]))
@@ -452,6 +481,12 @@ class TestBaselineThreshold:
         with pytest.raises(ValueError, match="quantile"):
             baseline_threshold(np.arange(3.0), quantile)
 
+    @pytest.mark.parametrize("values", [np.array([1.0 + 2.0j, 3.0]), [1.0, 2.0j]])
+    def test_complex_values_raise(self, values):
+        # Converting to float would drop the imaginary part with only a warning
+        with pytest.raises(TypeError, match="complex"):
+            baseline_threshold(values, 0.5)
+
 
 @pytest.fixture
 def small_diagnostics() -> EventDiagnostics:
@@ -531,6 +566,32 @@ class TestEventDiagnosticsErrors:
         fields = rng.gamma(2.0, size=(6, 4))  # (n_bins=6, n_marks=4)
         return predictive, fields
 
+    @pytest.mark.parametrize(
+        ("argument", "value", "match"),
+        [
+            ("mark_intensities", np.nan, "mark_intensities must contain only"),
+            ("mark_intensities", -1.0, "mark_intensities must contain only"),
+            ("mark_intensities", np.inf, "mark_intensities must contain only"),
+            ("predictive", -0.1, r"predictive .*time bins \[1\]"),
+            ("predictive", np.inf, r"predictive .*time bins \[1\]"),
+        ],
+    )
+    def test_invalid_values_raise(self, model, argument, value, match):
+        predictive, fields = model
+        (fields if argument == "mark_intensities" else predictive)[1, 3] = value
+        with pytest.raises(ValueError, match=match):
+            event_diagnostics(predictive, fields, np.array([0, 1]), np.array([0, 1]))
+
+    def test_no_marks_raises(self, model):
+        predictive, _ = model
+        with pytest.raises(ValueError, match="at least one mark"):
+            event_diagnostics(predictive, np.ones((6, 0)), [], [])
+
+    def test_mismatched_mark_intensities_shape_raises(self, model):
+        predictive, fields = model
+        with pytest.raises(ValueError, match=r"shape \(6, 'n_marks'\).*got \(5, 4\)$"):
+            event_diagnostics(predictive, fields[:5], np.array([0]), np.array([0]))
+
     def test_nan_predictive_names_the_argument_and_bin(self, model):
         predictive, fields = model
         predictive[7, 2] = np.nan
@@ -574,6 +635,47 @@ class TestEventDiagnosticsErrors:
         predictive, fields = model
         with pytest.raises(ValueError, match="time-bin indices"):
             event_diagnostics(predictive, fields, np.array([0.3, 1.7]), np.array([0, 1]))
+
+    @pytest.mark.parametrize("argument", ["event_time_ind", "event_marks"])
+    def test_masked_indices_raise(self, model, argument):
+        """Converting a masked array would use the values under the mask."""
+        predictive, fields = model
+        indices = {"event_time_ind": np.array([0, 1]), "event_marks": np.array([0, 1])}
+        indices[argument] = np.ma.masked_array(indices[argument], mask=[False, True])
+        with pytest.raises(ValueError, match=f"{argument} is a masked array"):
+            event_diagnostics(predictive, fields, **indices)
+
+    @pytest.mark.parametrize("argument", ["predictive", "mark_intensities"])
+    def test_masked_arrays_raise(self, model, argument):
+        """Converting a masked array would use the values under the mask."""
+        arrays = dict(zip(("predictive", "mark_intensities"), model, strict=True))
+        arrays[argument] = np.ma.masked_array(arrays[argument])
+        with pytest.raises(ValueError, match=f"{argument} is a masked array"):
+            event_diagnostics(
+                arrays["predictive"], arrays["mark_intensities"], np.array([0]), np.array([0])
+            )
+
+    def test_intensities_whose_total_overflows(self):
+        """Finite intensities whose sum over marks overflows: no events give empty
+        results, and an event raises the documented error, not an overflow warning."""
+        predictive, fields = np.full((1, 2), 0.5), np.full((2, 2), 1e308)
+        assert event_diagnostics(predictive, fields, [], []).hpd_overlap.shape == (0,)
+        with pytest.raises(ValueError, match="or the total overflows"):
+            event_diagnostics(predictive, fields, [0], [0])
+
+    def test_object_predictive_is_converted(self, model):
+        predictive, fields = model
+        time_ind, marks = np.array([0, 3, 7]), np.array([0, 1, 2])
+        result = event_diagnostics(predictive.astype(object), fields, time_ind, marks)
+        expected = event_diagnostics(predictive, fields, time_ind, marks)
+        for field in ("hpd_overlap", "kl_divergence", "predictive_pvalue"):
+            assert_array_equal(getattr(result, field), getattr(expected, field))
+
+    def test_masked_float_time_indices_are_reported_as_masked(self, model):
+        predictive, fields = model
+        time_ind = np.ma.masked_array([0.0, 1.0], mask=[False, True])
+        with pytest.raises(ValueError, match="event_time_ind is a masked array"):
+            event_diagnostics(predictive, fields, time_ind, np.array([0, 1]))
 
     def test_empty_lists_are_accepted(self, model):
         predictive, fields = model

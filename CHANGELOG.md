@@ -5,13 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.3.0] - 2026-09-26
 
 ### Added
 
 - `event_weighted_predictive()`: the state distribution of the next event, the predictive distribution weighted by the total event intensity (the paper's event-weighted predictive distribution).
-- `monte_carlo_mark_pvalue()` in the new `statespacecheck.continuous_marks` module: the rank-based predictive p-value estimated by Monte Carlo, for marks that cannot be enumerated (clusterless waveform features). It takes the observation model as a `MarkModel` of its log joint mark intensity (a `LogMarkIntensity`; a log, since densities of many-feature marks underflow), a mark sampler (a `MarkSampler`) and its ground intensity, and returns a `MarkPredictiveCheck`. The README shows the paper's Figure 2 example.
+- `monte_carlo_mark_pvalue()` in the new `statespacecheck.continuous_marks` module: the rank-based predictive p-value estimated by Monte Carlo, for marks that cannot be enumerated (clusterless waveform features). It takes the observation model as a `MarkModel` of its log joint mark intensity (a `LogMarkIntensity`, which receives the observed marks read-only; a log, since densities of many-feature marks underflow), a mark sampler (a `MarkSampler`) and its ground intensity, and returns a `MarkPredictiveCheck`. The README shows the paper's Figure 2 example.
+- `clusterless_event_diagnostics()`: HPD overlap, KL divergence and the Monte Carlo predictive p-value for every event, for marks that cannot be enumerated (clusterless waveform features), from the same `MarkModel`. For integer marks whose log intensity is `np.log` of the same intensity table, it gives `event_diagnostics()`'s HPD overlap, KL divergence and likelihood bit for bit, and its p-values within Monte Carlo error.
 - `flag_events()` and `EventFlags`: the paper's per-event flagging rule. HPD overlap at or below its threshold, KL divergence at or above its threshold, and the predictive p-value at or below its cutoff (default 0.05), each flagged separately.
+- A tutorial of the per-spike diagnostics for clusterless decoding (`examples/06_clusterless_diagnostics`).
 - A tutorial of the paper's per-spike workflow (`examples/05_per_event_diagnostics`), and documentation pages on interpreting the diagnostics and on getting the inputs from a decoder (a grid filter, `non_local_detector`, a Kalman filter). The API reference opens with an overview grouped by task that marks the extensions beyond the paper.
 
 ### Changed
@@ -25,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `baseline_threshold()` accepts `+inf` values (KL divergence of disjoint supports); when the quantile falls among them, the threshold is `+inf`. Finite results are unchanged. It raises on `-inf`.
 - `kl_divergence()` and `hpd_overlap()` exclude a bin from both distributions when it is NaN (or infinite) in either. A NaN only in the likelihood used to give infinite KL divergence, contrary to the docstring. Results where NaN bins match in both inputs are unchanged.
 - `event_diagnostics()` checks its inputs before computing and reports problems with the argument names and **absolute** event, time-bin and mark indices (they were relative to the current batch). A `mark_intensities` table stored one unit per row gets a hint to transpose it, float time indices get a hint to bin the event times, and empty event lists are accepted. Results are unchanged.
+- An out-of-range event or mark index (in `event_diagnostics()` and `mark_predictive_pvalue()`) is reported with its position and value, for up to the first 10.
 - **Breaking:** `aggregate_over_period()` requires a boolean `time_mask`; an index array used to be cast to bool and silently select every time point. The flag functions report a non-1-D input by its argument name.
 - **Breaking:** `predictive_density()` and `log_predictive_density()` call the unnormalized p(y|x) `observation_likelihood` (was `likelihood`, which elsewhere in the package means a likelihood normalized over states); `log_predictive_density()`'s `log_likelihood` is renamed `log_observation_likelihood` and is keyword-only.
 - `kl_divergence()`, `hpd_overlap()`, `highest_density_region()`, `predictive_density()` and `log_predictive_density()` process time in chunks, cutting peak memory about 8–12× (for 100,000 time bins × 500 positions, from 1.3–4.5 GB to 0.16–0.37 GB) at the same speed. Results are unchanged.
@@ -40,7 +43,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- `predictive_mark_probabilities()`, `mark_predictive_pvalue()` and `event_diagnostics()` raise `ValueError` for a masked state distribution; converting it dropped the mask and used the values under it.
+- `event_diagnostics()` and `mark_predictive_pvalue()` raise `ValueError` for masked event or mark indices, and `event_likelihood()` for masked intensities; converting them used the values under the mask. `event_diagnostics()` converts a predictive of object or extended-precision dtype to float64 before checking it (an object array raised an unhelpful `TypeError`).
+- `baseline_threshold()` raises `TypeError` for complex values; converting them to float dropped the imaginary part with only a warning.
+- `predictive_mark_probabilities()`, `mark_predictive_pvalue()` and `event_diagnostics()` raise `ValueError` for a masked state distribution or intensity table; converting it dropped the mask and used the values under it.
 - `event_likelihood()`, `predictive_mark_probabilities()` and `mark_predictive_pvalue()` return empty results for zero events, and `event_diagnostics()` for zero time bins, instead of raising `IndexError` or a reshape error.
 - `predictive_density()` and `log_predictive_density()` exclude a bin whose observation likelihood is NaN from the state as well, as `kl_divergence()` and `hpd_overlap()` do; they treated it as zero likelihood while the state kept its mass there, lowering the predictive density. A `+inf` observation likelihood raises `ValueError` (it was read as zero in linear space; the log path already raised).
 - `flag_events()`, `flag_low_overlap()`, `find_low_overlap_intervals()`, `flag_extreme_kl()` and `flag_extreme_pvalues()` raise `ValueError` for a NaN threshold, which silently flagged nothing. `np.quantile` of KL divergences that include `+inf` is NaN; `baseline_threshold()` handles them.
@@ -120,5 +125,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Vectorized Operations**: Efficient NumPy-based implementation with no Python loops
 - **Scientific Python Standards**: Follows SPEC 0 for version support and best practices
 
+[0.3.0]: https://github.com/edeno/statespacecheck/releases/tag/v0.3.0
+[0.2.0]: https://github.com/edeno/statespacecheck/releases/tag/v0.2.0
 [0.1.1]: https://github.com/edeno/statespacecheck/releases/tag/v0.1.1
 [0.1.0]: https://github.com/edeno/statespacecheck/releases/tag/v0.1.0

@@ -21,6 +21,8 @@ pip install statespacecheck
 
 - **[Per-spike diagnostics: the paper's workflow](tutorials/05_per_event_diagnostics.ipynb)**:
   a complete example, from decoding to finding which units a model fails for.
+- **[Clusterless per-spike diagnostics](tutorials/06_clusterless_diagnostics.ipynb)**:
+  the same diagnostics for spikes described by waveform features rather than units.
 - **[Interpreting the diagnostics](interpretation.md)**: what each diagnostic means,
   choosing thresholds, and turning flags into a modeling decision.
 - **[Using your decoder](decoders.md)**: getting the inputs from a grid filter,
