@@ -348,8 +348,10 @@ def test_coverage_just_below_one_excludes_bins_without_mass():
     0.3 = 0.9000000000000001. The region must still stop at the last bin with mass,
     not take a zero cutoff that includes every bin."""
     coverage = np.nextafter(1.0, 0.0)
-    distribution = np.array([[0.2, 0.4, 0.3, 0.0]])
+    # The second row reaches its target at its second bin, before its last bin with
+    # mass, so it keeps the ordinary cutoff
+    distribution = np.array([[0.2, 0.4, 0.3, 0.0], [0.9, 0.1, 1e-17, 0.0]])
     region = highest_density_region(distribution, coverage=coverage)
-    assert_array_equal(region, [[True, True, True, False]])
+    assert_array_equal(region, [[True, True, True, False], [True, True, False, False]])
     disjoint = np.array([[0.0, 0.0, 0.0, 1.0]])
-    assert_array_equal(hpd_overlap(distribution, disjoint, coverage=coverage), [0.0])
+    assert_array_equal(hpd_overlap(distribution[:1], disjoint, coverage=coverage), [0.0])

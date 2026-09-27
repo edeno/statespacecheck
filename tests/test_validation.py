@@ -220,29 +220,46 @@ _LIKE = np.array([[1.0, 0.0]])
 @pytest.mark.parametrize(
     ("call", "name"),
     [
-        (lambda: hpd_overlap(_MASKED, _LIKE), "state_dist"),
-        (lambda: hpd_overlap(_LIKE, _MASKED), "likelihood"),
-        (lambda: kl_divergence(_MASKED, _LIKE), "state_dist"),
-        (lambda: highest_density_region(_MASKED), "distribution"),
-        (lambda: predictive_density(_MASKED, observation_likelihood=_LIKE), "state_dist"),
-        (
+        pytest.param(lambda: hpd_overlap(_MASKED, _LIKE), "state_dist", id="hpd-state"),
+        pytest.param(lambda: hpd_overlap(_LIKE, _MASKED), "likelihood", id="hpd-likelihood"),
+        pytest.param(lambda: kl_divergence(_MASKED, _LIKE), "state_dist", id="kl-state"),
+        pytest.param(lambda: highest_density_region(_MASKED), "distribution", id="hdr"),
+        pytest.param(
+            lambda: predictive_density(_MASKED, observation_likelihood=_LIKE),
+            "state_dist",
+            id="density-state",
+        ),
+        pytest.param(
+            lambda: predictive_density(_LIKE, observation_likelihood=_MASKED),
+            "observation_likelihood",
+            id="density-likelihood",
+        ),
+        pytest.param(
+            lambda: log_predictive_density(_MASKED, log_observation_likelihood=_LIKE),
+            "state_dist",
+            id="log-density-state",
+        ),
+        pytest.param(
             lambda: log_predictive_density(_LIKE, log_observation_likelihood=_MASKED),
             "log_observation_likelihood",
+            id="log-density-likelihood",
         ),
-        (
+        pytest.param(
             lambda: predictive_pvalue(np.ma.masked_array([1.0]), lambda n: np.zeros((n, 1))),
             "observed_log_pred",
+            id="pvalue-observed",
         ),
-        (
+        pytest.param(
             lambda: predictive_pvalue(np.ones(1), lambda n: np.ma.zeros((n, 1))),
             "sample_log_pred's output",
+            id="pvalue-sampled",
         ),
     ],
 )
 def test_masked_arrays_raise(call, name):
     """The mask would be dropped: with the second bin masked, HPD overlap was 0 and KL
     divergence infinite, although excluding that bin gives 1 and 0."""
-    with pytest.raises(ValueError, match=f"{name} is a masked array"):
+    with pytest.raises(ValueError, match=f"^{name} is a masked array"):
         call()
 
 
