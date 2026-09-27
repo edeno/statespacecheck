@@ -193,7 +193,9 @@ def _validate_predictive(predictive: ArrayLike) -> NDArray[Any]:
     """
     predictive = _as_array(predictive, "predictive")
     if predictive.dtype.kind not in "biuf" or predictive.dtype.itemsize > 8:
-        predictive = predictive.astype(np.float64)
+        # Values beyond float64 become inf, which the checks then report
+        with np.errstate(over="ignore"):
+            predictive = predictive.astype(np.float64)
     if predictive.ndim < 2:
         msg = (
             "predictive must have shape (n_time, ...) with at least one spatial axis; "
