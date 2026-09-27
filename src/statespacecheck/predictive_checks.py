@@ -434,26 +434,25 @@ def _exclude_bins_with_nan_likelihood(
     return state_dist
 
 
-def _log_probabilities(state_rows: DistributionArray) -> DistributionArray:
-    """Log of each row ``(n_rows, n_bins)`` normalized to sum to 1, computed in log space.
+def _underflowed_log_state(
+    state_normalized: DistributionArray,
+    state_flat: DistributionArray,
+    has_likelihood: NDArray[np.bool_],
+) -> tuple[NDArray[np.intp], NDArray[np.bool_], DistributionArray]:
+    """Find state probabilities that underflow on division by the row sum.
 
-    Used for probabilities that underflow to 0 when divided by the row sum; for
-    the others, dividing first is more accurate.
+    A state probability below the smallest normal float64 (about 2.2e-308) keeps
+    few or no bits on division (it is subnormal, or 0), yet a large likelihood can
+    still make it count. Returns the rows with such entries, the entries ``(n_lost_rows,
+    n_bins)``, and those rows' log probabilities computed in log space (for the other
+    entries, dividing first is more accurate).
     """
+    lost = (state_normalized < np.finfo(np.float64).tiny) & (state_flat > 0.0) & has_likelihood
+    rows = np.flatnonzero(lost.any(axis=1))
     with np.errstate(divide="ignore"):
-        log_rows = np.log(state_rows)
-    normalized: DistributionArray = log_rows - logsumexp(log_rows, axis=1, keepdims=True)
-    return normalized
-
-
-def _underflowed(
-    state_normalized: DistributionArray, state_flat: DistributionArray
-) -> NDArray[np.bool_]:
-    """Entries with mass whose normalized value is below the smallest normal float64."""
-    lost: NDArray[np.bool_] = (state_normalized < np.finfo(np.float64).tiny) & (
-        state_flat > 0.0
-    )
-    return lost
+        log_rows = np.log(state_flat[rows])
+    log_state: DistributionArray = log_rows - logsumexp(log_rows, axis=1, keepdims=True)
+    return rows, lost[rows], log_state
 
 
 def _predictive_density_rows(
@@ -482,23 +481,15 @@ def _predictive_density_rows(
     # Compute predictive density: sum over spatial dimensions
     # f_predictive(y) = ∑_x p(x) * p(y|x)
     # Note: likelihood is NOT normalized (critical!)
-    # A state probability below the smallest normal float64 (about 2.2e-308) keeps
-    # few or no bits on division by the row sum (it is subnormal, or 0), yet a large
-    # likelihood can still make it count: those terms are added from log space,
-    # where their products can be represented, instead of from the division
-    lost = _underflowed(state_normalized, state_flat) & (like_flat > 0.0)
-    if lost.any():
-        state_normalized = np.where(lost, 0.0, state_normalized)
+    # Underflowed terms are added from log space, where their products can be represented
+    rows, lost, log_state = _underflowed_log_state(
+        state_normalized, state_flat, like_flat > 0.0
+    )
+    state_normalized[rows] = np.where(lost, 0.0, state_normalized[rows])
     predictive: DistributionArray = (state_normalized * like_flat).sum(axis=1)
-    if lost.any():
-        rows = np.flatnonzero(lost.any(axis=1))
-        with np.errstate(divide="ignore"):
-            log_terms = np.where(
-                lost[rows],
-                _log_probabilities(state_flat[rows]) + np.log(like_flat[rows]),
-                -np.inf,
-            )
-        predictive[rows] += np.exp(logsumexp(log_terms, axis=1))
+    with np.errstate(divide="ignore"):
+        log_terms = np.where(lost, log_state + np.log(like_flat[rows]), -np.inf)
+    predictive[rows] += np.exp(logsumexp(log_terms, axis=1))
 
     # Set zero-sum rows to NaN (they have no valid state mass)
     predictive[zero_rows] = np.nan
@@ -549,16 +540,10 @@ def _log_predictive_density_rows(
         log_state_normalized = np.where(
             state_normalized > 0, np.log(state_normalized), -np.inf
         )
-    # A state probability below the smallest normal float64 keeps few or no bits on
-    # division by the row sum (it is subnormal, or 0), yet a large likelihood can
-    # still make it count: take those entries' logs in log space. Dividing first is
-    # more accurate for the others.
-    lost = _underflowed(state_normalized, state_flat) & (log_like_flat > -np.inf)
-    if lost.any():
-        rows = np.flatnonzero(lost.any(axis=1))
-        log_state_normalized[rows] = np.where(
-            lost[rows], _log_probabilities(state_flat[rows]), log_state_normalized[rows]
-        )
+    rows, lost, log_state = _underflowed_log_state(
+        state_normalized, state_flat, log_like_flat > -np.inf
+    )
+    log_state_normalized[rows] = np.where(lost, log_state, log_state_normalized[rows])
 
     # Compute log predictive density using logsumexp
     # log ∑_x p(x) * p(y|x) = logsumexp(log p(x) + log p(y|x))

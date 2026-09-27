@@ -388,17 +388,7 @@ class TestArgumentNames:
 class TestInvalidLikelihoodBins:
     """A NaN likelihood bin is excluded from both inputs; +inf is an error."""
 
-    @pytest.mark.parametrize(
-        "compute",
-        [
-            lambda s, like: predictive_density(s, like),
-            lambda s, like: np.exp(log_predictive_density(s, like)),
-            lambda s, like: np.exp(
-                log_predictive_density(s, log_observation_likelihood=np.log(like))
-            ),
-        ],
-        ids=["linear", "log", "log-likelihood"],
-    )
+    @pytest.mark.parametrize("compute", _DENSITIES.values(), ids=_DENSITIES.keys())
     def test_nan_bin_is_excluded_from_both(self, compute):
         state = np.array([[0.5, 0.25, 0.25]])
         like = np.array([[np.nan, 2.0, 4.0]])
