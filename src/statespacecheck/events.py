@@ -330,7 +330,21 @@ def _normalize_log(
     if np.any(degenerate):
         raise ValueError(zero_rows_message(np.flatnonzero(degenerate)))
     normalized: DistributionArray = np.exp(log_values - log_norm)
+    # Subtracting a log normalizer of large magnitude rounds by about eps times it
+    # (by 1 at 5e15), leaving the row summing to exp(error) instead of 1. Rows whose
+    # largest log value is beyond the log of any float64 (|log| < 745), which only a
+    # log-space model gives, are normalized relative to that largest value instead;
+    # other rows, including every np.log of an intensity table, are unchanged
+    largest = np.max(log_values, axis=-1)
+    far = np.flatnonzero(np.abs(largest) > _LARGE_LOG)
+    if far.size:
+        shifted = log_values[far] - largest[far, np.newaxis]
+        normalized[far] = np.exp(shifted - logsumexp(shifted, axis=-1, keepdims=True))
     return normalized
+
+
+# Beyond the log of any positive float64 (from -745 to 710)
+_LARGE_LOG = 1024.0
 
 
 def predictive_mark_probabilities(

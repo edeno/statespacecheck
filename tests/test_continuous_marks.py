@@ -1062,3 +1062,45 @@ class TestClusterlessChecks:
         default = event_diagnostics(predictive, rates, time_ind, marks)
         assert not np.array_equal(expected.hpd_overlap, default.hpd_overlap)
         assert_array_equal(result.hpd_overlap, expected.hpd_overlap)
+
+
+class TestLargeLogIntensities:
+    @pytest.mark.parametrize("mark", [1e8, -1e8, 3e5])
+    def test_likelihood_of_a_state_independent_mark_is_uniform(self, mark):
+        """log N(1e8; 0, 1) is about -5e15, where subtracting the log normalizer from
+        each value rounds by about 1 and left the rows summing to 0.74."""
+        model = MarkModel(
+            lambda m: np.tile(norm.logpdf(np.asarray(m)[:, :1], 0.0, 1.0), (1, 2)),
+            lambda bins, rng: rng.normal(0.0, 1.0, (len(bins), 1)),
+            np.ones(2),
+        )
+        result = clusterless_event_diagnostics(
+            np.full((1, 2), 0.5),
+            model,
+            [0],
+            np.array([[mark]]),
+            n_samples=10,
+            rng=0,
+            return_likelihood=True,
+        )
+        assert_allclose(result.likelihood, [[0.5, 0.5]], rtol=1e-15)
+
+    @pytest.mark.parametrize("offset", [-1e12, 1e12])
+    def test_likelihood_rows_sum_to_one_at_any_offset(self, offset):
+        """The offset's rounding (ulp 1.2e-4 at 1e12) limits the shape, not the sum."""
+        model = MarkModel(
+            lambda m: np.tile(offset + np.log([1.0, 2.0, 4.0]), (len(m), 1)),
+            lambda bins, _rng: np.zeros(len(bins), dtype=int),
+            np.ones(3),
+        )
+        result = clusterless_event_diagnostics(
+            np.full((1, 3), 1 / 3),
+            model,
+            [0],
+            [0],
+            n_samples=10,
+            rng=0,
+            return_likelihood=True,
+        )
+        assert_allclose(result.likelihood.sum(), 1.0, rtol=1e-15)
+        assert_allclose(result.likelihood, [[1 / 7, 2 / 7, 4 / 7]], rtol=1e-3)
