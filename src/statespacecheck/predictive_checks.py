@@ -329,6 +329,13 @@ def predictive_pvalue(
     multiple of ``1 / n_samples`` and can be exactly 0; choose ``n_samples``
     large enough to resolve the cutoff you use.
 
+    The p-value is ``r / B``: the fraction of ``B`` replicates at most as
+    probable as the observation. It estimates the predictive tail probability,
+    with standard error ``sqrt(p (1 - p) / B)``. A rank test with exact level
+    ``alpha`` at a finite ``B`` would use ``(r + 1) / (B + 1)`` instead, valid when
+    the observation and the replicates are exchangeable under the model; compute it
+    from the returned ``p`` as ``(p * B + 1) / (B + 1)``.
+
     The sampler function should:
     1. Generate new data from the model
     2. Compute log predictive density for each generated dataset
