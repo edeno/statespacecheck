@@ -262,8 +262,8 @@ the repository records the version and release date:
 Releases are archived on Zenodo. The DOI above,
 [10.5281/zenodo.22999988](https://doi.org/10.5281/zenodo.22999988), covers all versions
 and resolves to the latest; to cite a specific version, use its DOI from the
-[Zenodo record](https://doi.org/10.5281/zenodo.22999988) (version 0.3.0 is
-[10.5281/zenodo.22999989](https://doi.org/10.5281/zenodo.22999989)).
+[Zenodo record](https://doi.org/10.5281/zenodo.22999988) (version 0.3.1 is
+[10.5281/zenodo.23011969](https://doi.org/10.5281/zenodo.23011969)).
 
 Please also cite the companion paper for the methods: *Local goodness-of-fit measures
 for neural decoding* (Zeng, Comrie, Frank, Eden and Denovellis); its analysis code is
