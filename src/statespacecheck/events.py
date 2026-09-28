@@ -235,7 +235,7 @@ def _check_predictive_rows(predictive_flat: NDArray[Any], time_ind: NDArray[np.i
 
 def _check_event_inputs(
     predictive_flat: DistributionArray,
-    rates: NDArray[np.floating],
+    rates: NDArray[np.float64],
     time_ind: NDArray[np.intp],
     marks: NDArray[np.intp],
 ) -> None:
@@ -257,18 +257,16 @@ def _check_event_inputs(
         )
         raise ValueError(msg)
 
-    has_intensity = (rates > 0.0).any(axis=1)
-
     def has_events(rows: NDArray[Any]) -> NDArray[np.bool_]:
-        # Support is checked on the signs: products below half the smallest
-        # subnormal round to 0 although the true total is positive (such rows are
-        # rescaled when the probabilities are computed). The total, computed as the
-        # probabilities compute it (rates are finite, so no inf * 0), only detects
-        # overflow, which the check reports as an error
-        supported = np.count_nonzero((rows > 0.0) & has_intensity, axis=1) > 0
-        with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
-            total = (rows @ rates).sum(axis=1)
-        ok: NDArray[np.bool_] = supported & np.isfinite(total)
+        # A time bin's mark distribution is defined when its total expected
+        # intensity, computed as the probabilities compute it (rescaled where the
+        # products underflow), is finite and positive. The (rows, n_marks) product
+        # is taken in chunks that bound its memory
+        ok = np.empty(rows.shape[0], dtype=bool)
+        for chunk in row_chunks((rows.shape[0], rates.shape[1])):
+            state = np.asarray(rows[chunk], dtype=np.float64)
+            total = _expected_mark_intensities(state, rates)[1][:, 0]
+            ok[chunk] = np.isfinite(total) & (total > 0.0)
         return ok
 
     _check_time_bins(
@@ -420,35 +418,23 @@ def predictive_mark_probabilities(
     >>> predictive_mark_probabilities(state, intensities)
     array([[0.5, 0.5]])
     """
-    expected_intensities, total_intensity = _expected_mark_intensities(
-        state_dist, mark_intensities
-    )
-    mark_probabilities: DistributionArray = expected_intensities / total_intensity
-    return mark_probabilities
+    return _mark_probabilities(state_dist, mark_intensities)[0]
 
 
-def _expected_mark_intensities(
+def _mark_probabilities(
     state_dist: ArrayLike, mark_intensities: ArrayLike
-) -> tuple[NDArray[np.floating], NDArray[np.floating]]:
-    """Mark intensities averaged over the state, and their total, for each event.
+) -> tuple[DistributionArray, NDArray[np.float64]]:
+    """Return validated predictive mark probabilities and each event's total intensity.
 
-    Returns ``(expected, total)`` of shapes ``(n_events, n_marks)`` and
-    ``(n_events, 1)``; ``expected / total`` is :func:`predictive_mark_probabilities`.
-    Rows whose total is below ``n_bins`` times the smallest normal float divided
-    by eps (including totals that underflowed to 0) come back scaled by a power of
-    two (:func:`_rescaled_expected_intensities`). Raises the ValueErrors documented
-    in :func:`predictive_mark_probabilities`.
+    Returns shapes ``(n_events, n_marks)`` and ``(n_events, 1)``; the total is scaled
+    by a power of two in rows :func:`_expected_mark_intensities` rescales. Raises the
+    ValueErrors documented in :func:`predictive_mark_probabilities`.
     """
     state = _validate_state_distribution(state_dist, "state_dist")
     rates = _flatten_mark_intensities(mark_intensities, np.shape(state_dist)[1:])
-
+    expected_intensities, total_intensity = _expected_mark_intensities(state, rates)
     # Finite inputs can still overflow in the product or the sum across marks;
-    # report that as a contract error rather than dividing by infinity. The
-    # product never divides, but NumPy < 2.3 on macOS (Accelerate) raises a
-    # spurious divide-by-zero flag here, so that flag is ignored too.
-    with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
-        expected_intensities: NDArray[np.floating] = state @ rates
-        total_intensity = expected_intensities.sum(axis=1, keepdims=True)
+    # report that as a contract error rather than dividing by infinity
     if not np.all(np.isfinite(expected_intensities)):
         msg = "Predictive expected mark intensities are non-finite after integration"
         raise ValueError(msg)
@@ -457,18 +443,6 @@ def _expected_mark_intensities(
         bad = np.flatnonzero(nonfinite_total)
         msg = f"Predictive total event intensity is non-finite for row indices: {_first(bad)}"
         raise ValueError(msg)
-    # A product below the smallest normal float rounds by up to the smallest
-    # subnormal, whatever its size, so each expected intensity carries up to n_bins
-    # such absolute errors: more than eps of the total when the total is below
-    # n_bins * tiny / eps. Recompute those rows with every product scaled by one
-    # power of two, bringing the largest into [1/4, 1); rows at or above that
-    # threshold are unchanged, bit for bit
-    n_bins = rates.shape[0]
-    finfo = np.finfo(np.float64)
-    small = np.flatnonzero(total_intensity[:, 0] < n_bins * (finfo.tiny / finfo.eps))
-    for row in small:
-        expected_intensities[row] = _rescaled_expected_intensities(state[row], rates)
-        total_intensity[row] = expected_intensities[row].sum()
     zero_total = total_intensity[:, 0] == 0.0
     if zero_total.any():
         bad = np.flatnonzero(zero_total)
@@ -477,13 +451,56 @@ def _expected_mark_intensities(
             f"event intensity; row indices: {_first(bad)}"
         )
         raise ValueError(msg)
+    # In place: the expected intensities are not needed after the division
+    expected_intensities /= total_intensity
+    mark_probabilities: DistributionArray = expected_intensities
+    return mark_probabilities, total_intensity
+
+
+def _expected_mark_intensities(
+    state: NDArray[np.float64], rates: NDArray[np.float64]
+) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+    """Mark intensities averaged over the state, and their total, for each row.
+
+    ``state`` is ``(n_rows, n_bins)`` and ``rates`` ``(n_bins, n_marks)``, both
+    float64; returns shapes ``(n_rows, n_marks)`` and ``(n_rows, 1)``. Does not
+    raise: a row can overflow or have a zero total. Rows whose total is below
+    ``n_bins * tiny / eps`` (including 0) come back scaled by a power of two
+    (:func:`_rescaled_expected_intensities`).
+    """
+    expected_intensities, total_intensity = _product_and_total(state, rates)
+    # A product below the smallest normal float rounds by up to the smallest
+    # subnormal, whatever its size, so each expected intensity carries up to n_bins
+    # such absolute errors, at most eps**2 of a total at or above n_bins * tiny / eps.
+    # Below that, recompute the row with every product scaled by one power of two,
+    # bringing the largest into [1/4, 1); rows at or above it are unchanged, bit for
+    # bit (the comparison is False for a non-finite total)
+    finfo = np.finfo(np.float64)
+    small = np.flatnonzero(total_intensity[:, 0] < rates.shape[0] * (finfo.tiny / finfo.eps))
+    for row in small:
+        expected_intensities[row], total_intensity[row] = _rescaled_expected_intensities(
+            state[row], rates
+        )
     return expected_intensities, total_intensity
 
 
+def _product_and_total(
+    state: NDArray[np.float64], rates: NDArray[np.float64]
+) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+    """``state @ rates`` and its sum over marks, shapes ``(n, n_marks)`` and ``(n, 1)``."""
+    # Finite inputs can overflow here, which callers check. The product never
+    # divides, but NumPy < 2.3 on macOS (Accelerate) raises spurious divide-by-zero
+    # and other flags in it, so those are ignored too
+    with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+        expected: NDArray[np.float64] = state @ rates
+        total: NDArray[np.float64] = expected.sum(axis=1, keepdims=True)
+    return expected, total
+
+
 def _rescaled_expected_intensities(
-    state_row: NDArray[np.floating], rates: NDArray[np.floating]
-) -> NDArray[np.floating]:
-    """One event's expected mark intensities, every product scaled by one power of two.
+    state_row: NDArray[np.float64], rates: NDArray[np.float64]
+) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+    """One row's expected mark intensities and total, every product scaled by ``2**k``.
 
     ``state_row`` has shape ``(n_bins,)`` and ``rates`` ``(n_bins, n_marks)``. The
     product at bin ``x`` is ``(p_x 2**-e_x) (rates_x 2**(k + e_x))`` with ``e_x`` the
@@ -491,8 +508,8 @@ def _rescaled_expected_intensities(
     exactly except rates that land below the smallest normal float (products more
     than about ``2**1022`` below the largest, whose rounding the p-value's
     tolerance covers). Every product is multiplied by the same ``2**k``, chosen so
-    the largest lies in ``[1/4, 1)``. Returns shape ``(n_marks,)``, or zeros if
-    every product is 0.
+    the largest lies in ``[1/4, 1)``. Returns shapes ``(n_marks,)`` and ``(1,)``, all
+    zero if every product is 0.
     """
     support = state_row > 0.0
     state_mantissa, state_exponent = np.frexp(state_row[support])
@@ -501,14 +518,11 @@ def _rescaled_expected_intensities(
     product_exponent = state_exponent[:, np.newaxis] + rates_exponent
     nonzero = rates > 0.0
     if not nonzero.any():
-        return np.zeros(rates.shape[1])
+        return np.zeros(rates.shape[1]), np.zeros(1)
     shift = -int(product_exponent[nonzero].max())
     scaled_rates = np.ldexp(rates, (shift + state_exponent)[:, np.newaxis])
-    # Every scaled product is at most 1, but NumPy < 2.3 on macOS (Accelerate) can
-    # raise spurious floating-point flags in the product (see above)
-    with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
-        expected: NDArray[np.floating] = state_mantissa @ scaled_rates
-    return expected
+    expected, total = _product_and_total(state_mantissa[np.newaxis], scaled_rates)
+    return expected[0], total[0]
 
 
 def _validate_ground_intensity(
@@ -625,12 +639,9 @@ def mark_predictive_pvalue(
     ``n_bins * eps`` of itself), so marks with equal predictive probability
     receive equal p-values across platforms and at any scale, and a mark more
     probable than the observed one by more than this tolerance is not counted.
-    Probabilities stay accurate however small the intensities: an event whose
-    total expected intensity is below ``n_bins`` times about ``1e-292`` is
-    recomputed with every product scaled by the same power of two, and the
-    tolerance also covers the absolute rounding of products below the smallest
-    normal float (about ``2.2e-308``), so probabilities are resolved to about
-    ``1e-30`` in absolute terms.
+    Probabilities stay accurate however small the intensities (an event near the
+    smallest normal float, about ``2.2e-308``, is recomputed at a larger scale),
+    and are resolved to about ``1e-30`` in absolute terms.
 
     Parameters
     ----------
@@ -663,10 +674,7 @@ def mark_predictive_pvalue(
     >>> mark_predictive_pvalue(state, intensities, np.array([0, 2]))
     array([1. , 0.2])
     """
-    expected_intensities, total_intensity = _expected_mark_intensities(
-        state_dist, mark_intensities
-    )
-    mark_probabilities = expected_intensities / total_intensity
+    mark_probabilities, total_intensity = _mark_probabilities(state_dist, mark_intensities)
     n_events, n_marks = mark_probabilities.shape
     marks = _validate_marks(observed_marks, n_marks, "observed_marks")
     if marks.shape[0] != n_events:
