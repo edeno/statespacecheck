@@ -432,7 +432,9 @@ def _expected_mark_intensities(
 
     Returns ``(expected, total)`` of shapes ``(n_events, n_marks)`` and
     ``(n_events, 1)``; ``expected / total`` is :func:`predictive_mark_probabilities`.
-    Raises the errors that function documents.
+    Rows whose total is near the smallest normal float come back scaled by a power
+    of two (:func:`_rescaled_expected_intensities`). Raises the errors that
+    function documents.
     """
     state = _validate_state_distribution(state_dist, "state_dist")
     rates = _flatten_mark_intensities(mark_intensities, np.shape(state_dist)[1:])
@@ -452,6 +454,15 @@ def _expected_mark_intensities(
         bad = np.flatnonzero(nonfinite_total)
         msg = f"Predictive total event intensity is non-finite for row indices: {_first(bad)}"
         raise ValueError(msg)
+    # A product below the smallest normal float rounds by an absolute amount, which
+    # swamps the probabilities when the whole total is near that scale. Recompute
+    # those rows with every product scaled by one power of two (exact), bringing
+    # the largest to about 1; rows well above that scale are left untouched
+    n_bins = rates.shape[0]
+    small = np.flatnonzero(total_intensity[:, 0] < n_bins * np.finfo(np.float64).tiny)
+    for row in small:
+        expected_intensities[row] = _rescaled_expected_intensities(state[row], rates)
+        total_intensity[row] = expected_intensities[row].sum()
     zero_total = total_intensity[:, 0] == 0.0
     if zero_total.any():
         bad = np.flatnonzero(zero_total)
@@ -461,6 +472,31 @@ def _expected_mark_intensities(
         )
         raise ValueError(msg)
     return expected_intensities, total_intensity
+
+
+def _rescaled_expected_intensities(
+    state_row: NDArray[np.floating], rates: NDArray[np.floating]
+) -> NDArray[np.floating]:
+    """One event's expected mark intensities, every product scaled by one power of two.
+
+    ``state_row`` has shape ``(n_bins,)`` and ``rates`` ``(n_bins, n_marks)``. The
+    product at bin ``x`` is ``(p_x 2**-e_x) (rates_x 2**(k + e_x))`` with ``e_x`` the
+    binary exponent of ``p_x``: both factors are scaled exactly and neither can
+    overflow, and every product is multiplied by the same ``2**k``, chosen so the
+    largest is about 1. Returns shape ``(n_marks,)``, or zeros if every product is 0.
+    """
+    support = state_row > 0.0
+    state_mantissa, state_exponent = np.frexp(state_row[support])
+    rates = rates[support]
+    _, rates_exponent = np.frexp(rates)
+    product_exponent = state_exponent[:, np.newaxis] + rates_exponent
+    nonzero = rates > 0.0
+    if not nonzero.any():
+        return np.zeros(rates.shape[1])
+    shift = -int(product_exponent[nonzero].max())
+    scaled_rates = np.ldexp(rates, (shift + state_exponent)[:, np.newaxis])
+    expected: NDArray[np.floating] = state_mantissa @ scaled_rates
+    return expected
 
 
 def _validate_ground_intensity(
@@ -577,9 +613,11 @@ def mark_predictive_pvalue(
     ``n_bins * eps`` of itself), so marks with equal predictive probability
     receive equal p-values across platforms and at any scale, and a mark more
     probable than the observed one by more than rounding is never counted.
-    Intensities so small that their products are subnormal (below about
-    ``2.2e-308``) round by an absolute amount instead, which the tolerance
-    also allows for.
+    An event whose intensity products are near the smallest normal float
+    (about ``2.2e-308``) is recomputed with every product scaled by the same
+    power of two, which is exact, so tiny intensities keep their
+    probabilities; the tolerance also allows for the absolute rounding of any
+    product still below that scale.
 
     Parameters
     ----------

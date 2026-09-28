@@ -13,7 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- `mark_predictive_pvalue()` and `event_diagnostics()` scale the tie tolerance by the observed mark's own predictive probability. Scaled by the event's largest probability, it counted marks slightly more probable than the observed one as ties, which made some small p-values too large: in a hippocampal recording with 203 units, 34 of 870,018 per-spike p-values fall (the largest from 3.3e-4 to 3.1e-4), none across 0.05. The rounding error of each probability scales with the probability itself, so marks with equal probability still tie at any scale; products small enough to be subnormal round by an absolute amount, which the tolerance also allows for.
+- `mark_predictive_pvalue()` and `event_diagnostics()` scale the tie tolerance by the observed mark's own predictive probability. Scaled by the event's largest probability, it counted marks slightly more probable than the observed one as ties, which made some small p-values too large: in a hippocampal recording with 203 units, 34 of 870,018 per-spike p-values fall (the largest from 3.3e-4 to 3.1e-4), none across 0.05. The rounding error of each probability scales with the probability itself, so marks with equal probability still tie at any scale.
+- `predictive_mark_probabilities()`, `mark_predictive_pvalue()` and `event_diagnostics()` keep the probabilities of intensities so small that their products fall below the smallest normal float (about 2.2e-308): such an event is recomputed with every product scaled by the same power of two, which is exact. Before, those products lost precision or underflowed to zero, raising a zero-total-intensity error.
 
 ## [0.3.0] - 2026-09-27
 

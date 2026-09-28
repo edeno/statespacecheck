@@ -311,6 +311,36 @@ class TestMarkPredictivePvalue:
         assert pvalue[0] == pvalue[1]
         assert_allclose(pvalue[0], 2 / 27)
 
+    def test_subnormal_intensities_keep_distinct_and_impossible_marks(self):
+        """Intensities at the smallest subnormal still give exact probabilities, so
+        a less probable mark is not tied with a more probable one and an
+        impossible mark gets p = 0."""
+        u = np.finfo(float).smallest_subnormal
+        state = np.array([[1.0, 0.0], [1.0, 0.0]])
+        rates = np.array([[u, 24 * u, 0.0], [0.0, 0.0, 0.0]])
+        assert_allclose(predictive_mark_probabilities(state[:1], rates), [[0.04, 0.96, 0.0]])
+        assert_allclose(mark_predictive_pvalue(state, rates, np.array([0, 2])), [0.04, 0.0])
+
+    def test_probabilities_do_not_depend_on_the_scale_of_the_products(self):
+        """Normal-range inputs whose products fall below the smallest normal float
+        (2**-500 * 2**-600) give the probabilities and p-values of the same model
+        at ordinary scale."""
+        rng = np.random.default_rng(1)
+        state = rng.random((3, 20))
+        rates = rng.random((20, 6)) * (rng.random((20, 6)) < 0.7)
+        marks = np.array([0, 3, 5])
+        small_state, small_rates = np.ldexp(state, -500), np.ldexp(rates, -600)
+        assert_allclose(
+            predictive_mark_probabilities(small_state, small_rates),
+            predictive_mark_probabilities(state, rates),
+            rtol=1e-13,
+        )
+        assert_allclose(
+            mark_predictive_pvalue(small_state, small_rates, marks),
+            mark_predictive_pvalue(state, rates, marks),
+            rtol=1e-13,
+        )
+
     def test_pvalue_does_not_depend_on_other_events(self):
         """The tie tolerance is set by each event's own predictive probabilities,
         so batching or subsetting events cannot change a p-value."""
