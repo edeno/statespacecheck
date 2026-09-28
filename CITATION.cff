@@ -34,6 +34,9 @@ identifiers:
   - type: doi
     value: 10.5281/zenodo.22999989
     description: Version 0.3.0.
+  - type: doi
+    value: 10.5281/zenodo.23011969
+    description: Version 0.3.1.
 version: 0.3.1
 date-released: "2026-09-28"
 keywords:
