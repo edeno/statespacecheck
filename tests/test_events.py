@@ -260,7 +260,7 @@ class TestMarkPredictivePvalue:
         n_bins = 4
         delta = 1e-15
         probabilities = np.array([0.05, 0.30, 0.30 + delta, 0.35 - delta])
-        assert delta < np.finfo(float).eps * n_bins * 16 * probabilities.max()
+        assert delta < np.finfo(float).eps * n_bins * 16 * probabilities[1]
         intensities = np.zeros((n_bins, 4))
         intensities[0] = probabilities
         state = np.zeros((2, n_bins))
@@ -268,6 +268,134 @@ class TestMarkPredictivePvalue:
         pvalue = mark_predictive_pvalue(state, intensities, np.array([1, 2]))
         assert pvalue[0] == pvalue[1]
         assert 0.0 < pvalue[0] < 1.0
+
+    def test_tiny_equal_probabilities_tie(self):
+        """Equal probabilities computed in different summation orders tie at a tiny
+        scale (1e-20): mark 1 is mark 0 with its bins reversed."""
+        n_bins = 64
+        rng = np.random.default_rng(0)
+        rare = rng.random(n_bins) * 1e-20
+        intensities = np.column_stack([rare, rare[::-1], np.ones(n_bins)])
+        state = np.full((1, n_bins), 1.0 / n_bins)
+        probabilities = predictive_mark_probabilities(state, intensities)[0]
+        if probabilities[0] == probabilities[1]:
+            pytest.skip("this platform's summation rounds both orders alike")
+        pvalue = mark_predictive_pvalue(
+            np.vstack([state, state]), intensities, np.array([0, 1])
+        )
+        assert pvalue[0] == pvalue[1]
+        assert_allclose(pvalue[0], probabilities[:2].sum(), rtol=1e-12)
+
+    def test_equal_probabilities_tie_in_a_rescaled_row(self):
+        """Marks 0 and 1 are equally probable (0.5 * a + 0.5 * a against 0.5 * 2a)
+        with subnormal products; the row's total (1e-308) is small enough to be
+        rescaled, which computes them exactly."""
+        a = np.nextafter(4e-310, np.inf)
+        rates = np.array([[a, 2 * a, 1e-308], [a, 0.0, 1e-308]])
+        state = np.full((2, 2), 0.5)
+        pvalue = mark_predictive_pvalue(state, rates, np.array([0, 1]))
+        assert pvalue[0] == pvalue[1]
+        assert_allclose(pvalue[0], 2 / 27)
+
+    def test_subnormal_products_tie_in_a_row_that_is_not_rescaled(self):
+        """In a row whose total (1e-280) is too large to be rescaled, products below
+        the smallest normal float still round by an absolute amount: marks 0 and 1
+        are equally probable but round apart by more than the relative tolerance,
+        and the tolerance's absolute term keeps them tied."""
+        a = np.nextafter(4e-310, np.inf)
+        rates = np.array([[a, 2 * a, 1e-280], [a, 0.0, 1e-280]])
+        state = np.full((2, 2), 0.5)
+        probabilities = predictive_mark_probabilities(state[:1], rates)[0]
+        if probabilities[0] == probabilities[1]:
+            pytest.skip("this platform's summation rounds both orders alike")
+        pvalue = mark_predictive_pvalue(state, rates, np.array([0, 1]))
+        assert pvalue[0] == pvalue[1]
+
+    def test_distinctly_more_probable_marks_are_not_ties(self):
+        """A mark more probable than the observed one by 1e-9 of itself, far above
+        rounding, is not counted."""
+        probabilities = np.array([0.2, 0.3, 0.3 * (1 + 1e-9), 0.2 - 0.3e-9])
+        rates = np.zeros((4, 4))
+        rates[0] = probabilities
+        state = np.zeros((1, 4))
+        state[0, 0] = 1.0
+        assert_allclose(
+            mark_predictive_pvalue(state, rates, np.array([1])),
+            probabilities[[0, 1, 3]].sum(),
+            rtol=1e-12,
+        )
+
+    @pytest.mark.parametrize("exponent", [0, -955, -1013, -1014, -1060])
+    def test_rare_mark_does_not_tie_with_more_probable_marks(self, exponent):
+        """A rare observed mark (1e-16) and marks 10 and 20 times more probable, which
+        a tolerance scaled by the largest probability would count (the first assert).
+        The model is scaled by 2**exponent (split between state and rates) so its
+        total lies at ordinary scale, above, just below and far below the rescaling
+        threshold: p stays 1e-16."""
+        n_bins = 200
+        probabilities = np.array([1e-16, 1e-15, 2e-15, 1 - 3.1e-15])
+        assert probabilities[2] < np.finfo(float).eps * n_bins * 16 * probabilities.max()
+        state = np.zeros((1, n_bins))
+        state[0, 0] = np.ldexp(1.0, exponent // 2)
+        rates = np.zeros((n_bins, 4))
+        rates[0] = np.ldexp(probabilities, exponent - exponent // 2)
+        assert_allclose(
+            mark_predictive_pvalue(state, rates, np.array([0])), probabilities[0], rtol=1e-12
+        )
+
+    @pytest.mark.parametrize("pvalue", [False, True], ids=["probabilities", "pvalue"])
+    def test_rescaled_row_leaves_other_rows_bit_identical(self, random_model, pvalue):
+        predictive, intensities, _, _ = random_model
+        mixed = predictive.copy()
+        mixed[3] = np.ldexp(predictive[3], -1000)  # normal inputs, products rescaled
+        marks = np.arange(predictive.shape[0]) % intensities.shape[1]
+
+        def compute(state):
+            if pvalue:
+                return mark_predictive_pvalue(state, intensities, marks)
+            return predictive_mark_probabilities(state, intensities)
+
+        result, reference = compute(mixed), compute(predictive)
+        ordinary = np.delete(np.arange(predictive.shape[0]), 3)
+        assert_array_equal(result[ordinary], reference[ordinary])
+        assert_allclose(result[3], reference[3], rtol=1e-13)
+
+    def test_large_rescaled_rows_raise_no_floating_point_warnings(self):
+        """The product of a large rescaled row (1000 bins, 64 marks) sets spurious
+        flags on NumPy < 2.3 with macOS Accelerate; none may surface as a warning."""
+        rates = np.random.default_rng(0).uniform(0.5, 1.0, size=(1000, 64))
+        pvalue = mark_predictive_pvalue(np.full((1, 1000), 1e-320), rates, np.array([0]))
+        assert np.isfinite(pvalue).all()
+
+    def test_subnormal_intensities_keep_distinct_and_impossible_marks(self):
+        """Intensities at the smallest subnormal still give exact probabilities, so
+        a less probable mark is not tied with a more probable one and an
+        impossible mark gets p = 0."""
+        u = np.finfo(float).smallest_subnormal
+        state = np.array([[1.0, 0.0], [1.0, 0.0]])
+        rates = np.array([[u, 24 * u, 0.0], [0.0, 0.0, 0.0]])
+        assert_allclose(predictive_mark_probabilities(state[:1], rates), [[0.04, 0.96, 0.0]])
+        assert_allclose(mark_predictive_pvalue(state, rates, np.array([0, 2])), [0.04, 0.0])
+
+    def test_probabilities_do_not_depend_on_the_scale_of_the_products(self):
+        """Normal-range inputs whose products fall below the smallest normal float
+        (2**-500 * 2**-600) give the probabilities and p-values of the same model
+        at ordinary scale."""
+        rng = np.random.default_rng(1)
+        state = rng.random((3, 20))
+        rates = rng.random((20, 6)) * (rng.random((20, 6)) < 0.7)
+        marks = np.array([0, 3, 5])
+        small_state, small_rates = np.ldexp(state, -500), np.ldexp(rates, -600)
+        assert_allclose(
+            predictive_mark_probabilities(small_state, small_rates),
+            predictive_mark_probabilities(state, rates),
+            rtol=1e-13,
+        )
+        assert_allclose(
+            mark_predictive_pvalue(small_state, small_rates, marks),
+            mark_predictive_pvalue(state, rates, marks),
+            rtol=1e-13,
+        )
 
     def test_pvalue_does_not_depend_on_other_events(self):
         """The tie tolerance is set by each event's own predictive probabilities,
@@ -660,6 +788,24 @@ class TestEventDiagnosticsErrors:
             event_diagnostics(
                 arrays["predictive"], arrays["mark_intensities"], np.array([0]), np.array([0])
             )
+
+    def test_time_bin_with_mass_only_where_no_mark_has_intensity(self, model):
+        predictive, fields = (array.copy() for array in model)
+        fields[5] = 0.0
+        predictive[5] = 0.0
+        predictive[5, 5] = 1.0
+        with pytest.raises(ValueError, match=r"time bins \[5\].*events \[5\]"):
+            event_diagnostics(
+                predictive, fields, np.arange(10), np.zeros(10, dtype=int), batch_size=4
+            )
+
+    def test_intensities_overflowing_where_the_prediction_has_no_mass(self):
+        """Rates whose sum over marks overflows at a bin the prediction does not use
+        leave the total finite; the event is diagnosed."""
+        predictive = np.array([[1.0, 0.0]])
+        fields = np.array([[1.0, 2.0], [1e308, 1e308]])
+        result = event_diagnostics(predictive, fields, np.array([0]), np.array([0]))
+        assert_allclose(result.predictive_pvalue, [1 / 3])
 
     def test_intensities_whose_total_overflows(self):
         """Finite intensities whose sum over marks overflows: no events give empty

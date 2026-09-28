@@ -11,6 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - A tutorial on a general, non-neural state space model (`examples/07_kalman_filter`): a Kalman filter tracking an object from a noisy sensor, its prediction and each observation's likelihood evaluated on a grid of states and checked against exact values, and the diagnostics finding a biased sensor and wrong noise settings. The README states that every input is on a shared grid of states with equal bins, and how to get a continuous model's distributions onto one.
 
+### Fixed
+
+- `mark_predictive_pvalue()` and `event_diagnostics()` scale the tie tolerance by the observed mark's own predictive probability. Scaled by the event's largest probability, it counted marks more probable than a rare observed mark as ties, up to about 100 times more probable, which made some small p-values too large. In a hippocampal recording with 203 units, 34 of one decoder's 870,018 per-spike p-values are now smaller (none of a second decoder's change); the largest of them goes from 3.3e-4 to 3.1e-4, and no flag at 0.05 changes. The rounding error of each probability scales with the probability itself, so marks with equal probability still tie at any scale.
+- `predictive_mark_probabilities()`, `mark_predictive_pvalue()` and `event_diagnostics()` keep the probabilities of events whose expected intensities are so small that their products fall below the smallest normal float (about 2.2e-308): an event whose total expected intensity is below `n_bins` times about 1e-292 is recomputed with every product scaled by the same power of two. Before, such products lost precision, giving inaccurate probabilities, or underflowed to zero, raising a zero-total-intensity error (in `event_diagnostics()`, that the predictive distribution put no probability where any mark has intensity).
+- `event_diagnostics()` accepts a time bin whose intensities, summed over marks, overflow at a state the predictive distribution gives no probability; it raised the error for an overflowing total although the expected total was finite.
+
 ## [0.3.0] - 2026-09-27
 
 ### Added

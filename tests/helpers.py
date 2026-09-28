@@ -181,7 +181,10 @@ def unit_sampler(rates: np.ndarray):
     ``rates`` has shape ``(n_bins, n_units)``; the sampler takes flat state-bin
     indices ``(n,)`` and a generator and returns unit indices ``(n,)``.
     """
-    cumulative = np.cumsum(rates / rates.sum(axis=1, keepdims=True), axis=1)
+    total = rates.sum(axis=1, keepdims=True)
+    # A bin with no intensity is never sampled (no event comes from it)
+    probabilities = np.divide(rates, total, out=np.zeros_like(rates), where=total > 0)
+    cumulative = np.cumsum(probabilities, axis=1)
 
     def sample(bins: np.ndarray, rng: np.random.Generator) -> np.ndarray:
         u = rng.random(len(bins))
