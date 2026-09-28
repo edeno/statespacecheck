@@ -555,11 +555,13 @@ def mark_predictive_pvalue(
     state distribution. A large value means only that this mark passes the
     check: the least probable mark gets a small p-value on every event even
     under a correct model, and marks the prediction makes equally probable all
-    get p = 1, however unbalanced their observed frequencies. A small absolute
-    tolerance on the ``<=`` comparison,
-    ``16 * eps * n_bins`` times the event's largest predictive mark
-    probability, absorbs floating-point reduction-order noise, so marks with
-    equal predictive probability receive equal p-values across platforms.
+    get p = 1, however unbalanced their observed frequencies. A relative
+    tolerance on the ``<=`` comparison, ``16 * eps * n_bins`` times the
+    observed mark's probability, absorbs floating-point rounding (each
+    probability is a sum of ``n_bins`` nonnegative terms, accurate to about
+    ``n_bins * eps`` of itself), so marks with equal predictive probability
+    receive equal p-values across platforms and at any scale, and a mark more
+    probable than the observed one by more than rounding is never counted.
 
     Parameters
     ----------
@@ -602,10 +604,11 @@ def mark_predictive_pvalue(
         raise ValueError(msg)
     n_bins = int(np.prod(np.shape(state_dist)[1:]))
     observed = mark_probabilities[np.arange(n_events), marks]
-    # Scaled by each event's own largest probability, so other events cannot change it
+    # Relative to the observed probability: the rounding error of each probability
+    # scales with the probability itself, so a tolerance scaled by a larger one
+    # would count marks many times more probable than a rare observed mark
     relative_tolerance = float(np.finfo(mark_probabilities.dtype).eps * n_bins * 16)
-    atol = relative_tolerance * mark_probabilities.max(axis=1)
-    no_more_probable = mark_probabilities <= (observed + atol)[:, None]
+    no_more_probable = mark_probabilities <= (observed * (1.0 + relative_tolerance))[:, None]
     pvalue: DistributionArray = (mark_probabilities * no_more_probable).sum(axis=1)
     # The sum can exceed one by a few ulps; clip only that representational error.
     np.minimum(pvalue, 1.0, out=pvalue)

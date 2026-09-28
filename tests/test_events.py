@@ -260,7 +260,7 @@ class TestMarkPredictivePvalue:
         n_bins = 4
         delta = 1e-15
         probabilities = np.array([0.05, 0.30, 0.30 + delta, 0.35 - delta])
-        assert delta < np.finfo(float).eps * n_bins * 16 * probabilities.max()
+        assert delta < np.finfo(float).eps * n_bins * 16 * probabilities[1]
         intensities = np.zeros((n_bins, 4))
         intensities[0] = probabilities
         state = np.zeros((2, n_bins))
@@ -268,6 +268,36 @@ class TestMarkPredictivePvalue:
         pvalue = mark_predictive_pvalue(state, intensities, np.array([1, 2]))
         assert pvalue[0] == pvalue[1]
         assert 0.0 < pvalue[0] < 1.0
+
+    def test_rare_mark_does_not_tie_with_more_probable_marks(self):
+        """With a tiny observed probability, marks 100 times more probable are not
+        ties; a tolerance scaled by the largest probability counted them."""
+        n_bins = 200
+        probabilities = np.array([1e-16, 1e-14, 2e-14, 1.0 - 3e-14 - 1e-16])
+        intensities = np.zeros((n_bins, 4))
+        intensities[0] = probabilities
+        state = np.zeros((1, n_bins))
+        state[0, 0] = 1.0
+        assert probabilities[2] < np.finfo(float).eps * n_bins * 16 * probabilities.max()
+        pvalue = mark_predictive_pvalue(state, intensities, np.array([0]))
+        assert_allclose(pvalue, probabilities[0], rtol=1e-12)
+
+    def test_tiny_equal_probabilities_tie(self):
+        """Equal probabilities computed in different summation orders tie at any
+        scale: mark 1 is mark 0 with its bins reversed."""
+        n_bins = 64
+        rng = np.random.default_rng(0)
+        rare = rng.random(n_bins) * 1e-20
+        intensities = np.column_stack([rare, rare[::-1], np.ones(n_bins)])
+        state = np.full((1, n_bins), 1.0 / n_bins)
+        probabilities = predictive_mark_probabilities(state, intensities)[0]
+        if probabilities[0] == probabilities[1]:
+            pytest.skip("this platform's summation rounds both orders alike")
+        pvalue = mark_predictive_pvalue(
+            np.vstack([state, state]), intensities, np.array([0, 1])
+        )
+        assert pvalue[0] == pvalue[1]
+        assert_allclose(pvalue[0], probabilities[:2].sum(), rtol=1e-12)
 
     def test_pvalue_does_not_depend_on_other_events(self):
         """The tie tolerance is set by each event's own predictive probabilities,

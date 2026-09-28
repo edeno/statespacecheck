@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - A tutorial on a general, non-neural state space model (`examples/07_kalman_filter`): a Kalman filter tracking an object from a noisy sensor, its prediction and each observation's likelihood evaluated on a grid of states and checked against exact values, and the diagnostics finding a biased sensor and wrong noise settings. The README states that every input is on a shared grid of states with equal bins, and how to get a continuous model's distributions onto one.
 
+### Fixed
+
+- `mark_predictive_pvalue()` and `event_diagnostics()` scale the tie tolerance by the observed mark's own predictive probability. Scaled by the event's largest probability, it counted marks slightly more probable than the observed one as ties, which made some small p-values too large: in a hippocampal recording with 203 units, 34 of 870,018 per-spike p-values fall (the largest from 3.3e-4 to 3.1e-4), none across 0.05. The rounding error of each probability scales with the probability itself, so marks with equal probability still tie at any scale.
+
 ## [0.3.0] - 2026-09-27
 
 ### Added
