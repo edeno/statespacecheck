@@ -1,9 +1,12 @@
-"""Rows with extreme total mass (subnormal or overflowing) and rows with no bins."""
+"""Rows with extreme total mass (subnormal or overflowing), rows with no bins, and
+per-event diagnostics at extreme input scales."""
 
 import numpy as np
 import pytest
+from numpy.testing import assert_allclose, assert_array_equal
 
 from statespacecheck import (
+    event_diagnostics,
     highest_density_region,
     hpd_overlap,
     kl_divergence,
@@ -97,3 +100,60 @@ def test_row_whose_total_mass_overflows(name) -> None:
 def test_empty_spatial_axis_raises(compute) -> None:
     with pytest.raises(ValueError, match="no bins"):
         compute(np.ones((3, 0)))
+
+
+def test_event_diagnostics_with_underflowing_intensity_products():
+    """Products below the smallest subnormal underflow to 0, but the events have
+    positive intensity; the diagnostics use the exact probabilities (1/3, 2/3)."""
+    u = np.finfo(float).smallest_subnormal
+    state = np.array([[0.125, 0.875]])
+    rates = np.array([[u, 2 * u], [0.0, 0.0]])
+    diagnostics = event_diagnostics(state, rates, np.array([0, 0]), np.array([0, 1]))
+    assert_allclose(diagnostics.predictive_pvalue, [1 / 3, 1.0])
+    assert_array_equal(diagnostics.kl_divergence, [np.inf, np.inf])
+
+
+@pytest.fixture(scope="module")
+def sweep_model():
+    """A model with an exact tie (marks 0 and 1), a permuted copy (mark 2), zeros,
+    and an impossible event (mark 5 at time bin 0), with every (time bin, mark)
+    pair as an event."""
+    rng = np.random.default_rng(0)
+    n_time, n_bins, n_marks = 5, 12, 6
+    state = rng.random((n_time, n_bins)) * (rng.random((n_time, n_bins)) < 0.8)
+    state[:, 0] = np.maximum(state[:, 0], 0.1)
+    rates = rng.random((n_bins, n_marks)) * (rng.random((n_bins, n_marks)) < 0.7)
+    rates[:, 1] = rates[:, 0]
+    rates[:, 2] = rates[::-1, 0]
+    rates[:, 5] = 0.0
+    rates[n_bins - 1, 5] = 0.5
+    state[0, n_bins - 1] = 0.0
+    rates[0, :] = np.maximum(rates[0, :], 0.05)
+    time_ind, marks = (
+        a.ravel() for a in np.meshgrid(range(n_time), range(n_marks), indexing="ij")
+    )
+    return state, rates, time_ind, marks
+
+
+@pytest.mark.parametrize(
+    ("state_exponent", "rates_exponent"),
+    [(0, -1060), (-1040, 0), (-700, -700), (-300, -1000), (-1040, -1060), (500, 300)],
+)
+def test_event_diagnostics_do_not_depend_on_the_scale_of_the_inputs(
+    sweep_model, state_exponent, rates_exponent
+):
+    """Scaling the state by 2**a and the rates by 2**b (into or below the subnormal
+    range) gives the diagnostics of the same stored numbers scaled back, an exact
+    power-of-two reference: the same model at ordinary scale."""
+    state, rates, time_ind, marks = sweep_model
+    small_state = np.ldexp(state, state_exponent)
+    small_rates = np.ldexp(rates, rates_exponent)
+    small = event_diagnostics(small_state, small_rates, time_ind, marks)
+    reference = event_diagnostics(
+        np.ldexp(small_state, -state_exponent),
+        np.ldexp(small_rates, -rates_exponent),
+        time_ind,
+        marks,
+    )
+    for name in ("predictive_pvalue", "hpd_overlap", "kl_divergence"):
+        assert_allclose(getattr(small, name), getattr(reference, name), rtol=1e-11, atol=0)

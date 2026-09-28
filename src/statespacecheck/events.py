@@ -262,12 +262,18 @@ def _check_event_inputs(
     with np.errstate(over="ignore"):
         ground = rates.sum(axis=1)
 
+    has_intensity = ground > 0.0
+
     def has_events(rows: NDArray[Any]) -> NDArray[np.bool_]:
-        # Expected total event intensity per time bin under the prediction
+        # Support is checked on the signs, not on rows @ ground: products below the
+        # smallest float underflow to 0 although the total is positive (such rows
+        # are rescaled when the probabilities are computed). The product only
+        # detects overflow of the expected total event intensity
+        supported = np.count_nonzero((rows > 0.0) & has_intensity, axis=1) > 0
         with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
             total = rows @ ground
-        finite_positive: NDArray[np.bool_] = np.isfinite(total) & (total > 0.0)
-        return finite_positive
+        ok: NDArray[np.bool_] = supported & np.isfinite(total)
+        return ok
 
     _check_time_bins(
         predictive_flat,
