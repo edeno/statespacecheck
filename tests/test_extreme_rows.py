@@ -123,12 +123,12 @@ def sweep_model():
     state = rng.random((n_time, n_bins)) * (rng.random((n_time, n_bins)) < 0.8)
     state[:, 0] = np.maximum(state[:, 0], 0.1)
     rates = rng.random((n_bins, n_marks)) * (rng.random((n_bins, n_marks)) < 0.7)
+    rates[0, :] = np.maximum(rates[0, :], 0.05)  # every time bin has events
     rates[:, 1] = rates[:, 0]
     rates[:, 2] = rates[::-1, 0]
     rates[:, 5] = 0.0
     rates[n_bins - 1, 5] = 0.5
     state[0, n_bins - 1] = 0.0
-    rates[0, :] = np.maximum(rates[0, :], 0.05)
     time_ind, marks = (
         a.ravel() for a in np.meshgrid(range(n_time), range(n_marks), indexing="ij")
     )
@@ -137,14 +137,22 @@ def sweep_model():
 
 @pytest.mark.parametrize(
     ("state_exponent", "rates_exponent"),
-    [(0, -1060), (-1040, 0), (-700, -700), (-300, -1000), (-1040, -1060), (500, 300)],
+    [
+        (0, -1060),
+        (-1040, 0),
+        (-700, -700),
+        (-300, -1000),
+        (-1040, -1060),
+        (20, -1060),
+        (500, 300),
+    ],
 )
 def test_event_diagnostics_do_not_depend_on_the_scale_of_the_inputs(
     sweep_model, state_exponent, rates_exponent
 ):
-    """Scaling the state by 2**a and the rates by 2**b (into or below the subnormal
-    range) gives the diagnostics of the same stored numbers scaled back, an exact
-    power-of-two reference: the same model at ordinary scale."""
+    """Scaling the state by 2**a and the rates by 2**b (down into or below the
+    subnormal range, or up) gives the diagnostics of the same stored numbers scaled
+    back, an exact power-of-two reference: the same model at ordinary scale."""
     state, rates, time_ind, marks = sweep_model
     small_state = np.ldexp(state, state_exponent)
     small_rates = np.ldexp(rates, rates_exponent)

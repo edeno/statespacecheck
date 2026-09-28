@@ -270,8 +270,9 @@ class TestMarkPredictivePvalue:
         assert 0.0 < pvalue[0] < 1.0
 
     def test_rare_mark_does_not_tie_with_more_probable_marks(self):
-        """With a tiny observed probability, marks 100 times more probable are not
-        ties; a tolerance scaled by the largest probability counted them."""
+        """With a tiny observed probability, marks 100 and 200 times more probable
+        are not ties; a tolerance scaled by the largest probability would count them
+        (the assert below)."""
         n_bins = 200
         probabilities = np.array([1e-16, 1e-14, 2e-14, 1.0 - 3e-14 - 1e-16])
         intensities = np.zeros((n_bins, 4))
@@ -283,8 +284,8 @@ class TestMarkPredictivePvalue:
         assert_allclose(pvalue, probabilities[0], rtol=1e-12)
 
     def test_tiny_equal_probabilities_tie(self):
-        """Equal probabilities computed in different summation orders tie at any
-        scale: mark 1 is mark 0 with its bins reversed."""
+        """Equal probabilities computed in different summation orders tie at a tiny
+        scale (1e-20): mark 1 is mark 0 with its bins reversed."""
         n_bins = 64
         rng = np.random.default_rng(0)
         rare = rng.random(n_bins) * 1e-20
@@ -299,17 +300,81 @@ class TestMarkPredictivePvalue:
         assert pvalue[0] == pvalue[1]
         assert_allclose(pvalue[0], probabilities[:2].sum(), rtol=1e-12)
 
-    def test_equal_probabilities_tie_with_subnormal_products(self):
-        """Products below the smallest normal float round by an absolute amount,
-        not a relative one; marks 0 and 1 are equally probable (0.5 * a + 0.5 * a
-        against 0.5 * 2a) but, without fused multiply-add, round apart by more
-        than the relative tolerance."""
+    def test_equal_probabilities_tie_in_a_rescaled_row(self):
+        """Marks 0 and 1 are equally probable (0.5 * a + 0.5 * a against 0.5 * 2a)
+        with subnormal products; the row's total (1e-308) is small enough to be
+        rescaled, which computes them exactly."""
         a = np.nextafter(4e-310, np.inf)
         rates = np.array([[a, 2 * a, 1e-308], [a, 0.0, 1e-308]])
         state = np.full((2, 2), 0.5)
         pvalue = mark_predictive_pvalue(state, rates, np.array([0, 1]))
         assert pvalue[0] == pvalue[1]
         assert_allclose(pvalue[0], 2 / 27)
+
+    def test_subnormal_products_tie_in_a_row_that_is_not_rescaled(self):
+        """In a row whose total (1e-280) is too large to be rescaled, products below
+        the smallest normal float still round by an absolute amount: marks 0 and 1
+        are equally probable but round apart by more than the relative tolerance,
+        and the tolerance's absolute term keeps them tied."""
+        a = np.nextafter(4e-310, np.inf)
+        rates = np.array([[a, 2 * a, 1e-280], [a, 0.0, 1e-280]])
+        state = np.full((2, 2), 0.5)
+        probabilities = predictive_mark_probabilities(state[:1], rates)[0]
+        if probabilities[0] == probabilities[1]:
+            pytest.skip("this platform's summation rounds both orders alike")
+        pvalue = mark_predictive_pvalue(state, rates, np.array([0, 1]))
+        assert pvalue[0] == pvalue[1]
+
+    def test_distinctly_more_probable_marks_are_not_ties(self):
+        """A mark more probable than the observed one by 1e-9 of itself, far above
+        rounding, is not counted."""
+        probabilities = np.array([0.2, 0.3, 0.3 * (1 + 1e-9), 0.2 - 0.3e-9])
+        rates = np.zeros((4, 4))
+        rates[0] = probabilities
+        state = np.zeros((1, 4))
+        state[0, 0] = 1.0
+        assert_allclose(
+            mark_predictive_pvalue(state, rates, np.array([1])),
+            probabilities[[0, 1, 3]].sum(),
+            rtol=1e-12,
+        )
+
+    @pytest.mark.parametrize("exponent", [-955, -1013, -1014, -1060])
+    def test_rare_mark_near_the_rescaling_threshold(self, exponent):
+        """A rare observed mark (1e-16) and marks 10 and 20 times more probable, the
+        model scaled by 2**exponent (split between state and rates) so its total
+        lies above, just below and far below the rescaling threshold: p stays
+        1e-16."""
+        n_bins = 200
+        probabilities = np.array([1e-16, 1e-15, 2e-15, 1 - 3.1e-15])
+        state = np.zeros((1, n_bins))
+        state[0, 0] = np.ldexp(1.0, exponent // 2)
+        rates = np.zeros((n_bins, 4))
+        rates[0] = np.ldexp(probabilities, exponent - exponent // 2)
+        assert_allclose(
+            mark_predictive_pvalue(state, rates, np.array([0])), probabilities[0], rtol=1e-12
+        )
+
+    def test_rescaled_row_leaves_other_rows_bit_identical(self, random_model):
+        predictive, intensities, _, _ = random_model
+        mixed = predictive.copy()
+        mixed[3] = np.ldexp(predictive[3], -1000)  # normal inputs, products rescaled
+        marks = np.arange(predictive.shape[0]) % intensities.shape[1]
+        ordinary = np.delete(np.arange(predictive.shape[0]), 3)
+        for compute in (
+            lambda state: predictive_mark_probabilities(state, intensities),
+            lambda state: mark_predictive_pvalue(state, intensities, marks),
+        ):
+            result, reference = compute(mixed), compute(predictive)
+            assert_array_equal(result[ordinary], reference[ordinary])
+            assert_allclose(result[3], reference[3], rtol=1e-13)
+
+    def test_large_rescaled_rows_raise_no_floating_point_warnings(self):
+        """The product of a large rescaled row (1000 bins, 64 marks) sets spurious
+        flags on NumPy < 2.3 with macOS Accelerate; none may surface as a warning."""
+        rates = np.random.default_rng(0).uniform(0.5, 1.0, size=(1000, 64))
+        pvalue = mark_predictive_pvalue(np.full((1, 1000), 1e-320), rates, np.array([0]))
+        assert np.isfinite(pvalue).all()
 
     def test_subnormal_intensities_keep_distinct_and_impossible_marks(self):
         """Intensities at the smallest subnormal still give exact probabilities, so

@@ -438,9 +438,10 @@ def _expected_mark_intensities(
 
     Returns ``(expected, total)`` of shapes ``(n_events, n_marks)`` and
     ``(n_events, 1)``; ``expected / total`` is :func:`predictive_mark_probabilities`.
-    Rows whose total is near the smallest normal float come back scaled by a power
-    of two (:func:`_rescaled_expected_intensities`). Raises the errors that
-    function documents.
+    Rows whose total is below ``n_bins`` times the smallest normal float divided
+    by eps (including totals that underflowed to 0) come back scaled by a power of
+    two (:func:`_rescaled_expected_intensities`). Raises the ValueErrors documented
+    in :func:`predictive_mark_probabilities`.
     """
     state = _validate_state_distribution(state_dist, "state_dist")
     rates = _flatten_mark_intensities(mark_intensities, np.shape(state_dist)[1:])
@@ -460,12 +461,15 @@ def _expected_mark_intensities(
         bad = np.flatnonzero(nonfinite_total)
         msg = f"Predictive total event intensity is non-finite for row indices: {_first(bad)}"
         raise ValueError(msg)
-    # A product below the smallest normal float rounds by an absolute amount, which
-    # swamps the probabilities when the whole total is near that scale. Recompute
-    # those rows with every product scaled by one power of two (exact), bringing
-    # the largest to about 1; rows well above that scale are left untouched
+    # A product below the smallest normal float rounds by up to the smallest
+    # subnormal, whatever its size, so each expected intensity carries up to n_bins
+    # such absolute errors: more than eps of the total when the total is below
+    # n_bins * tiny / eps. Recompute those rows with every product scaled by one
+    # power of two, bringing the largest into [1/4, 1); rows at or above that
+    # threshold are unchanged, bit for bit
     n_bins = rates.shape[0]
-    small = np.flatnonzero(total_intensity[:, 0] < n_bins * np.finfo(np.float64).tiny)
+    finfo = np.finfo(np.float64)
+    small = np.flatnonzero(total_intensity[:, 0] < n_bins * (finfo.tiny / finfo.eps))
     for row in small:
         expected_intensities[row] = _rescaled_expected_intensities(state[row], rates)
         total_intensity[row] = expected_intensities[row].sum()
@@ -487,9 +491,12 @@ def _rescaled_expected_intensities(
 
     ``state_row`` has shape ``(n_bins,)`` and ``rates`` ``(n_bins, n_marks)``. The
     product at bin ``x`` is ``(p_x 2**-e_x) (rates_x 2**(k + e_x))`` with ``e_x`` the
-    binary exponent of ``p_x``: both factors are scaled exactly and neither can
-    overflow, and every product is multiplied by the same ``2**k``, chosen so the
-    largest is about 1. Returns shape ``(n_marks,)``, or zeros if every product is 0.
+    binary exponent of ``p_x``: neither factor can overflow, and both are scaled
+    exactly except rates that land below the smallest normal float (products more
+    than about ``2**1022`` below the largest, whose rounding the p-value's
+    tolerance covers). Every product is multiplied by the same ``2**k``, chosen so
+    the largest lies in ``[1/4, 1)``. Returns shape ``(n_marks,)``, or zeros if
+    every product is 0.
     """
     support = state_row > 0.0
     state_mantissa, state_exponent = np.frexp(state_row[support])
@@ -501,7 +508,10 @@ def _rescaled_expected_intensities(
         return np.zeros(rates.shape[1])
     shift = -int(product_exponent[nonzero].max())
     scaled_rates = np.ldexp(rates, (shift + state_exponent)[:, np.newaxis])
-    expected: NDArray[np.floating] = state_mantissa @ scaled_rates
+    # Every scaled product is at most 1, but NumPy < 2.3 on macOS (Accelerate) can
+    # raise spurious floating-point flags in the product (see above)
+    with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+        expected: NDArray[np.floating] = state_mantissa @ scaled_rates
     return expected
 
 
@@ -618,12 +628,13 @@ def mark_predictive_pvalue(
     probability is a sum of ``n_bins`` nonnegative terms, accurate to about
     ``n_bins * eps`` of itself), so marks with equal predictive probability
     receive equal p-values across platforms and at any scale, and a mark more
-    probable than the observed one by more than rounding is never counted.
-    An event whose intensity products are near the smallest normal float
-    (about ``2.2e-308``) is recomputed with every product scaled by the same
-    power of two, which is exact, so tiny intensities keep their
-    probabilities; the tolerance also allows for the absolute rounding of any
-    product still below that scale.
+    probable than the observed one by more than this tolerance is not counted.
+    Probabilities stay accurate however small the intensities: an event whose
+    total expected intensity is below ``n_bins`` times about ``1e-292`` is
+    recomputed with every product scaled by the same power of two, and the
+    tolerance also covers the absolute rounding of products below the smallest
+    normal float (about ``2.2e-308``), so probabilities are resolved to about
+    ``1e-30`` in absolute terms.
 
     Parameters
     ----------
@@ -671,9 +682,12 @@ def mark_predictive_pvalue(
     observed = mark_probabilities[np.arange(n_events), marks]
     # Relative to the observed probability: the rounding error of each probability
     # scales with the probability itself, so a tolerance scaled by a larger one
-    # would count marks many times more probable than a rare observed mark. A
-    # product or quotient in the subnormal range instead rounds by up to the
-    # smallest subnormal, whatever its size, which the absolute term bounds
+    # would count marks many times more probable than a rare observed mark. The
+    # absolute term bounds rounding in the subnormal range, up to the smallest
+    # subnormal whatever the value's size: n_bins such roundings per expected
+    # intensity, in probability units (divided by the total), plus one for the
+    # quotient. Rows not rescaled have totals of at least n_bins * tiny / eps, so
+    # it is at most about 16 * eps**2 (~8e-31)
     finfo = np.finfo(mark_probabilities.dtype)
     relative_tolerance = float(finfo.eps * n_bins * 16)
     # smallest / total <= 1 (the total is positive), so this cannot overflow
