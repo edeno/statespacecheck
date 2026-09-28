@@ -299,6 +299,18 @@ class TestMarkPredictivePvalue:
         assert pvalue[0] == pvalue[1]
         assert_allclose(pvalue[0], probabilities[:2].sum(), rtol=1e-12)
 
+    def test_equal_probabilities_tie_with_subnormal_products(self):
+        """Products below the smallest normal float round by an absolute amount,
+        not a relative one; marks 0 and 1 are equally probable (0.5 * a + 0.5 * a
+        against 0.5 * 2a) but, without fused multiply-add, round apart by more
+        than the relative tolerance."""
+        a = np.nextafter(4e-310, np.inf)
+        rates = np.array([[a, 2 * a, 1e-308], [a, 0.0, 1e-308]])
+        state = np.full((2, 2), 0.5)
+        pvalue = mark_predictive_pvalue(state, rates, np.array([0, 1]))
+        assert pvalue[0] == pvalue[1]
+        assert_allclose(pvalue[0], 2 / 27)
+
     def test_pvalue_does_not_depend_on_other_events(self):
         """The tie tolerance is set by each event's own predictive probabilities,
         so batching or subsetting events cannot change a p-value."""

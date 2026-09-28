@@ -418,6 +418,22 @@ def predictive_mark_probabilities(
     >>> predictive_mark_probabilities(state, intensities)
     array([[0.5, 0.5]])
     """
+    expected_intensities, total_intensity = _expected_mark_intensities(
+        state_dist, mark_intensities
+    )
+    mark_probabilities: DistributionArray = expected_intensities / total_intensity
+    return mark_probabilities
+
+
+def _expected_mark_intensities(
+    state_dist: ArrayLike, mark_intensities: ArrayLike
+) -> tuple[NDArray[np.floating], NDArray[np.floating]]:
+    """Mark intensities averaged over the state, and their total, for each event.
+
+    Returns ``(expected, total)`` of shapes ``(n_events, n_marks)`` and
+    ``(n_events, 1)``; ``expected / total`` is :func:`predictive_mark_probabilities`.
+    Raises the errors that function documents.
+    """
     state = _validate_state_distribution(state_dist, "state_dist")
     rates = _flatten_mark_intensities(mark_intensities, np.shape(state_dist)[1:])
 
@@ -444,8 +460,7 @@ def predictive_mark_probabilities(
             f"event intensity; row indices: {_first(bad)}"
         )
         raise ValueError(msg)
-    mark_probabilities: DistributionArray = expected_intensities / total_intensity
-    return mark_probabilities
+    return expected_intensities, total_intensity
 
 
 def _validate_ground_intensity(
@@ -562,6 +577,9 @@ def mark_predictive_pvalue(
     ``n_bins * eps`` of itself), so marks with equal predictive probability
     receive equal p-values across platforms and at any scale, and a mark more
     probable than the observed one by more than rounding is never counted.
+    Intensities so small that their products are subnormal (below about
+    ``2.2e-308``) round by an absolute amount instead, which the tolerance
+    also allows for.
 
     Parameters
     ----------
@@ -594,7 +612,10 @@ def mark_predictive_pvalue(
     >>> mark_predictive_pvalue(state, intensities, np.array([0, 2]))
     array([1. , 0.2])
     """
-    mark_probabilities = predictive_mark_probabilities(state_dist, mark_intensities)
+    expected_intensities, total_intensity = _expected_mark_intensities(
+        state_dist, mark_intensities
+    )
+    mark_probabilities = expected_intensities / total_intensity
     n_events, n_marks = mark_probabilities.shape
     marks = _validate_marks(observed_marks, n_marks, "observed_marks")
     if marks.shape[0] != n_events:
@@ -606,9 +627,18 @@ def mark_predictive_pvalue(
     observed = mark_probabilities[np.arange(n_events), marks]
     # Relative to the observed probability: the rounding error of each probability
     # scales with the probability itself, so a tolerance scaled by a larger one
-    # would count marks many times more probable than a rare observed mark
-    relative_tolerance = float(np.finfo(mark_probabilities.dtype).eps * n_bins * 16)
-    no_more_probable = mark_probabilities <= (observed * (1.0 + relative_tolerance))[:, None]
+    # would count marks many times more probable than a rare observed mark. A
+    # product or quotient in the subnormal range instead rounds by up to the
+    # smallest subnormal, whatever its size, which the absolute term bounds
+    finfo = np.finfo(mark_probabilities.dtype)
+    relative_tolerance = float(finfo.eps * n_bins * 16)
+    # smallest / total <= 1 (the total is positive), so this cannot overflow
+    smallest = float(finfo.smallest_subnormal)
+    subnormal_tolerance = 16 * (n_bins * (smallest / total_intensity[:, 0]) + smallest)
+    no_more_probable = (
+        mark_probabilities
+        <= (observed * (1.0 + relative_tolerance) + subnormal_tolerance)[:, None]
+    )
     pvalue: DistributionArray = (mark_probabilities * no_more_probable).sum(axis=1)
     # The sum can exceed one by a few ulps; clip only that representational error.
     np.minimum(pvalue, 1.0, out=pvalue)
