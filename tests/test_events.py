@@ -269,20 +269,6 @@ class TestMarkPredictivePvalue:
         assert pvalue[0] == pvalue[1]
         assert 0.0 < pvalue[0] < 1.0
 
-    def test_rare_mark_does_not_tie_with_more_probable_marks(self):
-        """With a tiny observed probability, marks 100 and 200 times more probable
-        are not ties; a tolerance scaled by the largest probability would count them
-        (the assert below)."""
-        n_bins = 200
-        probabilities = np.array([1e-16, 1e-14, 2e-14, 1.0 - 3e-14 - 1e-16])
-        intensities = np.zeros((n_bins, 4))
-        intensities[0] = probabilities
-        state = np.zeros((1, n_bins))
-        state[0, 0] = 1.0
-        assert probabilities[2] < np.finfo(float).eps * n_bins * 16 * probabilities.max()
-        pvalue = mark_predictive_pvalue(state, intensities, np.array([0]))
-        assert_allclose(pvalue, probabilities[0], rtol=1e-12)
-
     def test_tiny_equal_probabilities_tie(self):
         """Equal probabilities computed in different summation orders tie at a tiny
         scale (1e-20): mark 1 is mark 0 with its bins reversed."""
@@ -339,14 +325,16 @@ class TestMarkPredictivePvalue:
             rtol=1e-12,
         )
 
-    @pytest.mark.parametrize("exponent", [-955, -1013, -1014, -1060])
-    def test_rare_mark_near_the_rescaling_threshold(self, exponent):
-        """A rare observed mark (1e-16) and marks 10 and 20 times more probable, the
-        model scaled by 2**exponent (split between state and rates) so its total
-        lies above, just below and far below the rescaling threshold: p stays
-        1e-16."""
+    @pytest.mark.parametrize("exponent", [0, -955, -1013, -1014, -1060])
+    def test_rare_mark_does_not_tie_with_more_probable_marks(self, exponent):
+        """A rare observed mark (1e-16) and marks 10 and 20 times more probable, which
+        a tolerance scaled by the largest probability would count (the first assert).
+        The model is scaled by 2**exponent (split between state and rates) so its
+        total lies at ordinary scale, above, just below and far below the rescaling
+        threshold: p stays 1e-16."""
         n_bins = 200
         probabilities = np.array([1e-16, 1e-15, 2e-15, 1 - 3.1e-15])
+        assert probabilities[2] < np.finfo(float).eps * n_bins * 16 * probabilities.max()
         state = np.zeros((1, n_bins))
         state[0, 0] = np.ldexp(1.0, exponent // 2)
         rates = np.zeros((n_bins, 4))
@@ -355,19 +343,22 @@ class TestMarkPredictivePvalue:
             mark_predictive_pvalue(state, rates, np.array([0])), probabilities[0], rtol=1e-12
         )
 
-    def test_rescaled_row_leaves_other_rows_bit_identical(self, random_model):
+    @pytest.mark.parametrize("pvalue", [False, True], ids=["probabilities", "pvalue"])
+    def test_rescaled_row_leaves_other_rows_bit_identical(self, random_model, pvalue):
         predictive, intensities, _, _ = random_model
         mixed = predictive.copy()
         mixed[3] = np.ldexp(predictive[3], -1000)  # normal inputs, products rescaled
         marks = np.arange(predictive.shape[0]) % intensities.shape[1]
+
+        def compute(state):
+            if pvalue:
+                return mark_predictive_pvalue(state, intensities, marks)
+            return predictive_mark_probabilities(state, intensities)
+
+        result, reference = compute(mixed), compute(predictive)
         ordinary = np.delete(np.arange(predictive.shape[0]), 3)
-        for compute in (
-            lambda state: predictive_mark_probabilities(state, intensities),
-            lambda state: mark_predictive_pvalue(state, intensities, marks),
-        ):
-            result, reference = compute(mixed), compute(predictive)
-            assert_array_equal(result[ordinary], reference[ordinary])
-            assert_allclose(result[3], reference[3], rtol=1e-13)
+        assert_array_equal(result[ordinary], reference[ordinary])
+        assert_allclose(result[3], reference[3], rtol=1e-13)
 
     def test_large_rescaled_rows_raise_no_floating_point_warnings(self):
         """The product of a large rescaled row (1000 bins, 64 marks) sets spurious
