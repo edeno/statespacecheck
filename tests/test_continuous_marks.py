@@ -862,6 +862,20 @@ class TestClusterlessScale:
         assert_array_equal(result.kl_divergence, expected.kl_divergence)
         assert np.all((result.predictive_pvalue >= 0) & (result.predictive_pvalue <= 1))
 
+    def test_underflowing_intensity_products_match_event_diagnostics(self):
+        """Products below the smallest subnormal underflow to 0; both paths accept
+        the events and give the same local diagnostics."""
+        u = np.finfo(float).smallest_subnormal
+        rates = np.array([[u, 2 * u], [0.0, 0.0]])
+        predictive = np.array([[0.125, 0.875]])
+        time_ind, marks = np.array([0, 0]), np.array([0, 1])
+        result = clusterless_event_diagnostics(
+            predictive, integer_mark_model(rates), time_ind, marks, n_samples=50, rng=0
+        )
+        expected = event_diagnostics(predictive, rates, time_ind, marks)
+        assert_array_equal(result.hpd_overlap, expected.hpd_overlap)
+        assert_array_equal(result.kl_divergence, expected.kl_divergence)
+
     def test_mark_possible_only_where_the_prediction_has_no_mass(self):
         """The observed mark's likelihood lies where the prediction is zero: no overlap,
         infinite KL divergence, and p = 0, without warnings."""

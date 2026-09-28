@@ -257,21 +257,17 @@ def _check_event_inputs(
         )
         raise ValueError(msg)
 
-    # Finite intensities can overflow in the sum over marks or in the product below;
-    # the check reports that as an error
-    with np.errstate(over="ignore"):
-        ground = rates.sum(axis=1)
-
-    has_intensity = ground > 0.0
+    has_intensity = (rates > 0.0).any(axis=1)
 
     def has_events(rows: NDArray[Any]) -> NDArray[np.bool_]:
-        # Support is checked on the signs, not on rows @ ground: products below the
-        # smallest float underflow to 0 although the total is positive (such rows
-        # are rescaled when the probabilities are computed). The product only
-        # detects overflow of the expected total event intensity
+        # Support is checked on the signs: products below half the smallest
+        # subnormal round to 0 although the true total is positive (such rows are
+        # rescaled when the probabilities are computed). The total, computed as the
+        # probabilities compute it (rates are finite, so no inf * 0), only detects
+        # overflow, which the check reports as an error
         supported = np.count_nonzero((rows > 0.0) & has_intensity, axis=1) > 0
         with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
-            total = rows @ ground
+            total = (rows @ rates).sum(axis=1)
         ok: NDArray[np.bool_] = supported & np.isfinite(total)
         return ok
 

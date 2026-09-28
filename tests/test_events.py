@@ -798,6 +798,24 @@ class TestEventDiagnosticsErrors:
                 arrays["predictive"], arrays["mark_intensities"], np.array([0]), np.array([0])
             )
 
+    def test_time_bin_with_mass_only_where_no_mark_has_intensity(self, model):
+        predictive, fields = (array.copy() for array in model)
+        fields[5] = 0.0
+        predictive[5] = 0.0
+        predictive[5, 5] = 1.0
+        with pytest.raises(ValueError, match=r"time bins \[5\].*events \[5\]"):
+            event_diagnostics(
+                predictive, fields, np.arange(10), np.zeros(10, dtype=int), batch_size=4
+            )
+
+    def test_intensities_overflowing_where_the_prediction_has_no_mass(self):
+        """Rates whose sum over marks overflows at a bin the prediction does not use
+        leave the total finite; the event is diagnosed."""
+        predictive = np.array([[1.0, 0.0]])
+        fields = np.array([[1.0, 2.0], [1e308, 1e308]])
+        result = event_diagnostics(predictive, fields, np.array([0]), np.array([0]))
+        assert_allclose(result.predictive_pvalue, [1 / 3])
+
     def test_intensities_whose_total_overflows(self):
         """Finite intensities whose sum over marks overflows: no events give empty
         results, and an event raises the documented error, not an overflow warning."""
